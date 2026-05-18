@@ -78,27 +78,37 @@ def get_timeseries_catalog(
     office_id: str,
     *,
     like: str | None = None,
+    include_extents: bool = False,
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """Return the paginated ts catalog for an office. Cached for 6 h.
 
-    Always requests `include_extents=True` — without it, ts catalog rows
-    omit the `extents` array that carries `earliest-time`, `latest-time`,
-    and `last-update`. We need `latest-time` to compute freshness for
-    every enriched place response.
+    `include_extents` controls whether each row carries the `extents`
+    array with `latest-time` / `last-update` / `earliest-time`. The
+    enriched response shape needs them for freshness; `ts_ids_for_location`
+    and `canonical_ts_id` don't, so the flag stays off by default.
+    Requesting extents materially enlarges the response (tens of times
+    larger for big offices), so flipping this for queries that don't
+    need it is what made `value get` unusable in evaluation.
     """
     if office_id in _NW_STUBS:
         _raise_ghost_office(office_id)
     cache = get_cache()
     ttl = cache.ttl_for("ts_catalog")
     cfg = current_config()
-    key = build_cache_key("ts_catalog", office_id, like or "", api_root=cfg.api_root)
+    key = build_cache_key(
+        "ts_catalog",
+        office_id,
+        like or "",
+        "extents" if include_extents else "no-extents",
+        api_root=cfg.api_root,
+    )
     if use_cache:
         hit = cache.get(key)
         if hit is not None:
             return hit
     data = catalog_api.get_timeseries_catalog(
-        office_id=office_id, like=like, include_extents=True
+        office_id=office_id, like=like, include_extents=include_extents
     )
     payload = data.json
     cache.set(key, payload, ttl=ttl)
@@ -148,8 +158,14 @@ def ts_ids_for_location(
     *,
     use_cache: bool = True,
 ) -> list[str]:
-    """Return all distinct ts_ids whose location segment matches `location`."""
-    payload = get_timeseries_catalog(office_id, use_cache=use_cache)
+    """Return all distinct ts_ids whose location segment matches `location`.
+
+    Scopes the ts catalog request to `^<location>\\.` so we don't pull the
+    full office catalog (tens of thousands of rows for NWDM) every time
+    `value get` or `value history` resolves a canonical ts_id.
+    """
+    like = f"^{re.escape(location)}\\."
+    payload = get_timeseries_catalog(office_id, like=like, use_cache=use_cache)
     out: list[str] = []
     seen: set[str] = set()
     for row in _iter_ts_entries(payload):
@@ -176,7 +192,10 @@ def freshness_for_location(
     when present; falls back to None when CDA does not surface a freshness
     timestamp. Cheap to compute since the catalog payload is already cached.
     """
-    payload = get_timeseries_catalog(office_id, use_cache=use_cache)
+    like = f"^{re.escape(location)}\\."
+    payload = get_timeseries_catalog(
+        office_id, like=like, include_extents=True, use_cache=use_cache
+    )
     best: str | None = None
     for row in _iter_ts_entries(payload):
         tsid = row.get("name") or row.get("timeseries-id") or row.get("time-series-id")
@@ -238,7 +257,17 @@ def enrich_locations(
         # and alternate over the matched names so the response only contains
         # ts_ids whose location segment is one of them.
         ts_like = f"^({'|'.join(re.escape(r['name']) for r in rows)})\\."
-    ts_payload = get_timeseries_catalog(office_id, like=ts_like, use_cache=use_cache)
+    # Request extents only when we have a tight name filter — for an
+    # unscoped region browse the full ts catalog with extents would be
+    # tens of megabytes and minutes-slow. Without extents, `freshness`
+    # on those results is null; agents who care can `place describe`
+    # the specific places of interest.
+    ts_payload = get_timeseries_catalog(
+        office_id,
+        like=ts_like,
+        include_extents=ts_like is not None,
+        use_cache=use_cache,
+    )
     by_location: dict[str, list[str]] = {}
     by_location_last: dict[str, str | None] = {}
     for ts_row in _iter_ts_entries(ts_payload):

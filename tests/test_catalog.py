@@ -363,11 +363,12 @@ def test_enrich_locations_reads_latest_time_from_extents_array(
     assert rows[0]["last_data_timestamp"] == "2026-05-18T22:00:00Z"
 
 
-def test_get_timeseries_catalog_passes_include_extents_true(
+def test_get_timeseries_catalog_omits_extents_by_default(
     configured, mocked
 ) -> None:
-    """Pin the include_extents=True call: without it, ts catalog responses
-    omit the freshness signal we need for every enriched place response."""
+    """Default is `include_extents=False`. Requesting extents on every ts
+    catalog query inflates responses by 10-100x and made `value get`
+    unusable. Callers that need freshness must opt in explicitly."""
     mocked.add(
         method=responses.GET,
         url=f"{API_ROOT}catalog/TIMESERIES",
@@ -376,7 +377,41 @@ def test_get_timeseries_catalog_passes_include_extents_true(
     )
     catalog.get_timeseries_catalog("SWT", like="^FOSS\\.")
     call_url = str(mocked.calls[-1].request.url)
+    assert "include-extents=False" in call_url or "include_extents=False" in call_url
+
+
+def test_get_timeseries_catalog_passes_include_extents_when_requested(
+    configured, mocked
+) -> None:
+    """Opt-in extents make their way through to the upstream call."""
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/TIMESERIES",
+        json={"entries": []},
+        status=200,
+    )
+    catalog.get_timeseries_catalog("SWT", like="^FOSS\\.", include_extents=True)
+    call_url = str(mocked.calls[-1].request.url)
     assert "include-extents=True" in call_url or "include_extents=True" in call_url
+
+
+def test_ts_ids_for_location_scopes_request_to_the_location(
+    configured, mocked
+) -> None:
+    """The ts ids lookup must NOT fetch the whole office's ts catalog —
+    it scopes server-side to the matched location segment so a `value get`
+    call doesn't pay multi-megabyte transfer cost up front."""
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/TIMESERIES",
+        json={"entries": [{"name": "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"}]},
+        status=200,
+    )
+    catalog.ts_ids_for_location("SWT", "FOSS")
+    from urllib.parse import unquote
+
+    call_url = unquote(str(mocked.calls[-1].request.url))
+    assert "like=^FOSS\\." in call_url
 
 
 def test_enrich_locations_returns_empty_when_name_filter_matches_nothing(
