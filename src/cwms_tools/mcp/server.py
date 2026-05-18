@@ -2,15 +2,16 @@
 
 Importing this module is side-effect-free — `build_server()` is the only
 factory and it returns a freshly-configured FastMCP instance. The CLI
-`mcp serve` subcommand (M7) imports this factory and runs it.
+`mcp serve` subcommand imports this factory and runs it.
 
-In v0.1.0 the only tool registered is `cwms_get_overview_section` (the
-discovery-tool fallback). Place / value / region tools land in M4-M6.
+Task tools (place, value, region, publisher) register via the helpers
+in `cwms_tools.mcp.tools`; the discovery resources and the
+`cwms_get_overview_section` fallback tool are registered directly here.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
@@ -34,11 +35,13 @@ from cwms_tools.mcp.tools import (
 
 INSTRUCTIONS = (
     f"{SERVER_TITLE}\n\n"
-    "Read `cwms://capabilities` first for the structured server summary "
-    "(tools, resources, error codes, fingerprint, negative scope). "
-    "The overview index at `cwms://overview` lists the section IDs you can "
-    "fetch as `cwms://overview/{section_id}{?detail}` or via the "
-    "`cwms_get_overview_section` tool fallback for resource-poor clients."
+    "Start with `cwms://capabilities` for the structured server summary "
+    "— tools, resources, error codes, fingerprint, and what this server "
+    "deliberately does not do. The bundled CWMS orientation document is "
+    "indexed at `cwms://overview`; fetch a section via "
+    "`cwms://overview/{section_id}{?detail}` or, if your client does not "
+    "browse MCP resources, the `cwms_get_overview_section` tool returns "
+    "the same content."
 )
 
 
@@ -72,13 +75,13 @@ class OverviewSectionResponse(BaseModel):
 
 
 class OverviewSectionError(BaseModel):
-    """Returned (as the `isError` payload) when a section/chunk isn't found."""
+    """Response shape returned when a requested overview section or chunk is missing."""
 
     model_config = ConfigDict(extra="forbid")
 
     error: str
     repair: RepairHint = Field(
-        description="Pointer to a next call that should succeed.",
+        description="A callable surface (tool name + arguments) the caller should try next.",
     )
 
 
@@ -100,12 +103,17 @@ def build_server() -> FastMCP:
 
     @mcp.resource("cwms://capabilities", mime_type="application/json")
     async def _capabilities() -> dict[str, Any]:
-        """Server capability summary + fingerprint."""
+        """Structured server summary: name, version, fingerprint, tools, resources,
+        error codes, negative scope, and active wrapper-bug workarounds."""
         return capabilities_payload()
 
     @mcp.resource("cwms://overview", mime_type="application/json")
     async def _overview_index() -> dict[str, Any]:
-        """Index of overview sections; bodies are NOT included here."""
+        """Index of the bundled CWMS orientation document.
+
+        Returns one record per section with title, summary, size, and chunk
+        count. Bodies are fetched separately to keep the index cheap.
+        """
         return overview_index_payload()
 
     @mcp.resource(
@@ -116,7 +124,12 @@ def build_server() -> FastMCP:
         section_id: str,
         detail: str = "summary",
     ) -> dict[str, Any]:
-        """One overview section, with summary metadata and optional body."""
+        """One section of the bundled CWMS orientation document.
+
+        `detail=summary` (default) returns metadata and the chunk list;
+        `detail=full` includes the section body inline (or the first chunk
+        when the section is large enough to be chunked).
+        """
         payload = overview_section_payload(section_id, detail=detail)
         if payload is None:
             return {
@@ -134,7 +147,11 @@ def build_server() -> FastMCP:
         mime_type="application/json",
     )
     async def _overview_chunk(section_id: str, chunk_id: str) -> dict[str, Any]:
-        """A single body chunk of an overview section, keyed by stable chunk_id."""
+        """One body chunk of an overview section, identified by a stable chunk id.
+
+        Chunk ids come from the `chunks` list returned by the section
+        endpoint and stay stable across reads of the same release.
+        """
         payload = overview_chunk_payload(section_id, chunk_id)
         if payload is None:
             return {
@@ -154,20 +171,26 @@ def build_server() -> FastMCP:
 
     @mcp.tool(annotations={"readOnlyHint": True, "title": "Get overview section"})
     async def cwms_get_overview_section(
-        section_id: str,
-        detail: Detail = Detail.SUMMARY,
-        chunk_id: str | None = None,
+        section_id: Annotated[
+            str,
+            "Stable slug from the `cwms://overview` index (e.g. 'orientation', "
+            "'core-entities', 'gotchas').",
+        ],
+        detail: Annotated[
+            Detail,
+            "`summary` returns metadata and the chunk list; `full` returns the "
+            "section body (or its first chunk when chunked).",
+        ] = Detail.SUMMARY,
+        chunk_id: Annotated[
+            str | None,
+            "When set, returns just that chunk's body. Chunk ids come from the "
+            "`chunks` list on a prior section read.",
+        ] = None,
     ) -> OverviewSectionResponse | OverviewSectionError:
-        """Read one section of the bundled CWMS overview.
+        """Read one section of the bundled CWMS orientation document.
 
-        Use this when your client doesn't surface MCP resources well — the
-        shape matches `cwms://overview/{section_id}` exactly so the same
-        parser handles both paths.
-
-        - `section_id`: stable slug from `cwms://overview` index.
-        - `detail`: `summary` (default) returns metadata + chunk list;
-          `full` returns the body (or the first chunk if chunked).
-        - `chunk_id`: when set, returns just that one chunk's body.
+        Functionally identical to the `cwms://overview/{section_id}`
+        resource; use this when the client doesn't browse MCP resources.
         """
         if chunk_id is not None:
             chunk = overview_chunk_payload(section_id, chunk_id)

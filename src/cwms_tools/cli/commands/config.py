@@ -12,7 +12,13 @@ from cwms_tools.core.cache import resolve_cache_dir
 from cwms_tools.core.concurrency import MAX_WORKERS
 from cwms_tools.core.session import resolve_session_config
 
-app = typer.Typer(name="config", help="Inspect resolved CLI configuration.")
+app = typer.Typer(
+    name="config",
+    help=(
+        "Inspect the cwms-tools configuration after the flag > env > default "
+        "precedence merge has been applied."
+    ),
+)
 
 
 def _redacted(name: str, value: str | None) -> str | None:
@@ -25,21 +31,32 @@ def _redacted(name: str, value: str | None) -> str | None:
 def show(
     resolved: Annotated[
         bool,
-        typer.Option("--resolved", help="Show the merged, effective configuration."),
+        typer.Option(
+            "--resolved",
+            help=(
+                "Show the merged, effective configuration. Required for forward "
+                "compatibility with a `--raw` mode that may later dump on-disk "
+                "config files."
+            ),
+        ),
     ] = False,
 ) -> None:
-    """Show the resolved CLI config (flags > env > defaults).
+    """Print the resolved CLI configuration.
 
-    In v0.1.0 there is no config file, so `--resolved` is the only useful
-    mode. The flag is required so future versions can add `--raw` to dump
-    on-disk config files without changing this command's contract.
+    Precedence: explicit flags > CWMS_TOOLS_* environment variables >
+    built-in defaults. `--resolved` is the only mode this release
+    accepts; it is required so a future `--raw` mode can be added
+    without changing this command's contract.
     """
     if not resolved:
         emit(
             {
                 "error": "usage_error",
                 "message": "Run `cwms-tools config show --resolved`.",
-                "hint": "v0.1.0 only supports the --resolved view; --raw is a v0.2 addition.",
+                "hint": (
+                    "This release only supports the --resolved view; --raw is "
+                    "reserved for a future addition that dumps on-disk config files."
+                ),
             }
         )
         raise typer.Exit(code=2)

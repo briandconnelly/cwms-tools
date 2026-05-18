@@ -20,7 +20,13 @@ from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_INVENTORY
 
 app = typer.Typer(
     name="schema",
-    help="Emit the full machine schema (command tree, errors, env inputs, fingerprint).",
+    help=(
+        "Print the full machine schema for cwms-tools: command tree with "
+        "argument hints, exit codes, symbolic error codes, environment "
+        "inputs, MCP tool/resource inventory, and the machine-mode profile. "
+        "The fingerprint scope is included; the fingerprint value itself "
+        "comes from `cwms-tools fingerprint`."
+    ),
 )
 
 
@@ -133,5 +139,5 @@ def _env_inputs() -> list[dict[str, str | bool]]:
 
 @app.callback(invoke_without_command=True)
 def schema_cmd() -> None:
-    """Emit the full machine schema."""
+    """Print the full machine schema as JSON."""
     emit(_schema_payload())

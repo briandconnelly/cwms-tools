@@ -46,22 +46,27 @@ def _source(workaround: str | None = None) -> SourceMeta:
 
 
 def register_place_tools(mcp: FastMCP) -> None:
-    """Register the four §M4 place tools on the FastMCP server."""
+    """Register the place-related tools on the FastMCP server."""
 
     @mcp.tool(
         annotations={"readOnlyHint": True, "title": "Search places by name"},
     )
     async def cwms_search_places(
-        query: Annotated[str, "Name fragment to match (case-insensitive)"],
-        office: Annotated[str, "USACE office code (e.g. NWDM, SWT, MVS)"],
+        query: Annotated[str, "Name fragment to match, case-insensitive."],
+        office: Annotated[
+            str,
+            "USACE office code (e.g. NWDM, SWT, MVS). Required because catalog "
+            "search is per-office.",
+        ],
         detail: Detail = Detail.SUMMARY,
     ) -> SearchPlacesResponse | ErrorRef:
-        """Resolve a place name in one call.
+        """Resolve a CWMS place name to ranked location matches.
 
-        Returns ghost-filtered, co-located, ranked location matches with
-        publisher + parameter fingerprints inlined. Data-bearing records
-        sort first; ghosts (parameter_count=0) are kept but at the bottom.
-        Matches §9.1 steps 1-2 of cwms-overview.md.
+        Each result is enriched with parameter_count (0 means a ghost
+        record with no published data), the list of publishers active at
+        the location, the most recent data timestamp, and any other ids
+        within ~100m of the same coordinates. Data-bearing records sort
+        first; ghosts are kept at the bottom of the list.
         """
         raw = await _safe(places.search_places, query, office=office)
         if raw.get("ok") is False:
@@ -74,11 +79,19 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={"readOnlyHint": True, "title": "Describe a place"},
     )
     async def cwms_describe_place(
-        office: Annotated[str, "USACE office code (e.g. NWDM)"],
-        name: Annotated[str, "Location id within the office"],
+        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
+        name: Annotated[str, "Location id within the office (e.g. FTPK, FOSS)."],
         detail: Detail = Detail.SUMMARY,
     ) -> DescribePlaceResponse | ErrorRef:
-        """Full Location + Project + parameter set + publisher fingerprint + freshness."""
+        """Read everything about one place in a single call.
+
+        Combines the location record, project metadata (when present),
+        the parameters published at the location grouped by publisher,
+        and the most recent data timestamp. Sets `partial: true` when
+        any underlying lookup degrades (e.g. the upstream project record
+        returns a format error); the `partial_reasons` field names the
+        causes so the agent can decide whether to retry or proceed.
+        """
         raw = await _safe(places.describe_place, office, name)
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
@@ -91,11 +104,16 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={"readOnlyHint": True, "title": "List parameters at a place"},
     )
     async def cwms_list_parameters(
-        office: Annotated[str, "USACE office code"],
-        name: Annotated[str, "Location id within the office"],
+        office: Annotated[str, "USACE office code."],
+        name: Annotated[str, "Location id within the office."],
         detail: Detail = Detail.SUMMARY,
     ) -> ListParametersResponse | ErrorRef:
-        """Parameters published at the location, grouped by publisher."""
+        """List the parameters published at a location, grouped by publisher.
+
+        The cheapest probe for distinguishing data-bearing locations
+        from ghost catalog records: a ghost returns `ts_count: 0` and an
+        empty `by_publisher` list.
+        """
         raw = await _safe(places.list_parameters, office, name)
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
@@ -107,15 +125,20 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={"readOnlyHint": True, "title": "Browse a region's catalog"},
     )
     async def cwms_browse_region(
-        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)"],
-        south: Annotated[float | None, "Bounding-box south latitude"] = None,
-        west: Annotated[float | None, "Bounding-box west longitude"] = None,
-        north: Annotated[float | None, "Bounding-box north latitude"] = None,
-        east: Annotated[float | None, "Bounding-box east longitude"] = None,
-        state: Annotated[str | None, "Two-letter state code filter"] = None,
+        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
+        south: Annotated[float | None, "Bounding box south latitude in decimal degrees."] = None,
+        west: Annotated[float | None, "Bounding box west longitude in decimal degrees."] = None,
+        north: Annotated[float | None, "Bounding box north latitude in decimal degrees."] = None,
+        east: Annotated[float | None, "Bounding box east longitude in decimal degrees."] = None,
+        state: Annotated[str | None, "Two-letter US state code (e.g. MT, OK)."] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> BrowseRegionResponse | ErrorRef:
-        """Enriched catalog browse filtered by office, bbox, or state."""
+        """Browse the locations published by one office, optionally filtered.
+
+        Returns the same enriched per-place records as `cwms_search_places`,
+        with `result_count` and `ghost_count` totals at the top. The
+        bounding-box filter requires all four corners or none.
+        """
         bbox: BBox | None = None
         provided = [v for v in (south, west, north, east) if v is not None]
         if len(provided) not in {0, 4}:
@@ -143,23 +166,34 @@ def register_place_tools(mcp: FastMCP) -> None:
 
 
 def register_value_tools(mcp: FastMCP) -> None:
-    """Register the §M5 value tools on the FastMCP server."""
+    """Register the value-related tools on the FastMCP server."""
 
     @mcp.tool(
         annotations={"readOnlyHint": True, "title": "Current value with status context"},
     )
     async def cwms_get_value(
-        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)"],
-        location: Annotated[str, "Location id within the office (e.g. FOSS, FTPK)"],
-        parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-Out)"],
+        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
+        location: Annotated[str, "Location id within the office (e.g. FTPK, FOSS)."],
+        parameter: Annotated[
+            str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage, Temp-Water)."
+        ],
         window_hours: Annotated[
             int,
-            "How far back to search for the most recent value (default 24).",
+            "How far back to search for the most recent value, in hours.",
         ] = 24,
-        unit: Annotated[str, "Unit system: EN or SI"] = "EN",
+        unit: Annotated[
+            str, "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms)."
+        ] = "EN",
         detail: Detail = Detail.SUMMARY,
     ) -> ValueWithContextResponse | ErrorRef:
-        """Latest value at a place + inline status classification (§9.1 + §9.3)."""
+        """Latest observation for a parameter, with inline status classification.
+
+        Auto-selects the canonical (best-publisher) timeseries id at the
+        location. The response includes `status_class` (nominal, watch,
+        action, flood, or unknown) computed against the applicable
+        thresholds for the parameter, plus the list of active thresholds
+        with the signed delta from the observation to each.
+        """
         raw = await _safe(
             values.get_value,
             office,
@@ -178,15 +212,25 @@ def register_value_tools(mcp: FastMCP) -> None:
         annotations={"readOnlyHint": True, "title": "Windowed history"},
     )
     async def cwms_get_history(
-        office: Annotated[str, "USACE office code"],
-        location: Annotated[str, "Location id within the office"],
-        parameter: Annotated[str, "Parameter code"],
-        begin_iso: Annotated[str, "Window start, RFC3339 (e.g. 2026-05-17T00:00:00Z)"],
-        end_iso: Annotated[str, "Window end, RFC3339"],
-        unit: Annotated[str, "Unit system: EN or SI"] = "EN",
+        office: Annotated[str, "USACE office code."],
+        location: Annotated[str, "Location id within the office."],
+        parameter: Annotated[
+            str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage, Temp-Water)."
+        ],
+        begin_iso: Annotated[
+            str, "Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z)."
+        ],
+        end_iso: Annotated[str, "Window end as an RFC3339 timestamp."],
+        unit: Annotated[str, "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric."] = "EN",
         detail: Detail = Detail.SUMMARY,
     ) -> HistoryResponse | ErrorRef:
-        """Windowed history for a parameter at a place (§9.2)."""
+        """Read a windowed history of one parameter at one place.
+
+        Returns the values array (timestamp + value, plus quality codes
+        at `detail=full`) along with the resolved canonical timeseries
+        id. `truncated: true` with a `truncation_hint` is set when the
+        upstream page cap (300,000 points) clipped the requested window.
+        """
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
             end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
@@ -218,20 +262,29 @@ def register_value_tools(mcp: FastMCP) -> None:
 
 
 def register_publisher_tools(mcp: FastMCP) -> None:
-    """Register the §M6 publishers-for-parameter helper tool."""
+    """Register the publisher-related helper tools on the FastMCP server."""
 
     @mcp.tool(
         annotations={"readOnlyHint": True, "title": "Publishers reporting a parameter"},
     )
     async def cwms_publishers_for_parameter(
-        parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-Out)"],
+        parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage)."],
         offices: Annotated[
             list[str] | None,
-            "Limit the index to these offices. None = already-cached offices.",
+            "Limit the index to these office codes. If omitted, only "
+            "offices already in cache are scanned; never expands to every "
+            "office implicitly.",
         ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> PublishersForParameterResponse | ErrorRef:
-        """Which publishers report parameter X, across the requested offices."""
+        """List the publishers that report a given parameter, with coverage.
+
+        Bounded by a per-call budget: any offices beyond the budget land
+        in `coverage.offices_skipped_for_budget` with a `repair` hint
+        that points back at this tool with that list as the next
+        `offices` argument, so the agent can continue the index in
+        deterministic chunks instead of having one call fan out.
+        """
         raw = await _safe(
             publishers_index.publishers_for_parameter,
             parameter,

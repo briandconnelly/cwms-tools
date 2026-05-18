@@ -71,7 +71,7 @@ def test_capabilities_resource_reads_back_with_fingerprint(server) -> None:
     assert payload["fingerprint_scope"] == "schema-contract"
     assert "cwms_get_overview_section" in payload["tools"]
     assert any(c == "ghost_office" for c in payload["error_codes"])
-    assert any("read-only in v0.1.0" in line for line in payload["does_not"])
+    assert any("write" in line.lower() and "delete" in line.lower() for line in payload["does_not"])
 
 
 def test_overview_index_returns_summary_only(server) -> None:

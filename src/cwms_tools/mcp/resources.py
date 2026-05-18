@@ -73,20 +73,21 @@ def capabilities_payload(
         "fingerprint": fp,
         "fingerprint_scope": fingerprint.FINGERPRINT_SCOPE,
         "description": (
-            "Agent-friendly tools for the USACE Corps Water Management System "
-            "(CWMS) Data API. Returns task-completing answers (current values "
-            "with status context, descriptions of dams, regional catalog "
-            "browses) instead of mirroring REST endpoints."
+            "Read-only tools for the USACE Corps Water Management System "
+            "(CWMS) Data API. Returns task-completing answers — a current "
+            "value with status context, a description of a project, an "
+            "office-scoped catalog browse — instead of mirroring the "
+            "underlying REST endpoints."
         ),
         "does_not": [
-            "Write / store / delete any data — read-only in v0.1.0.",
-            "Retrieve forecasts (deferred to v0.2).",
+            "Write, store, or delete any CWMS data.",
+            "Retrieve forecasts (forecast tooling is out of scope for this release).",
             "Serve USGS, NOAA, or any non-CWMS data sources.",
-            "Decode DSS or XML forecast attachments.",
-            "Pre-warm or background-scan the catalog.",
+            "Decode DSS or XML forecast file attachments.",
+            "Pre-warm caches or scan the catalog in the background.",
         ],
         "prerequisites": {
-            "auth": "none — read endpoints on CWMS Data API are public.",
+            "auth": "None. The CWMS Data API's read endpoints are public.",
             "api_root": cfg.api_root,
             "user_agent": cfg.user_agent,
         },
@@ -100,9 +101,10 @@ def capabilities_payload(
             "fallbacks": list(FALLBACKS.keys()),
         },
         "discovery_hint": (
-            "Read `cwms://overview` for the section index; fetch specific "
-            "sections via `cwms://overview/{section_id}` or the "
-            "`cwms_get_overview_section` tool. Both honor `detail=summary|full`."
+            "For the bundled CWMS orientation document, read "
+            "`cwms://overview` (an index of sections) and then either "
+            "`cwms://overview/{section_id}` or `cwms_get_overview_section` "
+            "for a specific section. Both honor `detail=summary|full`."
         ),
     }
 

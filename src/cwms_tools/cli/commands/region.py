@@ -14,7 +14,7 @@ from cwms_tools.core.geo import BBox
 
 app = typer.Typer(
     name="region",
-    help="Browse and filter the catalog by office, bounding box, or state.",
+    help=("Browse the catalog of one office, optionally filtered by bounding box and/or US state."),
     no_args_is_help=True,
 )
 
@@ -23,33 +23,39 @@ app = typer.Typer(
 def browse(
     office: Annotated[
         str,
-        typer.Option("--office", "-o", help="USACE office code (e.g. NWDM, SWT)."),
+        typer.Option(
+            "--office",
+            "-o",
+            help="USACE office code (e.g. NWDM, SWT). Required.",
+        ),
     ],
     south: Annotated[
         float | None,
-        typer.Option("--south", help="Bounding-box south latitude (decimal degrees)."),
+        typer.Option("--south", help="Bounding box south latitude, decimal degrees."),
     ] = None,
     west: Annotated[
         float | None,
-        typer.Option("--west", help="Bounding-box west longitude (decimal degrees)."),
+        typer.Option("--west", help="Bounding box west longitude, decimal degrees."),
     ] = None,
     north: Annotated[
         float | None,
-        typer.Option("--north", help="Bounding-box north latitude (decimal degrees)."),
+        typer.Option("--north", help="Bounding box north latitude, decimal degrees."),
     ] = None,
     east: Annotated[
         float | None,
-        typer.Option("--east", help="Bounding-box east longitude (decimal degrees)."),
+        typer.Option("--east", help="Bounding box east longitude, decimal degrees."),
     ] = None,
     state: Annotated[
         str | None,
-        typer.Option("--state", help="Two-letter state code filter (e.g. MT, OK)."),
+        typer.Option("--state", help="Two-letter US state code (e.g. MT, OK)."),
     ] = None,
 ) -> None:
-    """Browse the catalog (§9.7).
+    """Browse the locations published by one office, with optional filters.
 
-    All four bbox corners must be set together (or none). When `--state`
-    and bbox are both set, both filters apply.
+    All four bounding-box corners must be set together or none. When
+    --state and a bbox are both set, both filters apply. Returns the same
+    enriched per-place records as `place search`, with `result_count`
+    and `ghost_count` totals at the top.
     """
     provided = [v for v in (south, west, north, east) if v is not None]
     if len(provided) not in {0, 4}:
