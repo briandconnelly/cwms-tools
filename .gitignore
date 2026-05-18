@@ -1,0 +1,61 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[oc]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.ty_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.tox/
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+
+# Test cassettes — recordings are committed, but in-progress recordings are not
+tests/.cassettes/*.tmp
+tests/.cassettes/.rec/
+
+# On-disk cache when redirected to ./cache for dev convenience
+cache/
+
+# IDE / editor
+.idea/
+.vscode/*
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit these
+.env
+.env.local
+.env.*.local
+*-secrets*
+*.pem
+*.key

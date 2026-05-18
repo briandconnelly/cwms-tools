@@ -1,0 +1,56 @@
+# prek configuration — runs on commit and via `uv run prek run --all-files`.
+# Docs: https://prek.j178.dev/
+
+minimum_prek_version = "0.2.0"
+
+# --------------------------------------------------------------------------
+# Offline, zero-setup built-in hooks
+# --------------------------------------------------------------------------
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "trailing-whitespace" },
+  { id = "end-of-file-fixer" },
+  { id = "check-added-large-files" },
+  { id = "check-merge-conflict" },
+  { id = "check-case-conflict" },
+  { id = "check-yaml" },
+  { id = "check-toml" },
+  { id = "check-json" },
+  { id = "mixed-line-ending" },
+  { id = "detect-private-key" },
+]
+
+# --------------------------------------------------------------------------
+# Ruff (lint + format)
+# --------------------------------------------------------------------------
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+rev = "v0.7.4"
+hooks = [
+  { id = "ruff", args = ["--fix"] },
+  { id = "ruff-format" },
+]
+
+# --------------------------------------------------------------------------
+# Local hooks — run inside the uv venv
+# --------------------------------------------------------------------------
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "ty"
+name = "ty (type check)"
+language = "system"
+entry = "uv run ty check"
+pass_filenames = false
+files = "\\.py$"
+
+[[repos.hooks]]
+id = "pytest-fast"
+name = "pytest (fast subset)"
+language = "system"
+entry = "uv run pytest -x -q -m 'not slow and not integration'"
+pass_filenames = false
+files = "\\.py$"
+stages = ["pre-push"]

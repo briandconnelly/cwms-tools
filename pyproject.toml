@@ -1,0 +1,142 @@
+[project]
+name = "cwms-tools"
+version = "0.1.0"
+description = "Agent-friendly tools (MCP server and CLI) for the USACE Corps Water Management System (CWMS) Data API."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Brian Connelly", email = "bdc@bconnelly.net" },
+]
+keywords = ["cwms", "usace", "mcp", "cli", "water", "hydrology", "agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Hydrology",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "cwms-python>=1.0.7",
+    "fastmcp>=3",
+    "typer>=0.15",
+    "pydantic>=2",
+    "platformdirs>=4",
+    "diskcache>=5",
+    "anyio>=4",
+    "python-dateutil>=2.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/bdc/cwms-tools"
+Repository = "https://github.com/bdc/cwms-tools"
+Issues = "https://github.com/bdc/cwms-tools/issues"
+Changelog = "https://github.com/bdc/cwms-tools/blob/main/CHANGELOG.md"
+
+[project.scripts]
+cwms-tools = "cwms_tools.cli.app:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "pytest-asyncio>=0.24",
+    "responses>=0.25",
+    "vcrpy>=6",
+    "ruff>=0.7",
+    "ty>=0.0.1a1",
+    "prek>=0.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true
+
+# --------------------------------------------------------------------------
+# Ruff (lint + format)
+# --------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",      # pycodestyle + pyflakes
+    "I",                # isort
+    "B",                # bugbear
+    "UP",               # pyupgrade
+    "SIM",              # simplify
+    "PIE",              # misc
+    "RUF",              # ruff-specific
+    "PL",               # pylint subset
+    "PT",               # pytest style
+    "TID",              # tidy imports
+    "TCH",              # type-checking imports
+    "ARG",              # unused arguments
+    "PTH",              # use pathlib
+]
+ignore = [
+    "PLR0913",  # too many arguments — common in API wrappers
+    "PLR2004",  # magic value used in comparison — noisy in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG", "PLR2004", "S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# --------------------------------------------------------------------------
+# ty (type checker)
+# --------------------------------------------------------------------------
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.ty.rules]
+# Strict on our own code; permissive on third-party shapes
+unresolved-import = "warn"
+
+# --------------------------------------------------------------------------
+# pytest
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+asyncio_mode = "auto"
+markers = [
+    "integration: live-CDA tests (skipped by default)",
+    "slow: slow tests",
+]
+
+# --------------------------------------------------------------------------
+# coverage
+# --------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["src/cwms_tools"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+fail_under = 0  # raised to 95 in M8
+show_missing = true
