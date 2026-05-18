@@ -35,10 +35,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/bdc/cwms-tools"
-Repository = "https://github.com/bdc/cwms-tools"
-Issues = "https://github.com/bdc/cwms-tools/issues"
-Changelog = "https://github.com/bdc/cwms-tools/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/briandconnelly/cwms-tools"
+Repository = "https://github.com/briandconnelly/cwms-tools"
+Issues = "https://github.com/briandconnelly/cwms-tools/issues"
+Changelog = "https://github.com/briandconnelly/cwms-tools/blob/main/CHANGELOG.md"
 
 [project.scripts]
 cwms-tools = "cwms_tools.cli.app:app"

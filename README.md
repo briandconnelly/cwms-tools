@@ -44,7 +44,7 @@ API**; it does not replace `cwms-python`.
 > Until the package lands on PyPI, install from source:
 
 ```bash
-git clone https://github.com/bdc/cwms-tools.git
+git clone https://github.com/briandconnelly/cwms-tools.git
 cd cwms-tools
 uv sync
 ```
@@ -66,7 +66,7 @@ $ uv run cwms-tools whoami
 {
   "identity": "anonymous",
   "api_root": "https://cwms-data.usace.army.mil/cwms-data/",
-  "user_agent": "cwms-tools/0.1.0 (+https://github.com/bdc/cwms-tools) cwms-python/1.0.7",
+  "user_agent": "cwms-tools/0.1.0 (+https://github.com/briandconnelly/cwms-tools) cwms-python/1.0.7",
   "operator_email": null
 }
 
@@ -157,7 +157,7 @@ requests, honor `Retry-After` headers, and never run background
 catalog scans. (`CWMS_TOOLS_MAX_RPS` is declared in the schema but
 not enforced in v0.1.0.) If you operate the upstream service and
 this client is misbehaving, please open an issue at
-<https://github.com/bdc/cwms-tools/issues> and we will ship a point
+<https://github.com/briandconnelly/cwms-tools/issues> and we will ship a point
 release that the cache namespace key invalidates against.
 
 ## Development

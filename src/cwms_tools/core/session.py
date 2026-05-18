@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from requests import Session
 
 DEFAULT_API_ROOT = "https://cwms-data.usace.army.mil/cwms-data/"
-DEFAULT_REPO_URL = "https://github.com/bdc/cwms-tools"
+DEFAULT_REPO_URL = "https://github.com/briandconnelly/cwms-tools"
 
 
 def _cwms_tools_version() -> str:
