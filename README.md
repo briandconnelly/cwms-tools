@@ -20,7 +20,7 @@ release history.
 - Fetch the latest value or windowed history for any parameter,
   inline-classified against the applicable thresholds.
 - Browse the catalog by office, region, or bounding box.
-- Surface the `cwms-overview.md` knowledge as a queryable MCP
+- Ship a bundled orientation document on CWMS as a queryable MCP
   resource — agents don't have to pre-load it.
 
 **Does not**
@@ -35,10 +35,11 @@ release history.
 CWMS — the Corps Water Management System — is USACE's platform for
 operating and reporting on the federal water resources it manages:
 mainstem reservoirs, hydropower projects, flood-control dams,
-navigation locks, and environmental monitoring stations. The
-[`cwms-overview.md`](cwms-overview.md) file in this repository is a
-self-contained orientation. This package **wraps the existing public
-API**; it does not replace `cwms-python`.
+navigation locks, and environmental monitoring stations. A bundled
+self-contained orientation document ships with the package and is
+served at the `cwms://overview` MCP resource (see *Discovery and
+gotchas* below). This package **wraps the existing public API**; it
+does not replace `cwms-python`.
 
 ## Install
 
@@ -135,9 +136,9 @@ Agents that have already loaded the server can browse the bundled
 overview content without re-fetching it from the network:
 
 - `cwms://capabilities` — what the server does, version, fingerprint.
-- `cwms://overview/{section_id}` — sections of `cwms-overview.md`,
-  with a `?detail=summary|full` toggle and chunked bodies for large
-  sections.
+- `cwms://overview/{section_id}` — sections of the bundled orientation
+  document, with a `?detail=summary|full` toggle and chunked bodies
+  for large sections.
 
 Two recurring traps that the package handles for you but are worth
 knowing exist:
