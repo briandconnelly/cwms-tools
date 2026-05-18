@@ -1,0 +1,128 @@
+"""Tests for the pydantic model tiers."""
+
+from __future__ import annotations
+
+import json
+
+from cwms_tools.core.models import (
+    ActiveThreshold,
+    CdaLocation,
+    Detail,
+    PlaceSummary,
+    SearchPlacesResult,
+    SourceMeta,
+    StatusClass,
+    TsIdParts,
+    ValueWithContext,
+)
+
+
+def test_cda_location_accepts_hyphenated_aliases_and_extras() -> None:
+    raw = {
+        "name": "FTPK",
+        "office-id": "NWDM",
+        "location-kind": "PROJECT",
+        "horizontal-datum": "NAD83",
+        "latitude": 47.991,
+        "longitude": -106.412,
+        "some-future-field": {"foo": "bar"},  # extra="allow" tolerates this
+    }
+    loc = CdaLocation.model_validate(raw)
+    assert loc.office_id == "NWDM"
+    assert loc.location_kind == "PROJECT"
+    # Round-trip preserves the extra field.
+    dumped = loc.model_dump(by_alias=True)
+    assert "some-future-field" in dumped
+
+
+def test_ts_id_parts_round_trip() -> None:
+    parts = TsIdParts(
+        location="FOSS",
+        parameter="Elev",
+        type="Inst",
+        interval="15Minutes",
+        duration="0",
+        version="Ccp-Rev",
+    )
+    assert parts.ts_id == "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"
+
+
+def test_detail_enum_string_values() -> None:
+    assert Detail.SUMMARY.value == "summary"
+    assert Detail.FULL.value == "full"
+
+
+def test_status_class_enum_values() -> None:
+    expected = {"nominal", "watch", "action", "flood", "unknown"}
+    assert {c.value for c in StatusClass} == expected
+
+
+def test_place_summary_rejects_unknown_fields() -> None:
+    """Task-response models close the door on drift."""
+    import pytest
+
+    with pytest.raises(ValueError, match="Extra inputs"):
+        PlaceSummary.model_validate(
+            {
+                "office_id": "SWT",
+                "name": "FOSS",
+                "parameter_count": 31,
+                "unknown_field": True,
+            }
+        )
+
+
+def test_search_places_result_serializes_to_json() -> None:
+    result = SearchPlacesResult(
+        query="Fort Peck",
+        results=[
+            PlaceSummary(
+                office_id="NWDM",
+                name="FTPK",
+                public_name="Fort Peck Lake",
+                location_kind="PROJECT",
+                latitude=47.991,
+                longitude=-106.412,
+                parameter_count=10,
+                publishers=["Best-MRBWM", "Raw-A2W"],
+                last_data_timestamp="2026-05-17T18:00:00Z",
+                co_located=["FTPK1"],
+            )
+        ],
+        source=SourceMeta(fingerprint="abc123"),
+    )
+    blob = result.model_dump(mode="json")
+    parsed = SearchPlacesResult.model_validate(json.loads(json.dumps(blob)))
+    assert parsed.results[0].publishers == ["Best-MRBWM", "Raw-A2W"]
+
+
+def test_active_threshold_relation_is_literal_enum() -> None:
+    t = ActiveThreshold(
+        specified_level_id="Flood Stage",
+        value=15.0,
+        unit="ft",
+        relation="above",
+        delta=0.5,
+    )
+    assert t.relation == "above"
+
+
+def test_value_with_context_supports_summary_and_full() -> None:
+    """The same model carries summary (no `raw`) and full (with `raw`) shapes."""
+    summary = ValueWithContext(
+        ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+        office_id="SWT",
+        location="FOSS",
+        parameter="Elev",
+        publisher="Ccp-Rev",
+        value=1648.21,
+        unit="ft",
+        timestamp="2026-05-17T18:00:00Z",
+        status_class=StatusClass.NOMINAL,
+        thresholds_active=[],
+        source=SourceMeta(fingerprint="abc"),
+    )
+    assert summary.raw is None
+
+    full = summary.model_copy(update={"raw": {"upstream-field": 42}})
+    assert full.raw == {"upstream-field": 42}

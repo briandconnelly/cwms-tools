@@ -92,7 +92,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ARG", "PLR2004", "S101"]
+# Tests get a permissive lint policy: pytest idioms regularly trip checks meant
+# for production code (TID -> inline imports for monkeypatching, PT018 -> compound
+# asserts, PLC0415 -> per-test imports), and ruff's en-dash heuristic fires on
+# normal English in docstrings.
+"tests/**" = ["ARG", "PLR2004", "S101", "TC002", "TC003", "PT018", "PLC0415", "RUF002", "RUF003"]
 
 [tool.ruff.format]
 quote-style = "double"
