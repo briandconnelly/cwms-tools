@@ -26,6 +26,7 @@ from cwms_tools.mcp.resources import (
     overview_index_payload,
     overview_section_payload,
 )
+from cwms_tools.mcp.tools import register_place_tools
 
 INSTRUCTIONS = (
     f"{SERVER_TITLE}\n\n"
@@ -202,6 +203,11 @@ def build_server() -> FastMCP:
                 ),
             )
         return OverviewSectionResponse.model_validate(payload)
+
+    # ----------------------------------------------------------------------
+    # Task tools — registered via per-milestone helpers.
+    # ----------------------------------------------------------------------
+    register_place_tools(mcp)
 
     return mcp
 
