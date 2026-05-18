@@ -139,11 +139,14 @@ def browse_region(
 
     if state:
         target = state.upper()
-        rows = [
-            r
-            for r in rows
-            if isinstance((s := r.get("raw", {}).get("state-initial")), str) and s.upper() == target
-        ]
+        # CDA returns the two-letter state code as `state` on the catalog row
+        # and as `state-initial` on the single-location response. Check both
+        # so the filter works regardless of which shape arrived.
+        def _matches_state(r: dict[str, Any]) -> bool:
+            s = _row_state(r)
+            return s is not None and s.upper() == target
+
+        rows = [r for r in rows if _matches_state(r)]
 
     if bbox is not None:
         geopoints = [
@@ -186,6 +189,16 @@ def _bbox_to_dict(bbox: BBox | None) -> dict[str, float] | None:
     if bbox is None:
         return None
     return {"south": bbox.south, "west": bbox.west, "north": bbox.north, "east": bbox.east}
+
+
+def _row_state(row: dict[str, Any]) -> str | None:
+    """Pluck a two-letter state code from a catalog row, tolerating either shape."""
+    raw = row.get("raw") or {}
+    for key in ("state-initial", "state"):
+        v = raw.get(key)
+        if isinstance(v, str) and v:
+            return v
+    return None
 
 
 __all__ = ["browse_region", "describe_place", "list_parameters", "search_places"]

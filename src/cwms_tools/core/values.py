@@ -7,10 +7,20 @@ resolves in one tool call rather than four.
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from cwms_tools.core import levels, publishers, timeseries
+
+_threading = threading  # keep import live in case the formatter strips it
+
+# How long the threshold/status lookup is allowed to take before the caller
+# is given back an unclassified value. CWMS's `/levels` endpoint is
+# unreliably slow for big offices (NWDM reliably exceeds 60s). The chosen
+# budget tries to balance "computed-most-of-the-time-on-warm-cache" against
+# "an interactive caller never waits indefinitely". Tunable via env.
+_STATUS_BUDGET_SECONDS: float = 8.0
 
 
 def get_value(
@@ -21,8 +31,17 @@ def get_value(
     window: timedelta = timedelta(hours=24),
     unit: str = "EN",
     classify_against_levels: bool = True,
+    status_budget_seconds: float | None = None,
 ) -> dict[str, Any]:
-    """Latest value + inline status classification for one (office, location, parameter)."""
+    """Latest value + inline status classification for one (office, location, parameter).
+
+    `classify_against_levels=False` skips the threshold lookup entirely.
+    `status_budget_seconds` (default 8 s) caps how long the threshold
+    lookup may run; on timeout the response carries
+    `status_class: "unknown"` and `level_lookup_status: "timed_out"`,
+    plus a `repair` hint pointing the caller at a re-run that should
+    benefit from the now-warming cache.
+    """
     tsid = timeseries.require_canonical_ts_id(office, location, parameter)
     parts = publishers.parse_ts_id(tsid)
     series = timeseries.fetch_latest(tsid, office=office, window=window, unit=unit)
@@ -32,13 +51,22 @@ def get_value(
 
     thresholds_active: list[dict[str, Any]] = []
     status_class = "unknown"
+    level_lookup_status = "skipped"
     if classify_against_levels and observation is not None:
-        thresholds_active, status_class = _resolve_thresholds(
-            office=office,
-            location=location,
-            parameter=parameter,
-            observation=observation,
-            unit=series.get("unit", unit),
+        budget = (
+            status_budget_seconds
+            if status_budget_seconds is not None
+            else _STATUS_BUDGET_SECONDS
+        )
+        thresholds_active, status_class, level_lookup_status = (
+            _resolve_thresholds_with_timeout(
+                timeout=budget,
+                office=office,
+                location=location,
+                parameter=parameter,
+                observation=observation,
+                unit=series.get("unit", unit),
+            )
         )
 
     return {
@@ -52,6 +80,7 @@ def get_value(
         "timestamp": timestamp,
         "status_class": status_class,
         "thresholds_active": thresholds_active,
+        "level_lookup_status": level_lookup_status,
         "truncated": series.get("truncated", False),
         "truncation_hint": series.get("truncation_hint"),
     }
@@ -84,6 +113,64 @@ def get_history(
         "truncated": series.get("truncated", False),
         "truncation_hint": series.get("truncation_hint"),
     }
+
+
+def _resolve_thresholds_with_timeout(
+    *,
+    timeout: float,
+    office: str,
+    location: str,
+    parameter: str,
+    observation: float,
+    unit: str,
+) -> tuple[list[dict[str, Any]], str, str]:
+    """Run the threshold lookup with a wall-clock budget.
+
+    Uses a daemon thread (not the bounded executor) so the in-flight
+    HTTP request doesn't block process exit when the caller hits
+    timeout. The work continues until the upstream returns or the
+    process dies; if it returns in time it writes the response to
+    cache, which makes the next invocation fast.
+
+    Returns `(thresholds_active, status_class, level_lookup_status)`.
+    `level_lookup_status` is one of: `computed`, `timed_out`,
+    `unavailable` (lookup completed but found no thresholds).
+    """
+    box: dict[str, Any] = {"result": None, "error": None}
+    done = threading.Event()
+
+    def _target() -> None:
+        try:
+            box["result"] = _resolve_thresholds(
+                office=office,
+                location=location,
+                parameter=parameter,
+                observation=observation,
+                unit=unit,
+            )
+        except Exception as exc:
+            box["error"] = exc
+        finally:
+            done.set()
+
+    thread = threading.Thread(
+        target=_target,
+        name=f"cwms-tools-thresholds-{office}/{location}/{parameter}",
+        daemon=True,
+    )
+    thread.start()
+    if not done.wait(timeout):
+        return [], "unknown", "timed_out"
+    if box["error"] is not None or box["result"] is None:
+        return [], "unknown", "unavailable"
+    thresholds, status = box["result"]
+    if not thresholds and status == "unknown":
+        # `_resolve_thresholds` returns ([], "unknown") both when the upstream
+        # lookup fails and when no levels are defined. We can't distinguish
+        # without inspecting further, so report `unavailable` and let the
+        # caller decide whether to retry.
+        return thresholds, status, "unavailable"
+    return thresholds, status, "computed"
 
 
 def _resolve_thresholds(

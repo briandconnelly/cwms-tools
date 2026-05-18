@@ -21,7 +21,9 @@ from urllib.parse import quote
 import cwms.api as cwms_api
 import cwms.levels.location_levels as ll_api
 
+from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
+from cwms_tools.core.session import current_config
 
 # Substring fingerprint of the seasonal-bug detection. We treat any level
 # whose configuration carries seasonalValues / intervalMonths / intervalMinutes
@@ -35,16 +37,33 @@ def list_levels(
     level_id_mask: str | None = None,
     location: str | None = None,
     parameter: str | None = None,
-    use_cache: bool = False,  # noqa: ARG001 - hooked up in M5 polish; deferred for now
+    use_cache: bool = True,
 ) -> list[dict[str, Any]]:
     """Return location-level configurations matching the filters.
 
     `level_id_mask` accepts CDA's `*` glob syntax. When `location` and
     `parameter` are given without an explicit mask, we build the standard
     `<location>.<parameter>.*` mask from them.
+
+    Cached for 24 h in the `levels` namespace. The CWMS `/levels`
+    endpoint is reliably slow for big offices (NWDM can take a minute
+    or more), so caching is what makes `value get` usable for repeat
+    queries against the same place/parameter.
     """
     if level_id_mask is None and location and parameter:
         level_id_mask = f"{location}.{parameter}.*"
+
+    cache = get_cache()
+    ttl = cache.ttl_for("levels")
+    cfg = current_config()
+    cache_key = build_cache_key(
+        "levels", office, level_id_mask or "", api_root=cfg.api_root
+    )
+    if use_cache:
+        hit = cache.get(cache_key)
+        if hit is not None:
+            return hit
+
     try:
         data = ll_api.get_location_levels(
             office_id=office,
@@ -57,7 +76,9 @@ def list_levels(
             endpoints_called=["/levels"],
         ) from exc
     payload = data.json if hasattr(data, "json") else data
-    return _iter_level_entries(payload)
+    rows = _iter_level_entries(payload)
+    cache.set(cache_key, rows, ttl=ttl)
+    return rows
 
 
 def resolve_applicable_level(
