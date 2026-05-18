@@ -8,15 +8,16 @@ declarative and short as more tools land in later milestones.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Any
 
-from cwms_tools.core import concurrency, places
-
-if TYPE_CHECKING:
-    from fastmcp import FastMCP
+from cwms_tools.core import concurrency, places, values
 from cwms_tools.core.errors import CwmsToolsError
 from cwms_tools.core.geo import BBox
 from cwms_tools.core.models import Detail
+
+if TYPE_CHECKING:
+    from fastmcp import FastMCP
 
 
 def register_place_tools(mcp: FastMCP) -> None:
@@ -155,4 +156,110 @@ async def _safe(fn, *args, **kwargs) -> dict[str, Any]:
         return {"ok": False, "error": err.envelope.model_dump(mode="json")}
 
 
-__all__ = ["register_place_tools"]
+def register_value_tools(mcp: FastMCP) -> None:
+    """Register the §M5 value tools on the FastMCP server."""
+
+    @mcp.tool(
+        annotations={"readOnlyHint": True, "title": "Current value with status context"},
+    )
+    async def cwms_get_value(
+        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)"],
+        location: Annotated[str, "Location id within the office (e.g. FOSS, FTPK)"],
+        parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-Out)"],
+        window_hours: Annotated[
+            int,
+            "How far back to search for the most recent value (default 24).",
+        ] = 24,
+        unit: Annotated[str, "Unit system: EN or SI"] = "EN",
+        detail: Detail = Detail.SUMMARY,
+    ) -> dict[str, Any]:
+        """Latest value at a place + inline status classification (§9.1 + §9.3).
+
+        Auto-selects the canonical (best-publisher) ts_id at the location.
+        At `detail=summary` returns `status_class` and `thresholds_active`;
+        at `detail=full` keeps every threshold's per-source workaround info.
+        """
+        return _shape_value_detail(
+            await _safe(
+                values.get_value,
+                office,
+                location,
+                parameter,
+                window=timedelta(hours=window_hours),
+                unit=unit,
+            ),
+            detail,
+        )
+
+    @mcp.tool(
+        annotations={"readOnlyHint": True, "title": "Windowed history"},
+    )
+    async def cwms_get_history(
+        office: Annotated[str, "USACE office code"],
+        location: Annotated[str, "Location id within the office"],
+        parameter: Annotated[str, "Parameter code"],
+        begin_iso: Annotated[str, "Window start, RFC3339 (e.g. 2026-05-17T00:00:00Z)"],
+        end_iso: Annotated[str, "Window end, RFC3339"],
+        unit: Annotated[str, "Unit system: EN or SI"] = "EN",
+        detail: Detail = Detail.SUMMARY,
+    ) -> dict[str, Any]:
+        """Windowed history for a parameter at a place (§9.2).
+
+        At `detail=summary` returns timestamps + values only; at
+        `detail=full` includes quality codes per point.
+        """
+        try:
+            begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
+            end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+        except ValueError as exc:
+            return {
+                "ok": False,
+                "error": {
+                    "code": "invalid_field",
+                    "message": f"Could not parse begin/end as RFC3339 datetimes: {exc}",
+                    "field": "begin_iso/end_iso",
+                },
+            }
+        return _shape_history_detail(
+            await _safe(
+                values.get_history,
+                office,
+                location,
+                parameter,
+                begin=begin,
+                end=end,
+                unit=unit,
+            ),
+            detail,
+        )
+
+
+def _shape_value_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
+    if payload.get("ok") is False:
+        return payload
+    if detail is Detail.FULL:
+        return payload
+    # Summary mode keeps everything except very chatty threshold metadata.
+    pruned = dict(payload)
+    if isinstance(pruned.get("thresholds_active"), list):
+        pruned["thresholds_active"] = [
+            {k: v for k, v in t.items() if k not in {"level_id", "source_workaround"}}
+            for t in pruned["thresholds_active"]
+        ]
+    return pruned
+
+
+def _shape_history_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
+    if payload.get("ok") is False:
+        return payload
+    if detail is Detail.FULL:
+        return payload
+    pruned = dict(payload)
+    if isinstance(pruned.get("values"), list):
+        pruned["values"] = [
+            {k: v for k, v in row.items() if k != "quality"} for row in pruned["values"]
+        ]
+    return pruned
+
+
+__all__ = ["register_place_tools", "register_value_tools"]
