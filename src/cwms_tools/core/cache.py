@@ -21,7 +21,8 @@ import diskcache
 from platformdirs import user_cache_dir
 
 # Bump this when the cached payload schema changes in a backwards-incompatible way.
-CACHE_SCHEMA_VERSION: Final[int] = 1
+# v2: ts catalog now requires include_extents=True; enrich_locations dedupes by name.
+CACHE_SCHEMA_VERSION: Final[int] = 2
 
 _L1_MAX_ENTRIES: Final[int] = 1024
 

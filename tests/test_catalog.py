@@ -268,6 +268,117 @@ def test_enrich_locations_does_not_pass_like_to_server_side_locations_catalog(
     assert "like=" not in str(loc_calls[-1].request.url)
 
 
+def test_enrich_locations_dedupes_repeated_rows_from_upstream(
+    configured, mocked
+) -> None:
+    """The upstream `/catalog/LOCATIONS` returns multiple rows per `name`
+    (different bounding-office / alias variants). Enrichment must collapse
+    those into one entry per name so the response doesn't carry obvious
+    duplicates."""
+    duplicated = {
+        "entries": [
+            {
+                "office-id": "SWT",
+                "name": "FOSS",
+                "public-name": "Foss Reservoir",
+                "latitude": 35.55,
+                "longitude": -98.97,
+            },
+            {
+                "office-id": "SWT",
+                "name": "FOSS",
+                "public-name": "Foss Reservoir",
+                "latitude": 35.55,
+                "longitude": -98.97,
+            },
+            {
+                "office-id": "SWT",
+                "name": "FOSS",
+                "public-name": "Foss Reservoir",
+                "latitude": 35.55,
+                "longitude": -98.97,
+            },
+        ]
+    }
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/LOCATIONS",
+        json=duplicated,
+        status=200,
+    )
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/TIMESERIES",
+        json={"entries": []},
+        status=200,
+    )
+    rows = catalog.enrich_locations("SWT", like="FOSS")
+    assert len(rows) == 1
+    assert rows[0]["name"] == "FOSS"
+
+
+def test_enrich_locations_reads_latest_time_from_extents_array(
+    configured, mocked
+) -> None:
+    """When `include_extents=True`, ts catalog rows carry an `extents`
+    array whose `latest-time` field is the freshness signal. The earlier
+    code looked at top-level fields only and reported null."""
+    locations = {
+        "entries": [
+            {
+                "office-id": "SWT",
+                "name": "FOSS",
+                "latitude": 35.55,
+                "longitude": -98.97,
+            }
+        ]
+    }
+    timeseries = {
+        "entries": [
+            {
+                "name": "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+                "extents": [
+                    {
+                        "earliest-time": "2000-01-01T00:00:00Z",
+                        "latest-time": "2026-05-18T22:00:00Z",
+                        "last-update": "2026-05-18T22:01:00Z",
+                    }
+                ],
+            }
+        ]
+    }
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/LOCATIONS",
+        json=locations,
+        status=200,
+    )
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/TIMESERIES",
+        json=timeseries,
+        status=200,
+    )
+    rows = catalog.enrich_locations("SWT", like="FOSS")
+    assert rows[0]["last_data_timestamp"] == "2026-05-18T22:00:00Z"
+
+
+def test_get_timeseries_catalog_passes_include_extents_true(
+    configured, mocked
+) -> None:
+    """Pin the include_extents=True call: without it, ts catalog responses
+    omit the freshness signal we need for every enriched place response."""
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/TIMESERIES",
+        json={"entries": []},
+        status=200,
+    )
+    catalog.get_timeseries_catalog("SWT", like="^FOSS\\.")
+    call_url = str(mocked.calls[-1].request.url)
+    assert "include-extents=True" in call_url or "include_extents=True" in call_url
+
+
 def test_enrich_locations_returns_empty_when_name_filter_matches_nothing(
     configured, mocked
 ) -> None:

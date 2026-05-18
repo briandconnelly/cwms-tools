@@ -80,7 +80,13 @@ def get_timeseries_catalog(
     like: str | None = None,
     use_cache: bool = True,
 ) -> dict[str, Any]:
-    """Return the paginated ts catalog for an office. Cached for 6 h."""
+    """Return the paginated ts catalog for an office. Cached for 6 h.
+
+    Always requests `include_extents=True` — without it, ts catalog rows
+    omit the `extents` array that carries `earliest-time`, `latest-time`,
+    and `last-update`. We need `latest-time` to compute freshness for
+    every enriched place response.
+    """
     if office_id in _NW_STUBS:
         _raise_ghost_office(office_id)
     cache = get_cache()
@@ -91,10 +97,49 @@ def get_timeseries_catalog(
         hit = cache.get(key)
         if hit is not None:
             return hit
-    data = catalog_api.get_timeseries_catalog(office_id=office_id, like=like)
+    data = catalog_api.get_timeseries_catalog(
+        office_id=office_id, like=like, include_extents=True
+    )
     payload = data.json
     cache.set(key, payload, ttl=ttl)
     return payload
+
+
+def _row_latest_time(row: dict[str, Any]) -> str | None:
+    """Pluck the most-recent observation timestamp from a ts catalog row.
+
+    Prefers `latest-time` from `row["extents"][...]` (the canonical field
+    when `include_extents=True`). The CDA distinction matters: `latest-time`
+    is when the observation occurred; `last-update` is when CWMS wrote it
+    to its store, which is slightly later. Agents asking for "freshness"
+    want the observation time. Falls back to other field names for
+    forward/backward compatibility with older catalog shapes.
+    """
+    extents = row.get("extents")
+    if isinstance(extents, list):
+        best: str | None = None
+        for ext in extents:
+            if not isinstance(ext, dict):
+                continue
+            ts = ext.get("latest-time")
+            if isinstance(ts, str) and (best is None or ts > best):
+                best = ts
+        if best is not None:
+            return best
+        # If no `latest-time` was present anywhere, fall back to `last-update`.
+        for ext in extents:
+            if not isinstance(ext, dict):
+                continue
+            ts = ext.get("last-update")
+            if isinstance(ts, str) and (best is None or ts > best):
+                best = ts
+        if best is not None:
+            return best
+    for key in ("latest-time", "last-update", "last_update", "end"):
+        ts = row.get(key)
+        if isinstance(ts, str):
+            return ts
+    return None
 
 
 def ts_ids_for_location(
@@ -137,10 +182,9 @@ def freshness_for_location(
         tsid = row.get("name") or row.get("timeseries-id") or row.get("time-series-id")
         if not isinstance(tsid, str) or not tsid.startswith(f"{location}."):
             continue
-        for key in ("last-update", "last_update", "latest-time", "end"):
-            ts = row.get(key)
-            if isinstance(ts, str) and (best is None or ts > best):
-                best = ts
+        ts = _row_latest_time(row)
+        if ts is not None and (best is None or ts > best):
+            best = ts
     return best
 
 
@@ -163,9 +207,21 @@ def enrich_locations(
     `public-name`, `long-name`, and `description`.
     """
     loc_payload = get_locations_catalog(office_id, use_cache=use_cache)
-    rows = list(_iter_location_entries(loc_payload))
+    raw_rows = list(_iter_location_entries(loc_payload))
     if like:
-        rows = [r for r in rows if _matches_like(r, like)]
+        raw_rows = [r for r in raw_rows if _matches_like(r, like)]
+
+    # The upstream catalog returns multiple rows per `name` (one per
+    # bounding-office / alias variant). Dedupe so the enriched response
+    # has at most one entry per location.
+    rows: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for r in raw_rows:
+        n = r.get("name") or r.get("location-id")
+        if not isinstance(n, str) or n in seen_names:
+            continue
+        seen_names.add(n)
+        rows.append(r)
 
     geopoints: list[GeoPoint] = [g for g in (_to_geopoint(r) for r in rows) if g is not None]
     geopoint_index = {(g.office_id, g.name): g for g in geopoints}
@@ -176,13 +232,12 @@ def enrich_locations(
     # `like` value so scoped and unscoped fetches never collide.
     ts_like: str | None = None
     if like:
-        matched_names = sorted({r.get("name") for r in rows if isinstance(r.get("name"), str)})
-        if not matched_names:
+        if not rows:
             return []
         # CDA's `like` parameter is a regex against the ts_id. Anchor at start
         # and alternate over the matched names so the response only contains
         # ts_ids whose location segment is one of them.
-        ts_like = f"^({'|'.join(re.escape(n) for n in matched_names)})\\."
+        ts_like = f"^({'|'.join(re.escape(r['name']) for r in rows)})\\."
     ts_payload = get_timeseries_catalog(office_id, like=ts_like, use_cache=use_cache)
     by_location: dict[str, list[str]] = {}
     by_location_last: dict[str, str | None] = {}
@@ -194,18 +249,15 @@ def enrich_locations(
         if parts is None:
             continue
         by_location.setdefault(parts.location, []).append(tsid)
-        for key in ("last-update", "last_update", "latest-time", "end"):
-            ts = ts_row.get(key)
-            if isinstance(ts, str):
-                cur = by_location_last.get(parts.location)
-                if cur is None or ts > cur:
-                    by_location_last[parts.location] = ts
+        ts = _row_latest_time(ts_row)
+        if ts is not None:
+            cur = by_location_last.get(parts.location)
+            if cur is None or ts > cur:
+                by_location_last[parts.location] = ts
 
     enriched: list[dict[str, Any]] = []
     for r in rows:
-        name = r.get("name") or r.get("location-id")
-        if not isinstance(name, str):
-            continue
+        name = r["name"]
         loc_ts = by_location.get(name, [])
         params = publishers.parameter_counts(loc_ts)
         pubs = [f.publisher for f in publishers.aggregate_publishers(loc_ts)]
