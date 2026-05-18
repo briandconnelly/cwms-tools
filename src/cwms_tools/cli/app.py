@@ -10,12 +10,14 @@ from cwms_tools import __version__
 from cwms_tools.cli.commands import config as config_cmd
 from cwms_tools.cli.commands import env as env_cmd
 from cwms_tools.cli.commands import fingerprint as fingerprint_cmd
+from cwms_tools.cli.commands import mcp as mcp_cmd
 from cwms_tools.cli.commands import place as place_cmd
 from cwms_tools.cli.commands import publisher as publisher_cmd
 from cwms_tools.cli.commands import region as region_cmd
 from cwms_tools.cli.commands import schema as schema_cmd
 from cwms_tools.cli.commands import value as value_cmd
 from cwms_tools.cli.commands import whoami as whoami_cmd
+from cwms_tools.cli.render import set_isolated, set_machine, set_no_cache
 
 
 def _version_callback(value: bool) -> None:
@@ -48,8 +50,45 @@ def _root(
             callback=_version_callback,
         ),
     ] = False,
+    machine: Annotated[
+        bool,
+        typer.Option(
+            "--machine",
+            help=(
+                "Machine profile: compact JSON to stdout, no color/progress/prompts. "
+                "Auto-enabled when stdout is not a TTY."
+            ),
+        ),
+    ] = False,
+    json_flag: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Narrower alias for --machine (output format only).",
+        ),
+    ] = False,
+    no_cache: Annotated[
+        bool,
+        typer.Option(
+            "--no-cache",
+            help="Bypass the on-disk cache for this invocation.",
+        ),
+    ] = False,
+    isolated: Annotated[
+        bool,
+        typer.Option(
+            "--isolated",
+            help="Bypass on-disk cache AND environment-driven config; for repro runs.",
+        ),
+    ] = False,
 ) -> None:
-    """Root callback. Subcommands land in later milestones."""
+    """Root callback. Wires the global flags into render state."""
+    if machine or json_flag:
+        set_machine(True)
+    if no_cache:
+        set_no_cache(True)
+    if isolated:
+        set_isolated(True)
 
 
 # Inspection affordances required by agent-friendly-cli when ambient state is read.
@@ -68,6 +107,9 @@ app.add_typer(value_cmd.app, name="value")
 
 # Publisher index helper (M6).
 app.add_typer(publisher_cmd.app, name="publisher")
+
+# MCP server (M7).
+app.add_typer(mcp_cmd.app, name="mcp")
 
 
 if __name__ == "__main__":  # pragma: no cover

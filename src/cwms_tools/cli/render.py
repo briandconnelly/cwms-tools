@@ -18,12 +18,33 @@ import typer
 # whenever stdout is not a TTY, regardless of flags. Explicit `--machine` /
 # `--json` flags also force it on.
 
+_state: dict[str, bool] = {"machine": False, "isolated": False, "no_cache": False}
+
+
+def set_machine(value: bool) -> None:
+    _state["machine"] = bool(value)
+
+
+def set_isolated(value: bool) -> None:
+    _state["isolated"] = bool(value)
+    if value:
+        # Mark for downstream consumers (cache/session).
+        os.environ["_CWMS_TOOLS_ISOLATED"] = "1"
+        os.environ["_CWMS_TOOLS_NO_CACHE"] = "1"
+
+
+def set_no_cache(value: bool) -> None:
+    _state["no_cache"] = bool(value)
+    if value:
+        os.environ["_CWMS_TOOLS_NO_CACHE"] = "1"
+
 
 class OutputMode:
     """Resolved output mode for a single CLI invocation."""
 
-    def __init__(self, *, machine: bool = False, json_only: bool = False) -> None:
-        self.machine = machine or json_only or not sys.stdout.isatty()
+    def __init__(self, *, machine: bool | None = None, json_only: bool = False) -> None:
+        flag_set = _state["machine"] if machine is None else bool(machine)
+        self.machine = flag_set or json_only or not sys.stdout.isatty()
         self.json_only = json_only or self.machine
 
     @property
@@ -56,7 +77,21 @@ def diagnostic(message: str) -> None:
 
 def isolated() -> bool:
     """Return True if the caller asked to bypass on-disk cache + env reads."""
-    return os.environ.get("_CWMS_TOOLS_ISOLATED") == "1"
+    return _state["isolated"] or os.environ.get("_CWMS_TOOLS_ISOLATED") == "1"
 
 
-__all__ = ["OutputMode", "diagnostic", "emit", "isolated"]
+def no_cache() -> bool:
+    """Return True if the caller asked to bypass on-disk cache."""
+    return _state["no_cache"] or _state["isolated"] or os.environ.get("_CWMS_TOOLS_NO_CACHE") == "1"
+
+
+__all__ = [
+    "OutputMode",
+    "diagnostic",
+    "emit",
+    "isolated",
+    "no_cache",
+    "set_isolated",
+    "set_machine",
+    "set_no_cache",
+]

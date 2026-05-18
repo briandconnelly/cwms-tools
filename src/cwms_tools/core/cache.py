@@ -122,6 +122,9 @@ class Cache:
         return self._dir
 
     def get(self, key: str) -> Any | None:
+        # Global bypass flag: `--no-cache` / `--isolated` on the CLI.
+        if os.environ.get("_CWMS_TOOLS_NO_CACHE") == "1":
+            return None
         hit = self._l1.get(key)
         if hit is not None:
             return hit
