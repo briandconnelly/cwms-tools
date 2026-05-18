@@ -60,31 +60,58 @@ on CWMS Data API are public).
 
 ## CLI quick-start
 
-> _Examples below are placeholders for the v0.1.0 surface. Each
-> example will be replaced with verified output as the corresponding
-> command lands in M3–M7._
-
 ```bash
-# Search for a place
-uv run cwms-tools place search "Fort Peck" --machine
+# What does this install think it is, and what does it know how to do?
+$ uv run cwms-tools whoami
+{
+  "identity": "anonymous",
+  "api_root": "https://cwms-data.usace.army.mil/cwms-data/",
+  "user_agent": "cwms-tools/0.1.0 (+https://github.com/bdc/cwms-tools) cwms-python/1.0.7",
+  "operator_email": null
+}
 
-# Get the current pool elevation with status context
-uv run cwms-tools value get NWDM/FTPK/Elev --machine
+$ uv run cwms-tools fingerprint
+{
+  "fingerprint": "2a627f55864d017fe2dfaad4e0aebd8baac9e551046c6ef35a4cebdf054bb488",
+  "scope": "schema-contract"
+}
 
-# Describe a project in detail (parameters, publishers, freshness)
-uv run cwms-tools place describe SWT/FOSS --machine
+# Resolve a place name -> ranked, ghost-filtered location matches
+$ uv run cwms-tools place search "Fort Peck" --office NWDM
+
+# Latest value at a place + inline status classification (one tool call)
+$ uv run cwms-tools value get NWDM/FTPK/Elev
+
+# Describe a project: location + project metadata + publisher fingerprint
+$ uv run cwms-tools place describe NWDM/FTPK
+
+# Catalog browse with bbox or state filter
+$ uv run cwms-tools region browse --office SWT --state OK
+
+# Which publishers report on a parameter, across cached offices
+$ uv run cwms-tools publisher for-parameter Elev --office NWDM --office SWT
+
+# Windowed history with summary or full detail
+$ uv run cwms-tools value history NWDM/FTPK/Elev \
+    --begin 2026-05-16T00:00:00Z --end 2026-05-17T00:00:00Z
 ```
 
-## MCP quick-start
+Top-level flags: `--machine` (compact JSON, auto-enabled on non-TTY),
+`--json` (alias), `--no-cache`, `--isolated`, `--version`.
 
-> _Examples below will be verified as part of M8._
+Exit codes follow `agent-friendly-cli`: `2` usage, `3` not_found,
+`6` rate_limited, `7` timeout, `11` wrapper_bug, `12` ghost.
+Every command emits structured JSON on stdout; diagnostics go to
+stderr.
+
+## MCP quick-start
 
 ```bash
 # stdio (local agent runtime)
 uv run cwms-tools mcp serve --transport stdio
 
 # streamable HTTP (remote / shared deployment)
-uv run cwms-tools mcp serve --transport http --port 8765
+uv run cwms-tools mcp serve --transport streamable-http --port 8765
 ```
 
 Claude Code config snippet:
