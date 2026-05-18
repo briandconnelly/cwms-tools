@@ -8,11 +8,12 @@ tool call instead of five**.
 
 ## Status
 
-**v0.1.0 — pre-PyPI, read-only, alpha.** See [CHANGELOG.md](CHANGELOG.md).
+Pre-PyPI, read-only, alpha. See [CHANGELOG.md](CHANGELOG.md) for the
+release history.
 
 ## What it does / doesn't do
 
-**Does** (v0.1.0)
+**Does**
 
 - Resolve place names to canonical CWMS locations, with ghost
   filtering and co-located variant detection.
@@ -22,12 +23,12 @@ tool call instead of five**.
 - Surface the `cwms-overview.md` knowledge as a queryable MCP
   resource — agents don't have to pre-load it.
 
-**Does not** (v0.1.0)
+**Does not**
 
-- Write / store / delete anything.
-- Forecast retrieval (deferred to v0.2).
-- USGS, NOAA, or any non-CWMS data sources.
-- DSS or XML file decoding.
+- Write, store, or delete any CWMS data.
+- Retrieve forecasts.
+- Serve USGS, NOAA, or any non-CWMS data sources.
+- Decode DSS or XML file attachments.
 
 ## What CWMS is
 
@@ -55,8 +56,8 @@ Once on PyPI:
 uv add cwms-tools
 ```
 
-Python 3.10+. No authentication required for v0.1.0 (read endpoints
-on CWMS Data API are public).
+Python 3.10+. No authentication required — the CWMS Data API's read
+endpoints are public.
 
 ## CLI quick-start
 
@@ -154,11 +155,10 @@ knowing exist:
 This package treats the CWMS Data API as a shared public resource.
 We identify ourselves with a descriptive `User-Agent`, cap concurrent
 requests, honor `Retry-After` headers, and never run background
-catalog scans. (`CWMS_TOOLS_MAX_RPS` is declared in the schema but
-not enforced in v0.1.0.) If you operate the upstream service and
-this client is misbehaving, please open an issue at
-<https://github.com/briandconnelly/cwms-tools/issues> and we will ship a point
-release that the cache namespace key invalidates against.
+catalog scans. If you operate the upstream service and this client is
+misbehaving, please open an issue at
+<https://github.com/briandconnelly/cwms-tools/issues> and we will
+ship a point release that the cache namespace key invalidates against.
 
 ## Development
 
@@ -169,8 +169,7 @@ uv run pytest --cov=cwms_tools           # full test suite
 uv run ty check                          # type check
 ```
 
-CONTRIBUTING.md is deferred to v0.2; until then, please open an
-issue before sending non-trivial PRs.
+Please open an issue before sending non-trivial PRs.
 
 ## License
 
