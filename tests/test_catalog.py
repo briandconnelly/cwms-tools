@@ -183,3 +183,44 @@ def test_ts_ids_for_location_filters_by_prefix(configured, mocked) -> None:
     tsids = catalog.ts_ids_for_location("SWT", "FOSS")
     assert all(t.startswith("FOSS.") for t in tsids)
     assert len(tsids) == 3
+
+
+def test_enrich_locations_scopes_ts_catalog_query_to_matched_names(configured, mocked) -> None:
+    """When a `like` filter is in play, the ts catalog query carries a regex
+    that restricts the response to ts_ids whose location segment is one of
+    the matched names — avoiding a multi-megabyte fetch of an office's full
+    ts catalog on what should be a tight name search."""
+    _arm(
+        mocked,
+        locations_payload=SWT_LOCATIONS_PAYLOAD,
+        timeseries_payload=SWT_TIMESERIES_PAYLOAD,
+    )
+    catalog.enrich_locations("SWT", like="FOSS")
+    ts_calls = [c for c in mocked.calls if "catalog/TIMESERIES" in c.request.url]
+    assert ts_calls, "ts catalog should be queried"
+    from urllib.parse import unquote
+
+    url = unquote(ts_calls[-1].request.url)
+    # The matched names (FOSS, FOSS-bl_1500) appear as an anchored,
+    # alternation regex prefix: `like=^(FOSS|FOSS\-bl_1500)\.`.
+    assert "like=^(" in url
+    assert "FOSS" in url
+    assert r"FOSS\-bl_1500" in url  # re.escape adds the backslash
+
+
+def test_enrich_locations_returns_empty_when_name_filter_matches_nothing(
+    configured, mocked
+) -> None:
+    """If the name filter matches no locations, skip the ts catalog fetch
+    entirely — there is nothing to enrich and the second round trip would be
+    wasted."""
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/LOCATIONS",
+        json={"locations": []},
+        status=200,
+    )
+    out = catalog.enrich_locations("SWT", like="DefinitelyNotAPlaceName")
+    assert out == []
+    ts_calls = [c for c in mocked.calls if "catalog/TIMESERIES" in c.request.url]
+    assert not ts_calls, "no ts catalog query should be made for an empty match set"

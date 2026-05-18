@@ -14,6 +14,7 @@ front of both. Live CDA hits go through `core.session` for the User-Agent
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import cwms.catalog.catalog as catalog_api
@@ -162,7 +163,20 @@ def enrich_locations(
     geopoints: list[GeoPoint] = [g for g in (_to_geopoint(r) for r in rows) if g is not None]
     geopoint_index = {(g.office_id, g.name): g for g in geopoints}
 
-    ts_payload = get_timeseries_catalog(office_id, use_cache=use_cache)
+    # Scope the ts-catalog query to the matched names when a name filter is in
+    # play. The full ts catalog for a big office is tens of thousands of rows;
+    # a name-scoped query is typically dozens. The cache key includes the
+    # `like` value so scoped and unscoped fetches never collide.
+    ts_like: str | None = None
+    if like:
+        matched_names = sorted({r.get("name") for r in rows if isinstance(r.get("name"), str)})
+        if not matched_names:
+            return []
+        # CDA's `like` parameter is a regex against the ts_id. Anchor at start
+        # and alternate over the matched names so the response only contains
+        # ts_ids whose location segment is one of them.
+        ts_like = f"^({'|'.join(re.escape(n) for n in matched_names)})\\."
+    ts_payload = get_timeseries_catalog(office_id, like=ts_like, use_cache=use_cache)
     by_location: dict[str, list[str]] = {}
     by_location_last: dict[str, str | None] = {}
     for ts_row in _iter_ts_entries(ts_payload):
