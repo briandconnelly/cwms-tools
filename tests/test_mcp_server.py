@@ -108,6 +108,32 @@ def test_overview_section_tool_returns_not_found_payload_for_bad_slug(server) ->
     assert branch["repair"]["tool"] == "cwms_get_overview_section"
 
 
+def test_place_tools_register_with_read_only_hint(server) -> None:
+    """The four M4 place tools must register cleanly with read-only annotations."""
+
+    async def go() -> dict[str, bool]:
+        tools = {t.name: t for t in await server.list_tools()}
+        return {
+            name: tools[name].annotations.readOnlyHint  # type: ignore[union-attr]
+            for name in (
+                "cwms_search_places",
+                "cwms_describe_place",
+                "cwms_list_parameters",
+                "cwms_browse_region",
+            )
+            if name in tools
+        }
+
+    found = asyncio.run(go())
+    assert set(found.keys()) == {
+        "cwms_search_places",
+        "cwms_describe_place",
+        "cwms_list_parameters",
+        "cwms_browse_region",
+    }
+    assert all(found.values())
+
+
 def test_overview_section_tool_returns_section_for_good_slug(server) -> None:
     sid = overview.section_ids()[0]
 

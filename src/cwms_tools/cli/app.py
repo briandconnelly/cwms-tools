@@ -10,6 +10,8 @@ from cwms_tools import __version__
 from cwms_tools.cli.commands import config as config_cmd
 from cwms_tools.cli.commands import env as env_cmd
 from cwms_tools.cli.commands import fingerprint as fingerprint_cmd
+from cwms_tools.cli.commands import place as place_cmd
+from cwms_tools.cli.commands import region as region_cmd
 from cwms_tools.cli.commands import schema as schema_cmd
 from cwms_tools.cli.commands import whoami as whoami_cmd
 
@@ -54,6 +56,10 @@ app.add_typer(env_cmd.app, name="env")
 app.add_typer(config_cmd.app, name="config")
 app.add_typer(fingerprint_cmd.app, name="fingerprint")
 app.add_typer(schema_cmd.app, name="schema")
+
+# Place / region task tools (M4).
+app.add_typer(place_cmd.app, name="place")
+app.add_typer(region_cmd.app, name="region")
 
 
 if __name__ == "__main__":  # pragma: no cover
