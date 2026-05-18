@@ -9,7 +9,11 @@ import typer
 from cwms_tools.cli.render import emit
 
 app = typer.Typer(
-    name="env", help="Show the CWMS_TOOLS_* env vars the CLI reads and their resolved values."
+    name="env",
+    help=(
+        "List the CWMS_TOOLS_* environment variables the CLI reads, their "
+        "resolved values, and which are secret (redacted in output)."
+    ),
 )
 
 # Single source of truth for which env vars we read. Used both here and by the
@@ -40,7 +44,7 @@ def _redacted(name: str, value: str) -> str:
 
 @app.callback(invoke_without_command=True)
 def env_cmd() -> None:
-    """Emit the env vars we read, their values (redacted where appropriate)."""
+    """Print each tracked env var, whether it is set, and its (redacted) value."""
     rows: list[dict[str, str | None]] = []
     for name in READ_VARS:
         raw = os.environ.get(name)

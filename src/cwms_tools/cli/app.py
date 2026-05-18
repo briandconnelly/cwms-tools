@@ -29,9 +29,10 @@ def _version_callback(value: bool) -> None:
 app = typer.Typer(
     name="cwms-tools",
     help=(
-        "Agent-friendly tools for the USACE CWMS Data API. "
-        "Provides task-completing commands and an MCP server "
-        "(`cwms-tools mcp serve`) over a shared behavioral core."
+        "Read-only CLI and MCP server for the USACE CWMS Data API. "
+        "Task-completing commands (search a place, get current value with "
+        "status context, browse an office's catalog) and an MCP server "
+        "(`cwms-tools mcp serve`) share one behavioral core."
     ),
     no_args_is_help=True,
     rich_markup_mode="rich",
@@ -55,8 +56,9 @@ def _root(
         typer.Option(
             "--machine",
             help=(
-                "Machine profile: compact JSON to stdout, no color/progress/prompts. "
-                "Auto-enabled when stdout is not a TTY."
+                "Machine-readable output: compact JSON on stdout, no color, "
+                "no progress indicators, no interactive prompts. "
+                "Auto-enabled when stdout is not a terminal."
             ),
         ),
     ] = False,
@@ -64,25 +66,34 @@ def _root(
         bool,
         typer.Option(
             "--json",
-            help="Narrower alias for --machine (output format only).",
+            help=(
+                "Alias for --machine. Provided so callers used to the convention "
+                "of passing --json can use it without learning a new flag."
+            ),
         ),
     ] = False,
     no_cache: Annotated[
         bool,
         typer.Option(
             "--no-cache",
-            help="Bypass the on-disk cache for this invocation.",
+            help=(
+                "Bypass the on-disk catalog cache for this invocation. "
+                "Environment variables and resolved session config still apply."
+            ),
         ),
     ] = False,
     isolated: Annotated[
         bool,
         typer.Option(
             "--isolated",
-            help="Bypass on-disk cache AND environment-driven config; for repro runs.",
+            help=(
+                "Bypass on-disk cache and ignore CWMS_TOOLS_* environment "
+                "variables. Useful for reproducibility checks."
+            ),
         ),
     ] = False,
 ) -> None:
-    """Root callback. Wires the global flags into render state."""
+    """Root command. Subcommands listed below; -h on any subcommand for details."""
     if machine or json_flag:
         set_machine(True)
     if no_cache:

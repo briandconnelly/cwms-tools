@@ -11,7 +11,10 @@ from cwms_tools.core import publishers_index
 
 app = typer.Typer(
     name="publisher",
-    help="Publisher-related queries (§9.8).",
+    help=(
+        "Queries about CWMS publishers — the operational teams and data "
+        "pipelines that produce timeseries (the version segment of a ts_id)."
+    ),
     no_args_is_help=True,
 )
 
@@ -20,21 +23,26 @@ app = typer.Typer(
 def for_parameter(
     parameter: Annotated[
         str,
-        typer.Argument(help="Parameter code (e.g. Elev, Flow-Out)."),
+        typer.Argument(help="Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage)."),
     ],
     office: Annotated[
         list[str] | None,
         typer.Option(
             "--office",
             "-o",
-            help="Limit to these offices; can repeat. Defaults to cached offices.",
+            help=(
+                "Office code (e.g. NWDM, SWT). Repeat to query several. "
+                "If omitted, only offices already in cache are scanned; "
+                "the index does not implicitly fan out to every office."
+            ),
         ),
     ] = None,
 ) -> None:
-    """List publishers reporting a parameter across the requested offices.
+    """List the publishers that report a parameter, with explicit coverage.
 
-    Without `--office`, the index uses only offices already cached locally —
-    we deliberately do NOT fan out to all 68 offices implicitly.
+    Bounded by a per-call budget: offices that exceed the budget land in
+    `coverage.offices_skipped_for_budget` with a `repair` hint pointing
+    back at this command so you can continue the index in chunks.
     """
     payload = publishers_index.publishers_for_parameter(
         parameter,

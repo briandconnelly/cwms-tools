@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Detail(str, Enum):
-    """The `detail` toggle accepted by every tool that returns more than a scalar."""
+    """Response density: 'summary' is the compact default; 'full' includes verbose upstream fields and per-point quality codes where applicable."""  # noqa: E501
 
     SUMMARY = "summary"
     FULL = "full"

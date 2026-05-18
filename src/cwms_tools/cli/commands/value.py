@@ -15,7 +15,10 @@ from cwms_tools.core.models import Detail
 
 app = typer.Typer(
     name="value",
-    help="Current value (with status context) and windowed history at a CWMS location.",
+    help=(
+        "Read CWMS observations: the latest value (with inline status "
+        "classification) and a windowed history."
+    ),
     no_args_is_help=True,
 )
 
@@ -43,25 +46,42 @@ def _parse_id(spec: str) -> tuple[str, str, str]:
 def get(
     id_specs: Annotated[
         list[str],
-        typer.Argument(help="One or more `OFFICE/NAME/PARAMETER` ids."),
+        typer.Argument(
+            help=(
+                "One or more place/parameter ids, each in OFFICE/NAME/PARAMETER "
+                "form (e.g. NWDM/FTPK/Elev SWT/FOSS/Elev)."
+            )
+        ),
     ],
     window_hours: Annotated[
         int,
-        typer.Option("--window-hours", help="How far back to search for the most recent value."),
+        typer.Option(
+            "--window-hours",
+            help="How far back to search for the most recent value, in hours.",
+        ),
     ] = 24,
     unit: Annotated[
         str,
-        typer.Option("--unit", help="Unit system: EN or SI."),
+        typer.Option(
+            "--unit",
+            help="Unit system: 'EN' (English: ft, cfs) or 'SI' (metric: m, cms).",
+        ),
     ] = "EN",
     detail: Annotated[
         Detail,
-        typer.Option("--detail", help="Response density (summary or full)."),
+        typer.Option(
+            "--detail",
+            help="'summary' drops chatty per-threshold internals; 'full' keeps them.",
+        ),
     ] = Detail.SUMMARY,
 ) -> None:
-    """Latest value with inline status classification.
+    """Get the latest observation for one or more place/parameters.
 
-    Accepts multiple ids. Per-item errors land inline; the process exits
-    non-zero on any failure (§"Batch / multi-item semantics" of the plan).
+    Each result carries `status_class` (nominal, watch, action, flood,
+    unknown) computed against the applicable thresholds. With multiple
+    ids the response is a batch envelope: per-item results land inline,
+    `partial: true` is set when any item failed, and the process exits
+    non-zero on partial failure.
     """
     results: list[dict] = []
     ok_count = 0
@@ -111,26 +131,44 @@ def get(
 def history(
     id_spec: Annotated[
         str,
-        typer.Argument(help="`OFFICE/NAME/PARAMETER` id, e.g. `SWT/FOSS/Elev`."),
+        typer.Argument(
+            help="Place/parameter id in OFFICE/NAME/PARAMETER form (e.g. SWT/FOSS/Elev)."
+        ),
     ],
     begin: Annotated[
         str,
-        typer.Option("--begin", help="Window start, RFC3339 (e.g. 2026-05-17T00:00:00Z)."),
+        typer.Option(
+            "--begin",
+            help="Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z).",
+        ),
     ],
     end: Annotated[
         str,
-        typer.Option("--end", help="Window end, RFC3339."),
+        typer.Option(
+            "--end",
+            help="Window end as an RFC3339 timestamp.",
+        ),
     ],
     unit: Annotated[
         str,
-        typer.Option("--unit", help="Unit system: EN or SI."),
+        typer.Option(
+            "--unit",
+            help="Unit system: 'EN' (English: ft, cfs) or 'SI' (metric: m, cms).",
+        ),
     ] = "EN",
     detail: Annotated[
         Detail,
-        typer.Option("--detail", help="Response density (summary or full)."),
+        typer.Option(
+            "--detail",
+            help="'summary' omits per-point quality codes; 'full' includes them.",
+        ),
     ] = Detail.SUMMARY,
 ) -> None:
-    """Windowed history for one parameter at one location (§9.2)."""
+    """Read a windowed history of one parameter at one place.
+
+    Sets `truncated: true` with a `truncation_hint` when the upstream
+    page cap (300,000 points) clipped the requested window.
+    """
     office, name, parameter = _parse_id(id_spec)
     try:
         begin_dt = datetime.fromisoformat(begin.replace("Z", "+00:00"))

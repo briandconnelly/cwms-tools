@@ -24,7 +24,10 @@ from cwms_tools.mcp.server import build_server
 
 app = typer.Typer(
     name="mcp",
-    help="Run the cwms-tools MCP server.",
+    help=(
+        "Run the cwms-tools MCP server. Exposes the same task tools as "
+        "the CLI to MCP-aware agent runtimes (Claude Code, Codex, etc.)."
+    ),
     no_args_is_help=True,
 )
 
@@ -60,24 +63,33 @@ def serve(
         str,
         typer.Option(
             "--transport",
-            help="MCP transport: stdio | streamable-http",
+            help=(
+                "MCP transport. 'stdio' speaks JSON-RPC over stdin/stdout "
+                "and is the right choice for local agent runtimes. "
+                "'streamable-http' binds an HTTP listener for shared/remote use."
+            ),
             case_sensitive=False,
         ),
     ] = "stdio",
     host: Annotated[
         str,
-        typer.Option("--host", help="HTTP bind host (only used for streamable-http)."),
+        typer.Option(
+            "--host",
+            help="HTTP bind host. Only used when --transport is streamable-http.",
+        ),
     ] = "127.0.0.1",
     port: Annotated[
         int,
-        typer.Option("--port", help="HTTP bind port (only used for streamable-http)."),
+        typer.Option(
+            "--port",
+            help="HTTP bind port. Only used when --transport is streamable-http.",
+        ),
     ] = 8765,
 ) -> None:
-    """Launch the MCP server.
+    """Launch the cwms-tools MCP server.
 
-    Examples:
-      cwms-tools mcp serve --transport stdio
-      cwms-tools mcp serve --transport streamable-http --port 8765
+    Local example:    cwms-tools mcp serve --transport stdio
+    Remote example:   cwms-tools mcp serve --transport streamable-http --port 8765
     """
     transport_norm = transport.lower().strip()
     server: Any = build_server()

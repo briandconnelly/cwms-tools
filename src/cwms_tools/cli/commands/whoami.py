@@ -1,4 +1,4 @@
-"""`cwms-tools whoami` — auth identity (always `anonymous` in v0.1.0)."""
+"""`cwms-tools whoami` — print the resolved CWMS auth identity."""
 
 from __future__ import annotations
 
@@ -7,12 +7,19 @@ import typer
 from cwms_tools.cli.render import emit
 from cwms_tools.core.session import current_config
 
-app = typer.Typer(name="whoami", help="Print the current auth identity (anonymous in v0.1.0).")
+app = typer.Typer(
+    name="whoami",
+    help=(
+        "Print the resolved CWMS auth identity. The CWMS Data API's read "
+        "endpoints are public, so the identity is `anonymous` unless a "
+        "future release adds authenticated write paths."
+    ),
+)
 
 
 @app.callback(invoke_without_command=True)
 def whoami() -> None:
-    """Emit the resolved auth identity and minimum configuration to disambiguate it."""
+    """Emit the resolved auth identity and the session config that produced it."""
     cfg = current_config()
     emit(
         {
