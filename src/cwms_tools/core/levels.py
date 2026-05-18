@@ -14,7 +14,7 @@ either null or > window start.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -253,16 +253,18 @@ def _seasonal_workaround(
 
     The wrapper's `get_level_as_timeseries` returns wrong values for seasonal
     levels (cwms-python issue #286 — see cwms-overview.md §8). The fix is to
-    bypass it and hit the underlying endpoint; we narrow the window to a
-    single hour around `effective_date` and read the first value.
+    bypass it and hit the underlying endpoint with both the resolved
+    `effective-date` (which level revision to use) and a sensible 1-hour
+    query window starting at `effective_date`.
     """
-    begin = effective_date.isoformat()
-    end = effective_date.isoformat()
+
+    window_end = effective_date + timedelta(hours=1)
     quoted = quote(level_id, safe="")
     params = {
         "office": office,
-        "begin": begin,
-        "end": end,
+        "effective-date": effective_date.isoformat(),
+        "begin": effective_date.isoformat(),
+        "end": window_end.isoformat(),
         "interval": "1Hour",
         "unit": unit,
     }

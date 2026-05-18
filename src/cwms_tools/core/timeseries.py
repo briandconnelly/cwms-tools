@@ -58,7 +58,7 @@ def fetch_window(
         multithread=False,
     )
     payload = data.json if hasattr(data, "json") else data
-    truncated = _detect_truncation(payload)
+    truncated = _detect_truncation(payload, requested_end=end)
     return {
         "ts_id": ts_id,
         "office_id": office,
@@ -125,11 +125,27 @@ def require_canonical_ts_id(
     return tsid
 
 
-def _detect_truncation(payload: dict[str, Any]) -> bool:
+def _detect_truncation(payload: dict[str, Any], *, requested_end: datetime) -> bool:
+    """Flag truncation only when the upstream returned the page-cap count AND
+    the last point timestamp is earlier than the requested end of window.
+
+    The bare row-count check is necessary but not sufficient — many small
+    windows naturally return < 300 000 points; many large windows that we
+    fully fulfill happen to return exactly the cap. We also require a gap
+    between the last returned timestamp and the requested end.
+    """
     values = payload.get("values")
-    if not isinstance(values, list):
+    if not isinstance(values, list) or len(values) < _UPSTREAM_PAGE_SIZE_CAP:
         return False
-    return len(values) >= _UPSTREAM_PAGE_SIZE_CAP
+    last_ms: int | None = None
+    for row in reversed(values):
+        if isinstance(row, list) and row and isinstance(row[0], (int, float)):
+            last_ms = int(row[0])
+            break
+    if last_ms is None:
+        return True  # cap-sized response with no parseable timestamp; safer to flag
+    last_dt = datetime.fromtimestamp(last_ms / 1000, tz=timezone.utc)
+    return last_dt < requested_end
 
 
 def _values_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:

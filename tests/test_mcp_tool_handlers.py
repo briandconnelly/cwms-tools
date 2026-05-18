@@ -125,6 +125,10 @@ def test_search_places_handler(configured) -> None:
         result = _call(server, "cwms_search_places", {"query": "FOSS", "office": "SWT"})
     payload = _branch(result.structured_content)
     assert payload["results"][0]["name"] == "FOSS"
+    # M9 envelope: every successful task response must carry source.fingerprint.
+    assert "source" in payload
+    assert "fingerprint" in payload["source"]
+    assert len(payload["source"]["fingerprint"]) == 64
 
 
 def test_describe_place_handler_strips_in_summary(configured) -> None:
@@ -235,8 +239,9 @@ def test_get_history_handler_returns_values(configured) -> None:
         )
     payload = _branch(result.structured_content)
     assert payload["value_count"] == 1
-    # Summary mode strips the `quality` column.
-    assert "quality" not in payload["values"][0]
+    # In summary mode quality codes are surfaced as null; the field stays in
+    # the schema so a single parser handles both detail levels.
+    assert payload["values"][0]["quality"] is None
 
 
 def test_publishers_for_parameter_handler(configured) -> None:

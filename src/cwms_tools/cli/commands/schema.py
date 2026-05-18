@@ -43,14 +43,78 @@ def _schema_payload() -> dict[str, Any]:
     }
 
 
-def _commands() -> list[dict[str, str]]:
-    """v0.1.0 command surface; extended by later milestones."""
+def _commands() -> list[dict[str, Any]]:
+    """v0.1.0 command surface. Updates here are part of the capability fingerprint."""
     return [
-        {"path": "cwms-tools whoami", "output_class": "record"},
-        {"path": "cwms-tools env", "output_class": "record"},
-        {"path": "cwms-tools config show --resolved", "output_class": "record"},
-        {"path": "cwms-tools fingerprint", "output_class": "record"},
-        {"path": "cwms-tools schema", "output_class": "record"},
+        # Inspection affordances.
+        {"path": "cwms-tools whoami", "output_class": "record", "reads_stdin": False},
+        {"path": "cwms-tools env", "output_class": "record", "reads_stdin": False},
+        {
+            "path": "cwms-tools config show --resolved",
+            "output_class": "record",
+            "reads_stdin": False,
+        },
+        {"path": "cwms-tools fingerprint", "output_class": "record", "reads_stdin": False},
+        {"path": "cwms-tools schema", "output_class": "record", "reads_stdin": False},
+        # Place tools (M4).
+        {
+            "path": "cwms-tools place search <query> --office <office>",
+            "output_class": "list",
+            "reads_stdin": False,
+        },
+        {
+            "path": "cwms-tools place describe <office>/<name>",
+            "output_class": "record",
+            "reads_stdin": False,
+        },
+        {
+            "path": "cwms-tools place parameters <office>/<name>",
+            "output_class": "record",
+            "reads_stdin": False,
+        },
+        # Region browse (M4).
+        {
+            "path": (
+                "cwms-tools region browse --office <office> "
+                "[--south N --west N --north N --east N] [--state XX]"
+            ),
+            "output_class": "list",
+            "reads_stdin": False,
+        },
+        # Value tools (M5).
+        {
+            "path": (
+                "cwms-tools value get <office>/<name>/<param>... "
+                "[--window-hours N] [--unit EN|SI] [--detail summary|full]"
+            ),
+            "output_class": "bulk-result",
+            "reads_stdin": False,
+            "supports_partial_failure": True,
+            "partial_failure": "non-zero exit on any item failure; per-item errors inline",
+        },
+        {
+            "path": (
+                "cwms-tools value history <office>/<name>/<param> "
+                "--begin <RFC3339> --end <RFC3339> [--unit EN|SI] [--detail summary|full]"
+            ),
+            "output_class": "record",
+            "reads_stdin": False,
+        },
+        # Publisher index (M6).
+        {
+            "path": "cwms-tools publisher for-parameter <param> [--office X]*",
+            "output_class": "record",
+            "reads_stdin": False,
+        },
+        # MCP server (M7).
+        {
+            "path": (
+                "cwms-tools mcp serve --transport stdio|streamable-http [--host H] [--port P]"
+            ),
+            "output_class": "stream",
+            "reads_stdin": True,
+            "notes": "stdio transport reserves stdout for the JSON-RPC channel",
+        },
     ]
 
 

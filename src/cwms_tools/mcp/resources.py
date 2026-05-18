@@ -37,14 +37,16 @@ TOOL_INVENTORY: list[str] = [
     "cwms_get_overview_section",
 ]
 
-#: Resource inventory — also kept here for the capability summary.
+#: Resource inventory — also kept here for the capability summary. Only resources
+#: actually registered on `build_server()` belong here, otherwise the capability
+#: summary advertises endpoints that 404 (Codex review M9 #4). `cwms://offices` and
+#: `cwms://parameters` are deferred to v0.2 alongside the `cwms_publishers_for_parameter`
+#: bulk index work.
 RESOURCE_INVENTORY: list[dict[str, str]] = [
     {"uri": "cwms://capabilities", "mime_type": "application/json"},
     {"uri": "cwms://overview", "mime_type": "application/json"},
-    {"uri": "cwms://overview/{section_id}{?detail}", "mime_type": "text/markdown"},
-    {"uri": "cwms://overview/{section_id}/chunk/{chunk_id}", "mime_type": "text/markdown"},
-    {"uri": "cwms://offices", "mime_type": "application/json"},
-    {"uri": "cwms://parameters", "mime_type": "application/json"},
+    {"uri": "cwms://overview/{section_id}{?detail}", "mime_type": "application/json"},
+    {"uri": "cwms://overview/{section_id}/chunk/{chunk_id}", "mime_type": "application/json"},
 ]
 
 

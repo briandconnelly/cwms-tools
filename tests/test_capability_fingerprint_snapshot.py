@@ -86,8 +86,6 @@ def test_v0_1_0_tool_inventory_pins_expected_tools(expected_tool: str) -> None:
         "cwms://overview",
         "cwms://overview/{section_id}{?detail}",
         "cwms://overview/{section_id}/chunk/{chunk_id}",
-        "cwms://offices",
-        "cwms://parameters",
     ],
 )
 def test_v0_1_0_resource_inventory_pins_expected_uris(expected_uri: str) -> None:

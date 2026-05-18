@@ -142,5 +142,5 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
 ]
-fail_under = 0  # raised to 95 in M8
+fail_under = 80  # v0.1.0 floor; raise toward 95 as wrapper-error paths get hit
 show_missing = true

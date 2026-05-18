@@ -4,6 +4,10 @@ Tools land here as `register_*` functions invoked from `mcp/server.py`. Each
 function takes the FastMCP instance and adds its tools. Keeping the
 registration out of the top-level `build_server` keeps that function
 declarative and short as more tools land in later milestones.
+
+Every successful tool response carries a `source.fingerprint` field (the
+capability fingerprint at call time). Error responses use the structured
+`{ok: false, error: {...}}` envelope.
 """
 
 from __future__ import annotations
@@ -11,13 +15,34 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Any
 
-from cwms_tools.core import concurrency, places, publishers_index, values
+from cwms_tools.core import concurrency, fingerprint, places, publishers_index, values
 from cwms_tools.core.errors import CwmsToolsError
 from cwms_tools.core.geo import BBox
-from cwms_tools.core.models import Detail
+from cwms_tools.core.models import (
+    BrowseRegionResponse,
+    DescribePlaceResponse,
+    Detail,
+    ErrorRef,
+    HistoryResponse,
+    ListParametersResponse,
+    PublishersForParameterResponse,
+    SearchPlacesResponse,
+    SourceMeta,
+    ValueWithContextResponse,
+)
+from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_INVENTORY
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
+
+
+def _source(workaround: str | None = None) -> SourceMeta:
+    """Build the per-response provenance, including the capability fingerprint."""
+    fp = fingerprint.compute(
+        tools={name: {"name": name} for name in TOOL_INVENTORY},
+        resources=RESOURCE_INVENTORY,
+    )
+    return SourceMeta(fingerprint=fp, workaround=workaround)
 
 
 def register_place_tools(mcp: FastMCP) -> None:
@@ -30,7 +55,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         query: Annotated[str, "Name fragment to match (case-insensitive)"],
         office: Annotated[str, "USACE office code (e.g. NWDM, SWT, MVS)"],
         detail: Detail = Detail.SUMMARY,
-    ) -> dict[str, Any]:
+    ) -> SearchPlacesResponse | ErrorRef:
         """Resolve a place name in one call.
 
         Returns ghost-filtered, co-located, ranked location matches with
@@ -38,7 +63,12 @@ def register_place_tools(mcp: FastMCP) -> None:
         sort first; ghosts (parameter_count=0) are kept but at the bottom.
         Matches §9.1 steps 1-2 of cwms-overview.md.
         """
-        return _shape_detail(await _safe(places.search_places, query, office=office), detail)
+        raw = await _safe(places.search_places, query, office=office)
+        if raw.get("ok") is False:
+            return ErrorRef.model_validate(raw)
+        shaped = _shape_detail(raw, detail)
+        shaped["source"] = _source().model_dump(mode="json")
+        return SearchPlacesResponse.model_validate(shaped)
 
     @mcp.tool(
         annotations={"readOnlyHint": True, "title": "Describe a place"},
@@ -47,13 +77,15 @@ def register_place_tools(mcp: FastMCP) -> None:
         office: Annotated[str, "USACE office code (e.g. NWDM)"],
         name: Annotated[str, "Location id within the office"],
         detail: Detail = Detail.SUMMARY,
-    ) -> dict[str, Any]:
-        """Full Location + Project + parameter set + publisher fingerprint + freshness.
-
-        Carries `partial: true` and `partial_reasons` when any sub-call
-        falls back (e.g. get_project format-error). §9.9 / §9.6.
-        """
-        return _shape_detail(await _safe(places.describe_place, office, name), detail)
+    ) -> DescribePlaceResponse | ErrorRef:
+        """Full Location + Project + parameter set + publisher fingerprint + freshness."""
+        raw = await _safe(places.describe_place, office, name)
+        if raw.get("ok") is False:
+            return ErrorRef.model_validate(raw)
+        shaped = _shape_detail(raw, detail)
+        workaround = shaped.get("source_workaround")
+        shaped["source"] = _source(workaround=workaround).model_dump(mode="json")
+        return DescribePlaceResponse.model_validate(shaped)
 
     @mcp.tool(
         annotations={"readOnlyHint": True, "title": "List parameters at a place"},
@@ -62,13 +94,14 @@ def register_place_tools(mcp: FastMCP) -> None:
         office: Annotated[str, "USACE office code"],
         name: Annotated[str, "Location id within the office"],
         detail: Detail = Detail.SUMMARY,
-    ) -> dict[str, Any]:
-        """Parameters published at the location, grouped by publisher.
-
-        Use this as the cheapest ghost-detection probe: returns ts_count=0
-        and an empty `by_publisher` for ghost records. §9.6 reduced.
-        """
-        return _shape_detail(await _safe(places.list_parameters, office, name), detail)
+    ) -> ListParametersResponse | ErrorRef:
+        """Parameters published at the location, grouped by publisher."""
+        raw = await _safe(places.list_parameters, office, name)
+        if raw.get("ok") is False:
+            return ErrorRef.model_validate(raw)
+        shaped = _shape_detail(raw, detail)
+        shaped["source"] = _source().model_dump(mode="json")
+        return ListParametersResponse.model_validate(shaped)
 
     @mcp.tool(
         annotations={"readOnlyHint": True, "title": "Browse a region's catalog"},
@@ -81,44 +114,145 @@ def register_place_tools(mcp: FastMCP) -> None:
         east: Annotated[float | None, "Bounding-box east longitude"] = None,
         state: Annotated[str | None, "Two-letter state code filter"] = None,
         detail: Detail = Detail.SUMMARY,
-    ) -> dict[str, Any]:
-        """Enriched catalog browse filtered by office, bbox, or state.
-
-        All four bbox corners must be set together (or none of them). §9.7.
-        """
+    ) -> BrowseRegionResponse | ErrorRef:
+        """Enriched catalog browse filtered by office, bbox, or state."""
         bbox: BBox | None = None
         provided = [v for v in (south, west, north, east) if v is not None]
         if len(provided) not in {0, 4}:
-            return {
-                "ok": False,
-                "error": {
-                    "code": "usage_error",
-                    "message": (
-                        "When specifying a bounding box, all four of south, "
-                        "west, north, east must be provided."
-                    ),
-                    "field": "bbox",
-                },
-            }
+            return ErrorRef.model_validate(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "usage_error",
+                        "message": (
+                            "When specifying a bounding box, all four of south, "
+                            "west, north, east must be provided."
+                        ),
+                        "field": "bbox",
+                    },
+                }
+            )
         if south is not None and west is not None and north is not None and east is not None:
             bbox = BBox(south=south, west=west, north=north, east=east)
-        return _shape_detail(
-            await _safe(places.browse_region, office=office, bbox=bbox, state=state),
-            detail,
+        raw = await _safe(places.browse_region, office=office, bbox=bbox, state=state)
+        if raw.get("ok") is False:
+            return ErrorRef.model_validate(raw)
+        shaped = _shape_detail(raw, detail)
+        shaped["source"] = _source().model_dump(mode="json")
+        return BrowseRegionResponse.model_validate(shaped)
+
+
+def register_value_tools(mcp: FastMCP) -> None:
+    """Register the §M5 value tools on the FastMCP server."""
+
+    @mcp.tool(
+        annotations={"readOnlyHint": True, "title": "Current value with status context"},
+    )
+    async def cwms_get_value(
+        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)"],
+        location: Annotated[str, "Location id within the office (e.g. FOSS, FTPK)"],
+        parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-Out)"],
+        window_hours: Annotated[
+            int,
+            "How far back to search for the most recent value (default 24).",
+        ] = 24,
+        unit: Annotated[str, "Unit system: EN or SI"] = "EN",
+        detail: Detail = Detail.SUMMARY,
+    ) -> ValueWithContextResponse | ErrorRef:
+        """Latest value at a place + inline status classification (§9.1 + §9.3)."""
+        raw = await _safe(
+            values.get_value,
+            office,
+            location,
+            parameter,
+            window=timedelta(hours=window_hours),
+            unit=unit,
         )
+        if raw.get("ok") is False:
+            return ErrorRef.model_validate(raw)
+        shaped = _shape_value_detail(raw, detail)
+        shaped["source"] = _source().model_dump(mode="json")
+        return ValueWithContextResponse.model_validate(shaped)
+
+    @mcp.tool(
+        annotations={"readOnlyHint": True, "title": "Windowed history"},
+    )
+    async def cwms_get_history(
+        office: Annotated[str, "USACE office code"],
+        location: Annotated[str, "Location id within the office"],
+        parameter: Annotated[str, "Parameter code"],
+        begin_iso: Annotated[str, "Window start, RFC3339 (e.g. 2026-05-17T00:00:00Z)"],
+        end_iso: Annotated[str, "Window end, RFC3339"],
+        unit: Annotated[str, "Unit system: EN or SI"] = "EN",
+        detail: Detail = Detail.SUMMARY,
+    ) -> HistoryResponse | ErrorRef:
+        """Windowed history for a parameter at a place (§9.2)."""
+        try:
+            begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
+            end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+        except ValueError as exc:
+            return ErrorRef.model_validate(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "invalid_field",
+                        "message": f"Could not parse begin/end as RFC3339 datetimes: {exc}",
+                        "field": "begin_iso/end_iso",
+                    },
+                }
+            )
+        raw = await _safe(
+            values.get_history,
+            office,
+            location,
+            parameter,
+            begin=begin,
+            end=end,
+            unit=unit,
+        )
+        if raw.get("ok") is False:
+            return ErrorRef.model_validate(raw)
+        shaped = _shape_history_detail(raw, detail)
+        shaped["source"] = _source().model_dump(mode="json")
+        return HistoryResponse.model_validate(shaped)
+
+
+def register_publisher_tools(mcp: FastMCP) -> None:
+    """Register the §M6 publishers-for-parameter helper tool."""
+
+    @mcp.tool(
+        annotations={"readOnlyHint": True, "title": "Publishers reporting a parameter"},
+    )
+    async def cwms_publishers_for_parameter(
+        parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-Out)"],
+        offices: Annotated[
+            list[str] | None,
+            "Limit the index to these offices. None = already-cached offices.",
+        ] = None,
+        detail: Detail = Detail.SUMMARY,
+    ) -> PublishersForParameterResponse | ErrorRef:
+        """Which publishers report parameter X, across the requested offices."""
+        raw = await _safe(
+            publishers_index.publishers_for_parameter,
+            parameter,
+            offices=offices,
+        )
+        if raw.get("ok") is False:
+            return ErrorRef.model_validate(raw)
+        shaped = _shape_publishers_detail(raw, detail)
+        shaped["source"] = _source().model_dump(mode="json")
+        return PublishersForParameterResponse.model_validate(shaped)
+
+
+# --------------------------------------------------------------------------
+# Detail toggle helpers
+# --------------------------------------------------------------------------
 
 
 def _shape_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
-    """Apply the `detail` toggle to a tool response.
-
-    Density only, never shape (agent-friendly-mcp §8). Summary mode strips
-    the heavy upstream Location DTO and per-row `raw` payloads from
-    catalog-browse responses. Error envelopes pass through unchanged.
-    """
-    if payload.get("ok") is False:
-        return payload
+    """Apply the `detail` toggle to a place-tool response."""
     if detail is Detail.FULL:
-        return payload
+        return dict(payload)
     pruned = dict(payload)
     if "location" in pruned and isinstance(pruned["location"], dict):
         loc = pruned["location"]
@@ -148,98 +282,9 @@ def _shape_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
     return pruned
 
 
-async def _safe(fn, *args, **kwargs) -> dict[str, Any]:
-    """Run a sync core function on the bounded executor; surface known errors structured."""
-    try:
-        return await concurrency.run_sync(fn, *args, **kwargs)
-    except CwmsToolsError as err:
-        return {"ok": False, "error": err.envelope.model_dump(mode="json")}
-
-
-def register_value_tools(mcp: FastMCP) -> None:
-    """Register the §M5 value tools on the FastMCP server."""
-
-    @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Current value with status context"},
-    )
-    async def cwms_get_value(
-        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)"],
-        location: Annotated[str, "Location id within the office (e.g. FOSS, FTPK)"],
-        parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-Out)"],
-        window_hours: Annotated[
-            int,
-            "How far back to search for the most recent value (default 24).",
-        ] = 24,
-        unit: Annotated[str, "Unit system: EN or SI"] = "EN",
-        detail: Detail = Detail.SUMMARY,
-    ) -> dict[str, Any]:
-        """Latest value at a place + inline status classification (§9.1 + §9.3).
-
-        Auto-selects the canonical (best-publisher) ts_id at the location.
-        At `detail=summary` returns `status_class` and `thresholds_active`;
-        at `detail=full` keeps every threshold's per-source workaround info.
-        """
-        return _shape_value_detail(
-            await _safe(
-                values.get_value,
-                office,
-                location,
-                parameter,
-                window=timedelta(hours=window_hours),
-                unit=unit,
-            ),
-            detail,
-        )
-
-    @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Windowed history"},
-    )
-    async def cwms_get_history(
-        office: Annotated[str, "USACE office code"],
-        location: Annotated[str, "Location id within the office"],
-        parameter: Annotated[str, "Parameter code"],
-        begin_iso: Annotated[str, "Window start, RFC3339 (e.g. 2026-05-17T00:00:00Z)"],
-        end_iso: Annotated[str, "Window end, RFC3339"],
-        unit: Annotated[str, "Unit system: EN or SI"] = "EN",
-        detail: Detail = Detail.SUMMARY,
-    ) -> dict[str, Any]:
-        """Windowed history for a parameter at a place (§9.2).
-
-        At `detail=summary` returns timestamps + values only; at
-        `detail=full` includes quality codes per point.
-        """
-        try:
-            begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
-            end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
-        except ValueError as exc:
-            return {
-                "ok": False,
-                "error": {
-                    "code": "invalid_field",
-                    "message": f"Could not parse begin/end as RFC3339 datetimes: {exc}",
-                    "field": "begin_iso/end_iso",
-                },
-            }
-        return _shape_history_detail(
-            await _safe(
-                values.get_history,
-                office,
-                location,
-                parameter,
-                begin=begin,
-                end=end,
-                unit=unit,
-            ),
-            detail,
-        )
-
-
 def _shape_value_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
-    if payload.get("ok") is False:
-        return payload
     if detail is Detail.FULL:
-        return payload
-    # Summary mode keeps everything except very chatty threshold metadata.
+        return dict(payload)
     pruned = dict(payload)
     if isinstance(pruned.get("thresholds_active"), list):
         pruned["thresholds_active"] = [
@@ -250,10 +295,8 @@ def _shape_value_detail(payload: dict[str, Any], detail: Detail) -> dict[str, An
 
 
 def _shape_history_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
-    if payload.get("ok") is False:
-        return payload
     if detail is Detail.FULL:
-        return payload
+        return dict(payload)
     pruned = dict(payload)
     if isinstance(pruned.get("values"), list):
         pruned["values"] = [
@@ -262,46 +305,20 @@ def _shape_history_detail(payload: dict[str, Any], detail: Detail) -> dict[str, 
     return pruned
 
 
-def register_publisher_tools(mcp: FastMCP) -> None:
-    """Register the §M6 publishers-for-parameter helper tool."""
-
-    @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Publishers reporting a parameter"},
-    )
-    async def cwms_publishers_for_parameter(
-        parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-Out)"],
-        offices: Annotated[
-            list[str] | None,
-            "Limit the index to these offices. None = already-cached offices.",
-        ] = None,
-        detail: Detail = Detail.SUMMARY,
-    ) -> dict[str, Any]:
-        """Which publishers report parameter X, across the requested offices.
-
-        Defaults to indexing only offices already cached locally; passing an
-        explicit `offices` list widens. The per-call budget caps how many
-        new offices we fetch; any beyond the budget appear in
-        `coverage.offices_skipped_for_budget` with a `repair` hint pointing
-        back at this tool so the agent can continue the index.
-        """
-        payload = await _safe(
-            publishers_index.publishers_for_parameter,
-            parameter,
-            offices=offices,
-        )
-        return _shape_publishers_detail(payload, detail)
-
-
 def _shape_publishers_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
-    if payload.get("ok") is False:
-        return payload
     if detail is Detail.FULL:
-        return payload
+        return dict(payload)
     pruned = dict(payload)
-    # Summary mode drops the internal `_observed_publishers_by_office` map;
-    # agents that need the per-office breakdown can ask for detail=full.
     pruned.pop("_observed_publishers_by_office", None)
     return pruned
+
+
+async def _safe(fn, *args, **kwargs) -> dict[str, Any]:
+    """Run a sync core function on the bounded executor; surface known errors structured."""
+    try:
+        return await concurrency.run_sync(fn, *args, **kwargs)
+    except CwmsToolsError as err:
+        return {"ok": False, "error": err.envelope.model_dump(mode="json")}
 
 
 __all__ = [

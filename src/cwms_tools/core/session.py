@@ -69,7 +69,22 @@ class SessionConfig:
 
 
 def resolve_session_config() -> SessionConfig:
-    """Resolve session config from env vars + defaults; deterministic."""
+    """Resolve session config from env vars + defaults; deterministic.
+
+    Honors `_CWMS_TOOLS_ISOLATED=1` (set by `cwms-tools --isolated`) by
+    ignoring every `CWMS_TOOLS_*` env input and falling back to the defaults.
+    Useful for reproducibility checks and CI runs that shouldn't pick up an
+    operator's shell config.
+    """
+    isolated = os.environ.get("_CWMS_TOOLS_ISOLATED") == "1"
+    if isolated:
+        return SessionConfig(
+            api_root=DEFAULT_API_ROOT,
+            user_agent=f"cwms-tools/{_cwms_tools_version()} (+{DEFAULT_REPO_URL}) "
+            f"cwms-python/{_cwms_python_version()}",
+            operator_email=None,
+            pool_connections=max(2 * MAX_WORKERS, 16),
+        )
     api_root = os.environ.get("CWMS_TOOLS_API_ROOT", DEFAULT_API_ROOT)
     if not api_root.endswith("/"):
         api_root = api_root + "/"
