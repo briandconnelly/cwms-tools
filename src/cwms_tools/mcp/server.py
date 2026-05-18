@@ -26,7 +26,11 @@ from cwms_tools.mcp.resources import (
     overview_index_payload,
     overview_section_payload,
 )
-from cwms_tools.mcp.tools import register_place_tools, register_value_tools
+from cwms_tools.mcp.tools import (
+    register_place_tools,
+    register_publisher_tools,
+    register_value_tools,
+)
 
 INSTRUCTIONS = (
     f"{SERVER_TITLE}\n\n"
@@ -209,6 +213,7 @@ def build_server() -> FastMCP:
     # ----------------------------------------------------------------------
     register_place_tools(mcp)
     register_value_tools(mcp)
+    register_publisher_tools(mcp)
 
     return mcp
 

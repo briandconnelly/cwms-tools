@@ -11,6 +11,7 @@ from cwms_tools.cli.commands import config as config_cmd
 from cwms_tools.cli.commands import env as env_cmd
 from cwms_tools.cli.commands import fingerprint as fingerprint_cmd
 from cwms_tools.cli.commands import place as place_cmd
+from cwms_tools.cli.commands import publisher as publisher_cmd
 from cwms_tools.cli.commands import region as region_cmd
 from cwms_tools.cli.commands import schema as schema_cmd
 from cwms_tools.cli.commands import value as value_cmd
@@ -64,6 +65,9 @@ app.add_typer(region_cmd.app, name="region")
 
 # Value task tools (M5).
 app.add_typer(value_cmd.app, name="value")
+
+# Publisher index helper (M6).
+app.add_typer(publisher_cmd.app, name="publisher")
 
 
 if __name__ == "__main__":  # pragma: no cover
