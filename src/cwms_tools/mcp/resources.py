@@ -75,13 +75,13 @@ def capabilities_payload(
         "description": (
             "Read-only tools for the USACE Corps Water Management System "
             "(CWMS) Data API. Returns task-completing answers — a current "
-            "value with status context, a description of a project, an "
-            "office-scoped catalog browse — instead of mirroring the "
-            "underlying REST endpoints."
+            "value with status context, a place description with project "
+            "metadata when available, an office-scoped catalog browse — "
+            "instead of mirroring the underlying REST endpoints."
         ),
         "does_not": [
             "Write, store, or delete any CWMS data.",
-            "Retrieve forecasts (forecast tooling is out of scope for this release).",
+            "Retrieve forecasts.",
             "Serve USGS, NOAA, or any non-CWMS data sources.",
             "Decode DSS or XML forecast file attachments.",
             "Pre-warm caches or scan the catalog in the background.",

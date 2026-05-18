@@ -62,6 +62,11 @@ def register_place_tools(mcp: FastMCP) -> None:
     ) -> SearchPlacesResponse | ErrorRef:
         """Resolve a CWMS place name to ranked location matches.
 
+        Use for ambiguous name lookup within one office. If you already
+        have the canonical `office` and `name`, call `cwms_describe_place`,
+        `cwms_list_parameters`, or `cwms_get_value` / `cwms_get_history`
+        directly instead.
+
         Each result is enriched with parameter_count (0 means a ghost
         record with no published data), the list of publishers active at
         the location, the most recent data timestamp, and any other ids
@@ -173,7 +178,7 @@ def register_value_tools(mcp: FastMCP) -> None:
     )
     async def cwms_get_value(
         office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
-        location: Annotated[str, "Location id within the office (e.g. FTPK, FOSS)."],
+        name: Annotated[str, "CWMS location name/id within the office (e.g. FTPK, FOSS)."],
         parameter: Annotated[
             str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage, Temp-Water)."
         ],
@@ -186,18 +191,20 @@ def register_value_tools(mcp: FastMCP) -> None:
         ] = "EN",
         detail: Detail = Detail.SUMMARY,
     ) -> ValueWithContextResponse | ErrorRef:
-        """Latest observation for a parameter, with inline status classification.
+        """Latest observation for a parameter at a place, with inline status.
 
-        Auto-selects the canonical (best-publisher) timeseries id at the
-        location. The response includes `status_class` (nominal, watch,
-        action, flood, or unknown) computed against the applicable
-        thresholds for the parameter, plus the list of active thresholds
-        with the signed delta from the observation to each.
+        Use for a single point-in-time reading. For a windowed history,
+        call `cwms_get_history`. Auto-selects the canonical (best
+        publisher) timeseries id at the location. The response includes
+        `status_class` (nominal, watch, action, flood, or unknown)
+        computed against the applicable thresholds for the parameter,
+        plus the list of active thresholds with the signed delta from
+        the observation to each.
         """
         raw = await _safe(
             values.get_value,
             office,
-            location,
+            name,
             parameter,
             window=timedelta(hours=window_hours),
             unit=unit,
@@ -212,20 +219,28 @@ def register_value_tools(mcp: FastMCP) -> None:
         annotations={"readOnlyHint": True, "title": "Windowed history"},
     )
     async def cwms_get_history(
-        office: Annotated[str, "USACE office code."],
-        location: Annotated[str, "Location id within the office."],
+        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
+        name: Annotated[str, "CWMS location name/id within the office (e.g. FTPK, FOSS)."],
         parameter: Annotated[
             str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage, Temp-Water)."
         ],
         begin_iso: Annotated[
             str, "Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z)."
         ],
-        end_iso: Annotated[str, "Window end as an RFC3339 timestamp."],
-        unit: Annotated[str, "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric."] = "EN",
+        end_iso: Annotated[
+            str,
+            "Window end as an RFC3339 timestamp (e.g. 2026-05-18T00:00:00Z).",
+        ],
+        unit: Annotated[
+            str, "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms)."
+        ] = "EN",
         detail: Detail = Detail.SUMMARY,
     ) -> HistoryResponse | ErrorRef:
-        """Read a windowed history of one parameter at one place.
+        """Read raw observations across a bounded time window.
 
+        Use for a series of values over time. For the latest value plus
+        threshold-derived status, call `cwms_get_value` instead — it is
+        cheaper and includes the classification this tool does not.
         Returns the values array (timestamp + value, plus quality codes
         at `detail=full`) along with the resolved canonical timeseries
         id. `truncated: true` with a `truncation_hint` is set when the
@@ -248,7 +263,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         raw = await _safe(
             values.get_history,
             office,
-            location,
+            name,
             parameter,
             begin=begin,
             end=end,
@@ -277,13 +292,15 @@ def register_publisher_tools(mcp: FastMCP) -> None:
         ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> PublishersForParameterResponse | ErrorRef:
-        """List the publishers that report a given parameter, with coverage.
+        """List the publishers reporting a parameter, with explicit coverage.
 
-        Bounded by a per-call budget: any offices beyond the budget land
+        Indexes the offices in `offices`; when `offices` is omitted, only
+        offices already in the local cache are scanned — this tool never
+        implicitly fans out to every office. A per-call budget caps how
+        many uncached offices it fetches, and any beyond the budget land
         in `coverage.offices_skipped_for_budget` with a `repair` hint
-        that points back at this tool with that list as the next
-        `offices` argument, so the agent can continue the index in
-        deterministic chunks instead of having one call fan out.
+        that points back at this tool with that list, so the caller can
+        continue the index in deterministic chunks.
         """
         raw = await _safe(
             publishers_index.publishers_for_parameter,

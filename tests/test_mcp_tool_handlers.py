@@ -191,7 +191,7 @@ def test_get_value_handler(configured) -> None:
         result = _call(
             server,
             "cwms_get_value",
-            {"office": "SWT", "location": "FOSS", "parameter": "Elev"},
+            {"office": "SWT", "name": "FOSS", "parameter": "Elev"},
         )
     payload = _branch(result.structured_content)
     assert payload["value"] == 1648.21
@@ -210,7 +210,7 @@ def test_get_history_handler_rejects_bad_datetimes(configured) -> None:
         "cwms_get_history",
         {
             "office": "SWT",
-            "location": "FOSS",
+            "name": "FOSS",
             "parameter": "Elev",
             "begin_iso": "not-a-date",
             "end_iso": "still-not",
@@ -231,7 +231,7 @@ def test_get_history_handler_returns_values(configured) -> None:
             "cwms_get_history",
             {
                 "office": "SWT",
-                "location": "FOSS",
+                "name": "FOSS",
                 "parameter": "Elev",
                 "begin_iso": "2026-05-17T17:00:00Z",
                 "end_iso": "2026-05-17T19:00:00Z",

@@ -146,7 +146,7 @@ def history(
         str,
         typer.Option(
             "--end",
-            help="Window end as an RFC3339 timestamp.",
+            help="Window end as an RFC3339 timestamp (e.g. 2026-05-18T00:00:00Z).",
         ),
     ],
     unit: Annotated[

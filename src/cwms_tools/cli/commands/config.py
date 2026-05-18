@@ -34,9 +34,8 @@ def show(
         typer.Option(
             "--resolved",
             help=(
-                "Show the merged, effective configuration. Required for forward "
-                "compatibility with a `--raw` mode that may later dump on-disk "
-                "config files."
+                "Show the merged effective configuration after flags, "
+                "environment variables, and defaults are applied."
             ),
         ),
     ] = False,
@@ -44,19 +43,16 @@ def show(
     """Print the resolved CLI configuration.
 
     Precedence: explicit flags > CWMS_TOOLS_* environment variables >
-    built-in defaults. `--resolved` is the only mode this release
-    accepts; it is required so a future `--raw` mode can be added
-    without changing this command's contract.
+    built-in defaults. The `--resolved` flag is required so this
+    command can later grow a separate raw-config mode without changing
+    its contract.
     """
     if not resolved:
         emit(
             {
                 "error": "usage_error",
                 "message": "Run `cwms-tools config show --resolved`.",
-                "hint": (
-                    "This release only supports the --resolved view; --raw is "
-                    "reserved for a future addition that dumps on-disk config files."
-                ),
+                "hint": "Pass --resolved to print the merged effective configuration.",
             }
         )
         raise typer.Exit(code=2)

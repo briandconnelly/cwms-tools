@@ -10,9 +10,8 @@ from cwms_tools.core.session import current_config
 app = typer.Typer(
     name="whoami",
     help=(
-        "Print the resolved CWMS auth identity. The CWMS Data API's read "
-        "endpoints are public, so the identity is `anonymous` unless a "
-        "future release adds authenticated write paths."
+        "Print the resolved CWMS auth identity. The CWMS Data API's "
+        "read endpoints are public, so the identity is `anonymous`."
     ),
 )
 

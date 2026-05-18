@@ -68,7 +68,7 @@ class ErrorRef(BaseModel):
 
 
 class CdaLocation(BaseModel):
-    """Facade over the upstream Location DTO (cwms-overview.md §4.2)."""
+    """Facade over the upstream CWMS Location DTO."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -93,7 +93,7 @@ class CdaLocation(BaseModel):
 
 
 class CdaProject(BaseModel):
-    """Facade over the upstream Project DTO (cwms-overview.md §4.2)."""
+    """Facade over the upstream CWMS Project DTO."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -109,7 +109,8 @@ class CdaProject(BaseModel):
 
 
 class TsIdParts(BaseModel):
-    """The 6-segment ts_id decomposed (cwms-overview.md §4.3)."""
+    """The six dotted segments of a CWMS timeseries id (location, parameter,
+    type, interval, duration, version)."""
 
     model_config = ConfigDict(extra="forbid")
 

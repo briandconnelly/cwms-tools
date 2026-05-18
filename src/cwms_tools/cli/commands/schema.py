@@ -90,7 +90,8 @@ def _commands() -> list[dict[str, Any]]:
         # Value tools (M5).
         {
             "path": (
-                "cwms-tools value get <office>/<name>/<param>... "
+                "cwms-tools value get <OFFICE/NAME/PARAMETER> "
+                "[<OFFICE/NAME/PARAMETER> ...] "
                 "[--window-hours N] [--unit EN|SI] [--detail summary|full]"
             ),
             "output_class": "bulk-result",
@@ -100,7 +101,7 @@ def _commands() -> list[dict[str, Any]]:
         },
         {
             "path": (
-                "cwms-tools value history <office>/<name>/<param> "
+                "cwms-tools value history <OFFICE/NAME/PARAMETER> "
                 "--begin <RFC3339> --end <RFC3339> [--unit EN|SI] [--detail summary|full]"
             ),
             "output_class": "record",

@@ -150,7 +150,9 @@ def build_server() -> FastMCP:
         """One body chunk of an overview section, identified by a stable chunk id.
 
         Chunk ids come from the `chunks` list returned by the section
-        endpoint and stay stable across reads of the same release.
+        endpoint. They remain stable for the same server fingerprint
+        (visible at `cwms://capabilities.fingerprint`); a fingerprint
+        change indicates new chunk ids.
         """
         payload = overview_chunk_payload(section_id, chunk_id)
         if payload is None:
@@ -189,8 +191,11 @@ def build_server() -> FastMCP:
     ) -> OverviewSectionResponse | OverviewSectionError:
         """Read one section of the bundled CWMS orientation document.
 
-        Functionally identical to the `cwms://overview/{section_id}`
-        resource; use this when the client doesn't browse MCP resources.
+        Use this fallback when the client can't browse MCP resources.
+        Without `chunk_id` the response matches the `cwms://overview/
+        {section_id}` resource; with `chunk_id` it returns that single
+        chunk's body (with `title`/`summary` empty since they apply to
+        the section, not the chunk).
         """
         if chunk_id is not None:
             chunk = overview_chunk_payload(section_id, chunk_id)

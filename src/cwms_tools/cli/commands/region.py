@@ -31,19 +31,34 @@ def browse(
     ],
     south: Annotated[
         float | None,
-        typer.Option("--south", help="Bounding box south latitude, decimal degrees."),
+        typer.Option(
+            "--south",
+            help=(
+                "Bounding box south latitude in decimal degrees. "
+                "Use together with --west, --north, --east or pass none of them."
+            ),
+        ),
     ] = None,
     west: Annotated[
         float | None,
-        typer.Option("--west", help="Bounding box west longitude, decimal degrees."),
+        typer.Option(
+            "--west",
+            help="Bounding box west longitude in decimal degrees.",
+        ),
     ] = None,
     north: Annotated[
         float | None,
-        typer.Option("--north", help="Bounding box north latitude, decimal degrees."),
+        typer.Option(
+            "--north",
+            help="Bounding box north latitude in decimal degrees.",
+        ),
     ] = None,
     east: Annotated[
         float | None,
-        typer.Option("--east", help="Bounding box east longitude, decimal degrees."),
+        typer.Option(
+            "--east",
+            help="Bounding box east longitude in decimal degrees.",
+        ),
     ] = None,
     state: Annotated[
         str | None,

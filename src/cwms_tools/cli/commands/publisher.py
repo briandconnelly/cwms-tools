@@ -40,9 +40,10 @@ def for_parameter(
 ) -> None:
     """List the publishers that report a parameter, with explicit coverage.
 
-    Bounded by a per-call budget: offices that exceed the budget land in
-    `coverage.offices_skipped_for_budget` with a `repair` hint pointing
-    back at this command so you can continue the index in chunks.
+    A per-call budget caps how many uncached offices are fetched.
+    Offices beyond the budget land in `coverage.offices_skipped_for_budget`;
+    rerun this command with those names passed as repeated `--office`
+    arguments to continue the index in chunks.
     """
     payload = publishers_index.publishers_for_parameter(
         parameter,
