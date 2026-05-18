@@ -208,6 +208,66 @@ def test_enrich_locations_scopes_ts_catalog_query_to_matched_names(configured, m
     assert r"FOSS\-bl_1500" in url  # re.escape adds the backslash
 
 
+def test_enrich_locations_matches_against_public_name_not_just_id(configured, mocked) -> None:
+    """A search for the human-readable public-name should resolve to the
+    location even when its canonical id is an abbreviation. The original
+    bug: `place search "Fort Peck" --office NWDM` returned zero results
+    because CDA's server-side `like` only matched the id "FTPK", not the
+    public-name "Fort Peck Lake"."""
+    nwdm_locations = {
+        "locations": [
+            {
+                "office-id": "NWDM",
+                "name": "FTPK",
+                "public-name": "Fort Peck Lake",
+                "long-name": "Fort Peck Lake, MT",
+                "location-kind": "PROJECT",
+                "latitude": 47.991,
+                "longitude": -106.412,
+            }
+        ],
+    }
+    nwdm_timeseries = {
+        "entries": [
+            {"name": "FTPK.Elev.Inst.1Hour.0.Best-MRBWM"},
+        ]
+    }
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/LOCATIONS",
+        json=nwdm_locations,
+        status=200,
+    )
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/TIMESERIES",
+        json=nwdm_timeseries,
+        status=200,
+    )
+    rows = catalog.enrich_locations("NWDM", like="Fort Peck")
+    assert len(rows) == 1
+    assert rows[0]["name"] == "FTPK"
+    assert rows[0]["public_name"] == "Fort Peck Lake"
+
+
+def test_enrich_locations_does_not_pass_like_to_server_side_locations_catalog(
+    configured, mocked
+) -> None:
+    """The locations catalog request is unfiltered — the `like` parameter
+    is applied client-side because CDA's server-side filter only matches
+    the location id, missing public-name lookups."""
+    _arm(
+        mocked,
+        locations_payload=SWT_LOCATIONS_PAYLOAD,
+        timeseries_payload=SWT_TIMESERIES_PAYLOAD,
+    )
+    catalog.enrich_locations("SWT", like="Foss Reservoir")
+    loc_calls = [c for c in mocked.calls if "catalog/LOCATIONS" in c.request.url]
+    assert loc_calls, "locations catalog should be queried"
+    # No `like=` parameter on the locations catalog URL.
+    assert "like=" not in str(loc_calls[-1].request.url)
+
+
 def test_enrich_locations_returns_empty_when_name_filter_matches_nothing(
     configured, mocked
 ) -> None:

@@ -154,8 +154,15 @@ def enrich_locations(
 
     Each record carries: `parameter_count`, `publishers`, `last_data_timestamp`,
     `co_located` (other ids within ~100 m of the same coordinates).
+
+    Note on the `like` filter: CDA's server-side `like` on
+    `/catalog/LOCATIONS` matches the location id only — a search for
+    "Fort Peck" would return zero rows because the canonical id is
+    "FTPK". So we always fetch the full per-office locations catalog
+    (cached for 6 hours) and filter client-side across `name`,
+    `public-name`, `long-name`, and `description`.
     """
-    loc_payload = get_locations_catalog(office_id, like=like, use_cache=use_cache)
+    loc_payload = get_locations_catalog(office_id, use_cache=use_cache)
     rows = list(_iter_location_entries(loc_payload))
     if like:
         rows = [r for r in rows if _matches_like(r, like)]
