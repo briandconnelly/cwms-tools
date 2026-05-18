@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Any
 
-from cwms_tools.core import concurrency, places, values
+from cwms_tools.core import concurrency, places, publishers_index, values
 from cwms_tools.core.errors import CwmsToolsError
 from cwms_tools.core.geo import BBox
 from cwms_tools.core.models import Detail
@@ -262,4 +262,50 @@ def _shape_history_detail(payload: dict[str, Any], detail: Detail) -> dict[str, 
     return pruned
 
 
-__all__ = ["register_place_tools", "register_value_tools"]
+def register_publisher_tools(mcp: FastMCP) -> None:
+    """Register the §M6 publishers-for-parameter helper tool."""
+
+    @mcp.tool(
+        annotations={"readOnlyHint": True, "title": "Publishers reporting a parameter"},
+    )
+    async def cwms_publishers_for_parameter(
+        parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-Out)"],
+        offices: Annotated[
+            list[str] | None,
+            "Limit the index to these offices. None = already-cached offices.",
+        ] = None,
+        detail: Detail = Detail.SUMMARY,
+    ) -> dict[str, Any]:
+        """Which publishers report parameter X, across the requested offices.
+
+        Defaults to indexing only offices already cached locally; passing an
+        explicit `offices` list widens. The per-call budget caps how many
+        new offices we fetch; any beyond the budget appear in
+        `coverage.offices_skipped_for_budget` with a `repair` hint pointing
+        back at this tool so the agent can continue the index.
+        """
+        payload = await _safe(
+            publishers_index.publishers_for_parameter,
+            parameter,
+            offices=offices,
+        )
+        return _shape_publishers_detail(payload, detail)
+
+
+def _shape_publishers_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
+    if payload.get("ok") is False:
+        return payload
+    if detail is Detail.FULL:
+        return payload
+    pruned = dict(payload)
+    # Summary mode drops the internal `_observed_publishers_by_office` map;
+    # agents that need the per-office breakdown can ask for detail=full.
+    pruned.pop("_observed_publishers_by_office", None)
+    return pruned
+
+
+__all__ = [
+    "register_place_tools",
+    "register_publisher_tools",
+    "register_value_tools",
+]
