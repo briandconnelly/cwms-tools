@@ -31,7 +31,7 @@ class Detail(str, Enum):
 
 
 class SourceMeta(BaseModel):
-    """Provenance attached to every tool response (success path)."""
+    """Provenance attached to every successful tool response."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -47,10 +47,23 @@ class SourceMeta(BaseModel):
     )
 
 
+class ErrorRef(BaseModel):
+    """Minimal error shape returned by tool handlers when a task fails.
+
+    The full error envelope (with repair hints, retryability, etc.) lives in
+    `core.errors.ErrorEnvelope`; this is a re-exported shape so handlers can
+    declare `ToolResponse | ErrorRef` return types and FastMCP infers a clean
+    output schema for both branches.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    ok: Literal[False] = False
+    error: dict[str, Any]
+
+
 # --------------------------------------------------------------------------
 # DTO facades — extra=allow so unknown upstream fields pass through.
-# Re-cast just the fields we read explicitly; everything else lives under the
-# implicit `__pydantic_extra__` collection.
 # --------------------------------------------------------------------------
 
 
@@ -115,14 +128,17 @@ class TsIdParts(BaseModel):
 
 
 # --------------------------------------------------------------------------
-# Task-response models
+# Task-response models — extra="allow" tolerates the dict layout we already
+# build in core/places.py and core/values.py without forcing a refactor of
+# those producers. The schemas FastMCP derives still document every field
+# we promise; extras are an upgrade hatch, not silent drift.
 # --------------------------------------------------------------------------
 
 
 class PlaceSummary(BaseModel):
-    """One result from `cwms_search_places`."""
+    """One result from `cwms_search_places` / `cwms_browse_region`."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     office_id: str
     name: str
@@ -130,37 +146,90 @@ class PlaceSummary(BaseModel):
     location_kind: str | None = None
     latitude: float | None = None
     longitude: float | None = None
-    parameter_count: int = Field(
-        description="Number of distinct parameters with ≥1 active ts_id; 0 = ghost.",
-    )
-    publishers: list[str] = Field(
-        default_factory=list,
-        description="Distinct publishers (version segments) at this location.",
-    )
-    last_data_timestamp: str | None = Field(
-        default=None,
-        description="RFC3339 UTC timestamp of most recent observed datum, or null.",
-    )
-    co_located: list[str] = Field(
-        default_factory=list,
-        description="Other location ids within ~100m of this one.",
-    )
+    parameter_count: int = 0
+    publishers: list[str] = Field(default_factory=list)
+    last_data_timestamp: str | None = None
+    co_located: list[str] = Field(default_factory=list)
 
 
-class SearchPlacesResult(BaseModel):
+class SearchPlacesResponse(BaseModel):
     """Response shape for `cwms_search_places`."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     query: str
+    office: str
     results: list[PlaceSummary]
-    truncated: bool = False
-    truncation_hint: str | None = None
+    source: SourceMeta
+
+
+class PublisherFingerprint(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    publisher: str
+    rank: int
+    ts_count: int
+    parameters: list[str]
+
+
+class DescribePlaceResponse(BaseModel):
+    """Response shape for `cwms_describe_place`."""
+
+    model_config = ConfigDict(extra="allow")
+
+    office_id: str
+    name: str
+    location: dict[str, Any]
+    project: dict[str, Any] | None
+    partial: bool
+    partial_reasons: list[str]
+    parameters: list[str]
+    parameter_count: int
+    publishers: list[PublisherFingerprint]
+    ts_ids: list[str]
+    last_data_timestamp: str | None
+    source: SourceMeta
+
+
+class PublisherAtPlace(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    publisher: str
+    rank: int
+    parameters: list[str]
+    ts_count: int
+
+
+class ListParametersResponse(BaseModel):
+    """Response shape for `cwms_list_parameters`."""
+
+    model_config = ConfigDict(extra="allow")
+
+    office_id: str
+    name: str
+    ts_count: int
+    by_publisher: list[PublisherAtPlace]
+    all_parameters: list[str]
+    last_data_timestamp: str | None
+    source: SourceMeta
+
+
+class BrowseRegionResponse(BaseModel):
+    """Response shape for `cwms_browse_region`."""
+
+    model_config = ConfigDict(extra="allow")
+
+    office: str
+    bbox: dict[str, float] | None
+    state: str | None
+    result_count: int
+    ghost_count: int
+    results: list[PlaceSummary]
     source: SourceMeta
 
 
 class StatusClass(str, Enum):
-    """Inline status classification on `cwms_get_value` responses (summary detail)."""
+    """Inline status classification on `cwms_get_value` responses."""
 
     NOMINAL = "nominal"
     WATCH = "watch"
@@ -172,43 +241,115 @@ class StatusClass(str, Enum):
 class ActiveThreshold(BaseModel):
     """One applicable threshold and the relation of the current value to it."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     specified_level_id: str
     value: float
     unit: str
     relation: Literal["above", "at", "below"]
-    delta: float | None = None  # signed difference (observation - threshold)
+    delta: float | None = None
 
 
-class ValueWithContext(BaseModel):
-    """Response shape for `cwms_get_value` (single id, summary detail)."""
+class ValueWithContextResponse(BaseModel):
+    """Response shape for `cwms_get_value`."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     ts_id: str
     office_id: str
     location: str
     parameter: str
-    publisher: str
+    publisher: str | None
     value: float | None
     unit: str
-    timestamp: str | None  # RFC3339 UTC
+    timestamp: str | None
     status_class: StatusClass
-    thresholds_active: list[ActiveThreshold] = Field(default_factory=list)
-    raw: dict[str, Any] | None = None  # populated only at detail=full
+    thresholds_active: list[ActiveThreshold]
+    truncated: bool = False
+    truncation_hint: str | None = None
+    source: SourceMeta
+
+
+class HistoryPoint(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    timestamp: str | None
+    value: float | None
+    quality: int | None = None
+
+
+class HistoryResponse(BaseModel):
+    """Response shape for `cwms_get_history`."""
+
+    model_config = ConfigDict(extra="allow")
+
+    ts_id: str
+    office_id: str
+    location: str
+    parameter: str
+    publisher: str | None
+    unit: str
+    begin: str
+    end: str
+    values: list[HistoryPoint]
+    value_count: int
+    truncated: bool = False
+    truncation_hint: str | None = None
+    source: SourceMeta
+
+
+class PublisherCoverage(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    publisher: str
+    rank: int
+    locations_known: int
+    freshness: str | None = None
+
+
+class PublishersCoverage(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    offices_requested: list[str]
+    offices_indexed: list[str]
+    offices_skipped_for_budget: list[str]
+    complete: bool
+
+
+class PublishersForParameterResponse(BaseModel):
+    """Response shape for `cwms_publishers_for_parameter`."""
+
+    model_config = ConfigDict(extra="allow")
+
+    parameter: str
+    publishers: list[PublisherCoverage]
+    publisher_count: int
+    ts_count: int
+    coverage: PublishersCoverage
+    repair: dict[str, Any] | None = None
     source: SourceMeta
 
 
 __all__ = [
     "ActiveThreshold",
+    "BrowseRegionResponse",
     "CdaLocation",
     "CdaProject",
+    "DescribePlaceResponse",
     "Detail",
+    "ErrorRef",
+    "HistoryPoint",
+    "HistoryResponse",
+    "ListParametersResponse",
     "PlaceSummary",
-    "SearchPlacesResult",
+    "PublisherAtPlace",
+    "PublisherCoverage",
+    "PublisherFingerprint",
+    "PublishersCoverage",
+    "PublishersForParameterResponse",
+    "SearchPlacesResponse",
     "SourceMeta",
     "StatusClass",
     "TsIdParts",
-    "ValueWithContext",
+    "ValueWithContextResponse",
 ]

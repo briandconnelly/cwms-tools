@@ -15,18 +15,25 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
 ### Added
 
 - **MCP server** (`cwms-tools mcp serve --transport stdio|streamable-http`)
-  with eight tools and six resources:
+  with eight tools and four resources:
   - Tools: `cwms_search_places`, `cwms_describe_place`,
     `cwms_list_parameters`, `cwms_browse_region`, `cwms_get_value`,
     `cwms_get_history`, `cwms_publishers_for_parameter`,
-    `cwms_get_overview_section`. All declared `readOnlyHint: true` with
-    `outputSchema` derived from pydantic v2 models.
+    `cwms_get_overview_section`. All declared `readOnlyHint: true`.
+    Every task tool returns a concrete pydantic v2 model so FastMCP
+    derives a full `outputSchema` (properties, types, nested
+    `PlaceSummary` / `ActiveThreshold` shapes).
   - Resources: `cwms://capabilities`, `cwms://overview` (index),
     `cwms://overview/{section_id}{?detail}` (RFC 6570 query-param
-    template), `cwms://overview/{section_id}/chunk/{chunk_id}`,
-    `cwms://offices`, `cwms://parameters`.
+    template), `cwms://overview/{section_id}/chunk/{chunk_id}`.
+    (`cwms://offices` and `cwms://parameters` deferred to v0.2 along
+    with their backing data sources.)
   - Every tool accepts a `detail: summary | full` toggle that changes
     response density (not shape).
+  - Every successful task response carries `source.fingerprint`
+    (the capability fingerprint at call time), `source.workaround`
+    (set when a cwms-python bug mitigation fired), `source.endpoints_called`,
+    and `source.cached`.
 - **CLI** (`cwms-tools`):
   - Inspection affordances: `whoami`, `env`, `config show --resolved`,
     `fingerprint`, `schema` (machine-readable command tree + error

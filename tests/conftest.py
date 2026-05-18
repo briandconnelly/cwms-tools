@@ -7,15 +7,34 @@ Live-CDA tests are marked `integration` and skipped by default.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 import responses
 
+from cwms_tools.cli import render
 from cwms_tools.core.cache import Cache, set_cache
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(autouse=True)
+def _clear_cli_env_isolation() -> Iterator[None]:
+    """Run before & after every test: scrub leaked `--isolated` / `--no-cache`
+    process-env markers and reset cli.render global state. Without this,
+    a single `cwms-tools --isolated` invocation in one test would leak the
+    env var into every subsequent test in the run."""
+    for key in ("_CWMS_TOOLS_ISOLATED", "_CWMS_TOOLS_NO_CACHE"):
+        os.environ.pop(key, None)
+    render._state.update(machine=False, isolated=False, no_cache=False)
+    try:
+        yield
+    finally:
+        for key in ("_CWMS_TOOLS_ISOLATED", "_CWMS_TOOLS_NO_CACHE"):
+            os.environ.pop(key, None)
+        render._state.update(machine=False, isolated=False, no_cache=False)
 
 
 @pytest.fixture

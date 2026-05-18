@@ -1,0 +1,2 @@
+- Some CLI argument descriptions have section/paragraph references in them
+- has version number references in server/tool description
