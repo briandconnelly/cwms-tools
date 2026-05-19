@@ -24,10 +24,15 @@ def search_places(
 
     Returns the SearchPlacesResult shape: ghost-filtered + co-located, ranked
     so data-bearing records come first. Ghosts (parameter_count == 0) are
-    kept but sort to the bottom so the agent can still see them.
+    kept but sort to the bottom so the agent can still see them. Each
+    barren result carries a `data_at` repair hint listing co-located
+    siblings that DO publish data (the depth-tagged child case from
+    Lake Washington / UBLW_S1 — the parent is empty but `UBLW_S1-D21,0ft`
+    holds the actual sensors).
     """
     enriched = locations.search(office, query, use_cache=use_cache)
     enriched.sort(key=lambda r: (-r["parameter_count"], r["name"]))
+    by_name = {r["name"]: r for r in enriched}
     return {
         "query": query,
         "office": office,
@@ -43,6 +48,7 @@ def search_places(
                 "publishers": r["publishers"],
                 "last_data_timestamp": r.get("last_data_timestamp"),
                 "co_located": r.get("co_located", []),
+                "data_at": _data_at_hint(r, by_name),
             }
             for r in enriched
         ],
@@ -100,7 +106,14 @@ def list_parameters(
     *,
     use_cache: bool = True,
 ) -> dict[str, Any]:
-    """`cwms_list_parameters` — parameters at a location, grouped by publisher."""
+    """`cwms_list_parameters` — parameters at a location, grouped by publisher.
+
+    When the location is barren (`ts_count == 0`), the response carries a
+    top-level `data_at` field listing co-located siblings that DO publish
+    data — this is the common Lake Washington / UBLW_S1 case where the
+    parent has no ts ids but a depth-tagged child does. When the location
+    is data-bearing, `data_at` is null (no repair needed).
+    """
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
     pub_facts = publishers.aggregate_publishers(ts_ids)
     freshness = catalog.freshness_for_location(office, name, use_cache=use_cache)
@@ -119,7 +132,54 @@ def list_parameters(
         ],
         "all_parameters": sorted(publishers.parameter_counts(ts_ids).keys()),
         "last_data_timestamp": freshness,
+        "data_at": _data_at_for_location(office, name, use_cache=use_cache)
+        if not ts_ids
+        else None,
     }
+
+
+def _data_at_hint(row: dict[str, Any], by_name: dict[str, dict[str, Any]]) -> list[str]:
+    """Names of co-located siblings (in the same enriched result set) that
+    publish data, returned only when this row itself is barren.
+
+    Empty when the row has data or when no data-bearing co-located sibling
+    exists. Stable ordering so snapshot tests don't churn.
+    """
+    if row.get("parameter_count", 0) > 0:
+        return []
+    siblings = row.get("co_located") or []
+    if not siblings:
+        return []
+    return sorted(
+        s for s in siblings if (by_name.get(s) or {}).get("parameter_count", 0) > 0
+    )
+
+
+def _data_at_for_location(
+    office: str,
+    name: str,
+    *,
+    use_cache: bool,
+) -> list[str]:
+    """Find data-bearing co-located siblings for a single named location.
+
+    Used by `list_parameters` when the requested location is barren. Pulls
+    the enriched office catalog (cached) and reads the co_located list for
+    `name`, then filters to siblings with `parameter_count > 0`. Returns
+    an empty list when no sibling has data or when the location isn't in
+    the office catalog at all.
+    """
+    enriched = catalog.enrich_locations(office, use_cache=use_cache)
+    target = next((r for r in enriched if r["name"] == name), None)
+    if target is None:
+        return []
+    siblings = target.get("co_located") or []
+    if not siblings:
+        return []
+    by_name = {r["name"]: r for r in enriched}
+    return sorted(
+        s for s in siblings if (by_name.get(s) or {}).get("parameter_count", 0) > 0
+    )
 
 
 def browse_region(

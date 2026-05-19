@@ -304,6 +304,135 @@ def test_browse_region_filters_by_bbox(configured, mocked) -> None:
 
 
 # --------------------------------------------------------------------------
+# data_at repair hint for barren parents (e.g. UBLW_S1 -> UBLW_S1-D21,0ft)
+# --------------------------------------------------------------------------
+
+
+def test_search_places_carries_data_at_repair_for_barren_parents(
+    configured, mocked
+) -> None:
+    """When a barren parent location has a co-located data-bearing child,
+    `data_at` lists the child names so the agent doesn't have to walk
+    co_located manually."""
+    locations_payload = {
+        "locations": [
+            {
+                "office-id": "NWDP",
+                "name": "UBLW_S1",
+                "public-name": "University Bridge Lake Washington (Parent)",
+                "latitude": 47.65,
+                "longitude": -122.32,
+            },
+            {
+                "office-id": "NWDP",
+                "name": "UBLW_S1-D21,0ft",
+                "public-name": "University Bridge Lake Washington -21ft",
+                "latitude": 47.65,
+                "longitude": -122.32,
+            },
+        ]
+    }
+    timeseries_payload = {
+        "entries": [
+            # Only the depth-tagged child carries ts ids.
+            {"name": "UBLW_S1-D21,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"},
+        ]
+    }
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json=locations_payload,
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        json=timeseries_payload,
+        status=200,
+    )
+    payload = places.search_places("University Bridge", office="NWDP")
+    by_name = {r["name"]: r for r in payload["results"]}
+    parent = by_name["UBLW_S1"]
+    child = by_name["UBLW_S1-D21,0ft"]
+    assert parent["parameter_count"] == 0
+    assert parent["data_at"] == ["UBLW_S1-D21,0ft"]
+    # Data-bearing rows get an empty data_at — no repair needed.
+    assert child["parameter_count"] >= 1
+    assert child["data_at"] == []
+
+
+def test_list_parameters_carries_data_at_when_location_is_barren(
+    configured, mocked
+) -> None:
+    """A direct `place parameters` call against a barren parent should hint
+    at the depth-tagged children that actually carry data."""
+    locations_payload = {
+        "locations": [
+            {
+                "office-id": "NWDP",
+                "name": "UBLW_S1",
+                "latitude": 47.65,
+                "longitude": -122.32,
+            },
+            {
+                "office-id": "NWDP",
+                "name": "UBLW_S1-D21,0ft",
+                "latitude": 47.65,
+                "longitude": -122.32,
+            },
+        ]
+    }
+    # First call (ts_ids_for_location, scoped to UBLW_S1) returns nothing
+    # because the parent has no ts ids.
+    parent_ts = {"entries": []}
+    # Second call (enrich_locations -> get_timeseries_catalog without `like`)
+    # returns the child's ts id so the data_at lookup finds it.
+    full_ts = {
+        "entries": [
+            {"name": "UBLW_S1-D21,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"},
+        ]
+    }
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        json=parent_ts,
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        json=parent_ts,  # freshness_for_location: also scoped to UBLW_S1
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json=locations_payload,
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        json=full_ts,
+        status=200,
+    )
+    payload = places.list_parameters("NWDP", "UBLW_S1")
+    assert payload["ts_count"] == 0
+    assert payload["data_at"] == ["UBLW_S1-D21,0ft"]
+
+
+def test_list_parameters_data_at_is_null_when_location_has_data(
+    configured, mocked
+) -> None:
+    """When the location itself is data-bearing, no repair hint is needed —
+    `data_at` is null."""
+    _arm_all(mocked)
+    payload = places.list_parameters("SWT", "FOSS")
+    assert payload["ts_count"] >= 1
+    assert payload["data_at"] is None
+
+
+# --------------------------------------------------------------------------
 # locations.get_one wraps upstream errors via status code
 # --------------------------------------------------------------------------
 
