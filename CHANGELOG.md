@@ -116,6 +116,13 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   office catalog when an in-result sibling does not match the natural
   query, so a parent like `FBLW` can name its `FBLW_D1-*` depth-tagged
   temperature sensors even when those names never matched.
+- `unit` is now a closed set (`'EN'` or `'SI'`) on both surfaces: MCP
+  tools use `Literal["EN", "SI"]` so FastMCP/pydantic rejects unknown
+  values before the tool body runs; CLI uses a `Unit(str, Enum)` so
+  Typer surfaces the same choice validation. Parameter descriptions
+  for the free-form `parameter` field gained richer examples and a
+  pointer at `cwms_list_parameters` for discovery (addresses Codex
+  review F5).
 - MCP error envelope normalization: the two manual validation branches
   (`cwms_browse_region` partial-bbox and `cwms_get_history` datetime
   parse) now flow through the full `CwmsToolsError.of(...)` envelope via

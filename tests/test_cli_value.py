@@ -157,3 +157,34 @@ def test_value_history_rejects_bad_datetimes() -> None:
     assert result.exit_code == 2
     payload = json.loads(result.stdout)
     assert payload["error"]["code"] == "invalid_field"
+
+
+def test_value_get_rejects_unknown_unit() -> None:
+    """`--unit` is a closed set ('EN' or 'SI'). Typer rejects unknown values
+    before the command body runs (Codex review F5)."""
+    result = runner.invoke(app, ["value", "get", "SWT/FOSS/Elev", "--unit", "bogus"])
+    assert result.exit_code == 2
+    # Typer's choice-validation error names the rejected value.
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert "bogus" in combined
+
+
+def test_value_history_rejects_unknown_unit() -> None:
+    """Same enum constraint on `value history`."""
+    result = runner.invoke(
+        app,
+        [
+            "value",
+            "history",
+            "SWT/FOSS/Elev",
+            "--begin",
+            "2026-05-17T17:00:00Z",
+            "--end",
+            "2026-05-17T19:00:00Z",
+            "--unit",
+            "bogus",
+        ],
+    )
+    assert result.exit_code == 2
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert "bogus" in combined

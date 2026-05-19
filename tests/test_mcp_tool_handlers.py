@@ -240,6 +240,24 @@ def test_get_history_handler_rejects_bad_begin_iso(configured) -> None:
     assert "source" in err
 
 
+def test_get_value_handler_rejects_unknown_unit(configured) -> None:
+    """`unit` is `Literal["EN", "SI"]`. FastMCP/pydantic validates the
+    argument before the tool body runs, so the schema itself rejects
+    invalid values (Codex review F5)."""
+    from pydantic import ValidationError
+
+    server = build_server()
+    with pytest.raises(ValidationError) as excinfo:
+        _call(
+            server,
+            "cwms_get_value",
+            {"office": "SWT", "name": "FOSS", "parameter": "Elev", "unit": "bogus"},
+        )
+    msg = str(excinfo.value)
+    assert "unit" in msg
+    assert "'EN'" in msg and "'SI'" in msg
+
+
 def test_get_history_handler_rejects_bad_end_iso(configured) -> None:
     """Symmetric: bad `end_iso` is reported separately. Splitting the two
     parses means the agent always knows which field to fix."""

@@ -30,6 +30,13 @@ class Detail(str, Enum):
     FULL = "full"
 
 
+class Unit(str, Enum):
+    """Unit system. 'EN' is English (ft, cfs); 'SI' is metric (m, cms)."""
+
+    EN = "EN"
+    SI = "SI"
+
+
 class SourceMeta(BaseModel):
     """Provenance attached to every successful tool response."""
 

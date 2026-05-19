@@ -11,7 +11,7 @@ from cwms_tools.cli.exit_codes import from_error_code
 from cwms_tools.cli.render import emit
 from cwms_tools.core import values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
-from cwms_tools.core.models import Detail
+from cwms_tools.core.models import Detail, Unit
 
 app = typer.Typer(
     name="value",
@@ -64,12 +64,12 @@ def get(
         ),
     ] = 24,
     unit: Annotated[
-        str,
+        Unit,
         typer.Option(
             "--unit",
             help="Unit system: 'EN' (English: ft, cfs) or 'SI' (metric: m, cms).",
         ),
-    ] = "EN",
+    ] = Unit.EN,
     with_status: Annotated[
         bool,
         typer.Option(
@@ -120,7 +120,7 @@ def get(
                 name,
                 parameter,
                 window=timedelta(hours=window_hours),
-                unit=unit,
+                unit=unit.value,
                 classify_against_levels=with_status,
             )
             if detail is Detail.SUMMARY and isinstance(payload.get("thresholds_active"), list):
@@ -176,12 +176,12 @@ def history(
         ),
     ],
     unit: Annotated[
-        str,
+        Unit,
         typer.Option(
             "--unit",
             help="Unit system: 'EN' (English: ft, cfs) or 'SI' (metric: m, cms).",
         ),
-    ] = "EN",
+    ] = Unit.EN,
     detail: Annotated[
         Detail,
         typer.Option(
@@ -212,7 +212,9 @@ def history(
         )
         raise typer.Exit(code=2) from exc
     try:
-        payload = values.get_history(office, name, parameter, begin=begin_dt, end=end_dt, unit=unit)
+        payload = values.get_history(
+            office, name, parameter, begin=begin_dt, end=end_dt, unit=unit.value
+        )
         if detail is Detail.SUMMARY and isinstance(payload.get("values"), list):
             payload = {
                 **payload,

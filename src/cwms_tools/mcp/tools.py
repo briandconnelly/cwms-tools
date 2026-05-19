@@ -13,7 +13,7 @@ capability fingerprint at call time). Error responses use the structured
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from cwms_tools.core import concurrency, fingerprint, places, publishers_index, values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
@@ -232,14 +232,18 @@ def register_value_tools(mcp: FastMCP) -> None:
             "or a depth-tagged sensor like UBLW_S1-D21,0ft).",
         ],
         parameter: Annotated[
-            str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage, Temp-Water)."
+            str,
+            "Parameter code. Common examples: Temp-Water, Stage, Elev, Flow-In, "
+            "Flow-Out, Precip, Conc-DO, Volt-Battery. Case-sensitive. See "
+            "`cwms_list_parameters` on a known location for the full set.",
         ],
         window_hours: Annotated[
             int,
             "How far back to search for the most recent value, in hours.",
         ] = 24,
         unit: Annotated[
-            str, "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms)."
+            Literal["EN", "SI"],
+            "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms).",
         ] = "EN",
         with_status: Annotated[
             bool,
@@ -286,7 +290,10 @@ def register_value_tools(mcp: FastMCP) -> None:
         office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
         name: Annotated[str, "CWMS location name/id within the office (e.g. FTPK, FOSS)."],
         parameter: Annotated[
-            str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage, Temp-Water)."
+            str,
+            "Parameter code. Common examples: Temp-Water, Stage, Elev, Flow-In, "
+            "Flow-Out, Precip, Conc-DO, Volt-Battery. Case-sensitive. See "
+            "`cwms_list_parameters` on a known location for the full set.",
         ],
         begin_iso: Annotated[
             str, "Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z)."
@@ -296,7 +303,8 @@ def register_value_tools(mcp: FastMCP) -> None:
             "Window end as an RFC3339 timestamp (e.g. 2026-05-18T00:00:00Z).",
         ],
         unit: Annotated[
-            str, "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms)."
+            Literal["EN", "SI"],
+            "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms).",
         ] = "EN",
         detail: Detail = Detail.SUMMARY,
     ) -> HistoryResponse | ErrorRef:
