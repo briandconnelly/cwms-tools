@@ -30,17 +30,29 @@ def get_value(
     *,
     window: timedelta = timedelta(hours=24),
     unit: str = "EN",
-    classify_against_levels: bool = True,
+    classify_against_levels: bool = False,
     status_budget_seconds: float | None = None,
 ) -> dict[str, Any]:
-    """Latest value + inline status classification for one (office, location, parameter).
+    """Latest value for one (office, location, parameter).
 
-    `classify_against_levels=False` skips the threshold lookup entirely.
+    Threshold classification against CWMS Location Levels is OFF by default.
+    The `/levels` endpoint is reliably slow (8 s budget exceeded on every
+    cold-cache call in evaluation), so the value-only path is the fast
+    default. Set `classify_against_levels=True` to opt into the slower
+    classified path.
+
+    Response always carries `level_lookup_status` so the caller can
+    distinguish "skipped on purpose" from "attempted but unavailable":
+
+    - `"skipped"`: classification was not requested.
+    - `"computed"`: thresholds were resolved and applied.
+    - `"timed_out"`: the upstream level lookup exceeded the budget; the
+      in-flight HTTP continues so the next invocation should warm-hit.
+    - `"unavailable"`: the lookup returned but no thresholds matched
+      (could be "no levels defined" or a transient upstream failure).
+
     `status_budget_seconds` (default 8 s) caps how long the threshold
-    lookup may run; on timeout the response carries
-    `status_class: "unknown"` and `level_lookup_status: "timed_out"`,
-    plus a `repair` hint pointing the caller at a re-run that should
-    benefit from the now-warming cache.
+    lookup may run when classification is requested.
     """
     tsid = timeseries.require_canonical_ts_id(office, location, parameter)
     parts = publishers.parse_ts_id(tsid)

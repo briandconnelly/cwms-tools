@@ -186,11 +186,15 @@ def register_value_tools(mcp: FastMCP) -> None:
     """Register the value-related tools on the FastMCP server."""
 
     @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Current value with status context"},
+        annotations={"readOnlyHint": True, "title": "Current value (optional status)"},
     )
     async def cwms_get_value(
         office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
-        name: Annotated[str, "CWMS location name/id within the office (e.g. FTPK, FOSS)."],
+        name: Annotated[
+            str,
+            "CWMS location name/id within the office (e.g. FTPK, FOSS, "
+            "or a depth-tagged sensor like UBLW_S1-D21,0ft).",
+        ],
         parameter: Annotated[
             str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage, Temp-Water)."
         ],
@@ -201,17 +205,28 @@ def register_value_tools(mcp: FastMCP) -> None:
         unit: Annotated[
             str, "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms)."
         ] = "EN",
+        with_status: Annotated[
+            bool,
+            "Classify the observation against applicable CWMS Location Levels. "
+            "OFF by default — the levels lookup is reliably slow (the 8 s "
+            "budget often expires on cold cache). The response always carries "
+            "`level_lookup_status` (skipped, computed, timed_out, unavailable) "
+            "so callers can see what happened.",
+        ] = False,
         detail: Detail = Detail.SUMMARY,
     ) -> ValueWithContextResponse | ErrorRef:
-        """Latest observation for a parameter at a place, with inline status.
+        """Latest observation for a parameter at a place.
 
-        Use for a single point-in-time reading. For a windowed history,
-        call `cwms_get_history`. Auto-selects the canonical (best
-        publisher) timeseries id at the location. The response includes
-        `status_class` (nominal, watch, action, flood, or unknown)
-        computed against the applicable thresholds for the parameter,
-        plus the list of active thresholds with the signed delta from
-        the observation to each.
+        Value-only and fast by default. Set `with_status=true` to also
+        classify against applicable thresholds; that path is slow and
+        often times out — agents on a tight budget should leave it off
+        and follow up with a separate classification step if needed.
+
+        Auto-selects the canonical (best publisher) timeseries id at the
+        location. When classification ran successfully the response
+        carries `status_class` (nominal, watch, action, flood, or
+        unknown) and `thresholds_active` with the signed delta from the
+        observation to each threshold.
         """
         raw = await _safe(
             values.get_value,
@@ -220,6 +235,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             parameter,
             window=timedelta(hours=window_hours),
             unit=unit,
+            classify_against_levels=with_status,
         )
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)

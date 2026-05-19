@@ -16,8 +16,9 @@ from cwms_tools.core.models import Detail
 app = typer.Typer(
     name="value",
     help=(
-        "Read CWMS observations: the latest value (with inline status "
-        "classification) and a windowed history."
+        "Read CWMS observations: the latest value (fast value-only by default) "
+        "and a windowed history. Use `--with-status` on `get` to classify "
+        "against applicable thresholds."
     ),
     no_args_is_help=True,
 )
@@ -49,7 +50,9 @@ def get(
         typer.Argument(
             help=(
                 "One or more place/parameter ids, each in OFFICE/NAME/PARAMETER "
-                "form (e.g. NWDM/FTPK/Elev SWT/FOSS/Elev)."
+                "form. Examples: `NWDM/FTPK/Elev`, "
+                "`NWDP/UBLW_S1-D21,0ft/Temp-Water` (depth-tagged sensor with "
+                "comma in the name)."
             )
         ),
     ],
@@ -67,6 +70,20 @@ def get(
             help="Unit system: 'EN' (English: ft, cfs) or 'SI' (metric: m, cms).",
         ),
     ] = "EN",
+    with_status: Annotated[
+        bool,
+        typer.Option(
+            "--with-status/--no-status",
+            help=(
+                "Classify the observation against the applicable CWMS Location "
+                "Levels. OFF by default — the levels lookup is reliably slow "
+                "(often exceeds the 8 s budget). When ON the response carries "
+                "`status_class` plus `level_lookup_status` indicating whether "
+                "the lookup ran to completion, timed out, or returned no "
+                "thresholds."
+            ),
+        ),
+    ] = False,
     detail: Annotated[
         Detail,
         typer.Option(
@@ -77,11 +94,15 @@ def get(
 ) -> None:
     """Get the latest observation for one or more place/parameters.
 
-    Each result carries `status_class` (nominal, watch, action, flood,
-    unknown) computed against the applicable thresholds. With multiple
-    ids the response is a batch envelope: per-item results land inline,
-    `partial: true` is set when any item failed, and the process exits
-    non-zero on partial failure.
+    Default path is value-only and fast. Pass `--with-status` to also
+    classify against applicable thresholds (slower; the response always
+    carries `level_lookup_status` so you can see what happened).
+
+    With multiple ids the response is a batch envelope: per-item results
+    land inline, `partial: true` is set when any item failed, and the
+    process exits non-zero on partial failure.
+
+    Example: `cwms-tools value get NWDP/UBLW_S1-D21,0ft/Temp-Water --unit SI`
     """
     results: list[dict] = []
     ok_count = 0
@@ -100,6 +121,7 @@ def get(
                 parameter,
                 window=timedelta(hours=window_hours),
                 unit=unit,
+                classify_against_levels=with_status,
             )
             if detail is Detail.SUMMARY and isinstance(payload.get("thresholds_active"), list):
                 payload = {
@@ -132,7 +154,11 @@ def history(
     id_spec: Annotated[
         str,
         typer.Argument(
-            help="Place/parameter id in OFFICE/NAME/PARAMETER form (e.g. SWT/FOSS/Elev)."
+            help=(
+                "Place/parameter id in OFFICE/NAME/PARAMETER form. Examples: "
+                "`SWT/FOSS/Elev`, `NWDP/UBLW_S1-D21,0ft/Temp-Water` "
+                "(depth-tagged WQ sensor)."
+            )
         ),
     ],
     begin: Annotated[

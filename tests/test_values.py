@@ -65,7 +65,12 @@ def _ts_payload(*, ts_id: str, points: list[tuple[datetime, float]]) -> dict:
 # --------------------------------------------------------------------------
 
 
-def test_get_value_returns_latest_value_with_canonical_publisher(configured) -> None:
+def test_get_value_returns_latest_value_without_classification_by_default(
+    configured,
+) -> None:
+    """Default behavior is value-only: no /levels call, status_class=unknown,
+    level_lookup_status=skipped. The classification path is reliably slow
+    so opting-in via with_status=true is the agent-friendly default."""
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
         mocked.add(
@@ -77,14 +82,37 @@ def test_get_value_returns_latest_value_with_canonical_publisher(configured) -> 
             ),
             status=200,
         )
-        # No levels for now → empty list response.
-        mocked.add(responses.GET, f"{API_ROOT}levels", json={"levels": []}, status=200)
+        # No /levels call should be made on the default path.
         payload = values.get_value("SWT", "FOSS", "Elev")
+        levels_calls = [c for c in mocked.calls if "/levels" in (c.request.url or "")]
+        assert not levels_calls
 
     assert payload["ts_id"] == "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"
     assert payload["publisher"] == "Ccp-Rev"
     assert payload["value"] == 1648.21
     assert payload["timestamp"] == "2026-05-17T18:00:00Z"
+    assert payload["status_class"] == "unknown"
+    assert payload["level_lookup_status"] == "skipped"
+    assert payload["thresholds_active"] == []
+
+
+def test_get_value_classifies_nominal_when_with_status_enabled(configured) -> None:
+    """When classify_against_levels=True and no thresholds match, the
+    observation is `nominal` and level_lookup_status reflects completion."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
+        mocked.add(
+            responses.GET,
+            re.compile(rf"{re.escape(_ts_url())}\?.*"),
+            json=_ts_payload(
+                ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+                points=[(datetime(2026, 5, 17, 18, tzinfo=timezone.utc), 1648.21)],
+            ),
+            status=200,
+        )
+        mocked.add(responses.GET, f"{API_ROOT}levels", json={"levels": []}, status=200)
+        payload = values.get_value("SWT", "FOSS", "Elev", classify_against_levels=True)
+
     assert payload["status_class"] == "nominal"
     assert payload["thresholds_active"] == []
 
@@ -136,7 +164,7 @@ def test_get_value_classifies_flood_when_above_flood_stage(configured) -> None:
             json=level_value_payload,
             status=200,
         )
-        payload = values.get_value("SWT", "FOSS", "Elev")
+        payload = values.get_value("SWT", "FOSS", "Elev", classify_against_levels=True)
 
     assert payload["value"] == 1650.0
     assert payload["status_class"] == "flood"
