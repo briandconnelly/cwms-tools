@@ -8,70 +8,333 @@ wrappers in `core.catalog`, `core.locations`, `core.projects`, and
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
-from cwms_tools.core import catalog, locations, projects, publishers
+from cwms_tools.core import catalog, locations, offices, projects, publishers
+from cwms_tools.core.cache import build_cache_key, get_cache
+from cwms_tools.core.concurrency import MAX_WORKERS
 from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
+from cwms_tools.core.session import current_config
 
 DEFAULT_SEARCH_LIMIT: int = 50
+
+
+def _fanout_budget() -> int:
+    """How many uncached offices we will fetch per `search_places` call.
+
+    Mirrors `core/publishers_index._budget()`. Capping new fetches keeps
+    cold-cache fanout bounded so a single search doesn't trigger ~68
+    upstream calls.
+    """
+    return max(1, math.ceil(MAX_WORKERS / 2))
+
+
+def _normalize_office_arg(office: str | list[str] | None) -> list[str] | None:
+    """Return the explicit office list, or None to mean "use cached scope"."""
+    if office is None:
+        return None
+    if isinstance(office, str):
+        return [office]
+    seen: set[str] = set()
+    out: list[str] = []
+    for o in office:
+        if o not in seen:
+            seen.add(o)
+            out.append(o)
+    return out
 
 
 def search_places(
     query: str,
     *,
-    office: str,
+    office: str | list[str] | None = None,
+    parameter: str | None = None,
     limit: int | None = DEFAULT_SEARCH_LIMIT,
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """`cwms_search_places` — name resolution with enrichment.
 
     Returns the SearchPlacesResult shape: ghost-filtered + co-located, ranked
-    so data-bearing records come first. Ghosts (parameter_count == 0) are
-    kept but sort to the bottom so the agent can still see them. Each
-    barren result carries a `data_at` repair hint listing co-located
-    siblings that DO publish data (the depth-tagged child case from
-    Lake Washington / UBLW_S1 — the parent is empty but `UBLW_S1-D21,0ft`
-    holds the actual sensors).
+    so data-bearing records come first. Each barren result carries a
+    `data_at` repair hint listing co-located siblings that DO publish data
+    (the depth-tagged child case from Lake Washington / UBLW_S1 — the parent
+    is empty but `UBLW_S1-D21,0ft` holds the actual sensors).
+
+    `office`: a single office code, an explicit list of office codes, or
+    `None` to use the cached scope. `None` fans out only across offices
+    whose unfiltered locations catalog is already cached this session;
+    unbounded discovery is intentionally avoided. Pass an explicit list to
+    widen. New (uncached) offices in the list are capped per call by
+    `_fanout_budget()`; offices not fetched are listed under
+    `offices_skipped_for_budget` with a repair hint pointing back at this
+    tool with that list as the next `office` argument.
+
+    `parameter`: optional CWMS parameter code (e.g. `Temp-Water`). When
+    set, data-bearing rows that do not publish this parameter are dropped
+    from `results`; barren rows are kept only when their `data_at`
+    siblings publish the parameter (the depth-sensor repair case). The
+    response carries `nearby_non_matching_count` so the agent sees how
+    much was filtered without paying for the filtered rows themselves.
 
     `limit` caps the number of results returned (default 50). Broad
-    searches like "Temp String" can return hundreds of rows on a big
-    office; the cap prevents flooding the caller. Set `limit=None` (or
-    `limit=0` on the CLI) to return every match. When the cap kicks in,
-    the response carries `truncated: true` and `total_count` so the
-    caller can decide whether to narrow the query.
+    searches can return hundreds of rows on a big office; the cap
+    prevents flooding the caller. Set `limit=None` (or `limit=0` on the
+    CLI) to return every match. When the cap kicks in, the response
+    carries `truncated: true` and `total_count`.
     """
     if limit is not None and limit < 0:
         raise ValueError("limit must be a non-negative integer or None")
-    enriched = locations.search(office, query, use_cache=use_cache)
-    enriched.sort(key=lambda r: (-r["parameter_count"], r["name"]))
+
+    requested = _normalize_office_arg(office)
+    if requested is None:
+        requested = offices.cached_offices_for_locations()
+    offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
+    enriched, filtered_out = _apply_parameter_filter(
+        _gather_enriched(offices_searched, query, use_cache=use_cache),
+        parameter,
+        use_cache=use_cache,
+    )
+    enriched.sort(key=lambda r: (-r["parameter_count"], r["office_id"], r["name"]))
     total_count = len(enriched)
     truncated = limit is not None and total_count > limit
     if limit is not None:
         enriched = enriched[:limit]
-    by_name = {r["name"]: r for r in enriched}
-    return {
+
+    results = [
+        {
+            "office_id": r["office_id"],
+            "name": r["name"],
+            "public_name": r.get("public_name"),
+            "location_kind": r.get("location_kind"),
+            "latitude": r.get("latitude"),
+            "longitude": r.get("longitude"),
+            "parameter_count": r["parameter_count"],
+            "parameters": r.get("parameters", []),
+            "publishers": r["publishers"],
+            "last_data_timestamp": r.get("last_data_timestamp"),
+            "co_located": r.get("co_located", []),
+            "data_at": r.get("data_at", []),
+        }
+        for r in enriched
+    ]
+
+    response: dict[str, Any] = {
         "query": query,
         "office": office,
-        "results": [
-            {
-                "office_id": r["office_id"],
-                "name": r["name"],
-                "public_name": r.get("public_name"),
-                "location_kind": r.get("location_kind"),
-                "latitude": r.get("latitude"),
-                "longitude": r.get("longitude"),
-                "parameter_count": r["parameter_count"],
-                "publishers": r["publishers"],
-                "last_data_timestamp": r.get("last_data_timestamp"),
-                "co_located": r.get("co_located", []),
-                "data_at": _data_at_hint(r, by_name),
-            }
-            for r in enriched
-        ],
+        "offices_searched": offices_searched,
+        "offices_skipped_for_budget": offices_skipped,
+        "results": results,
         "total_count": total_count,
         "truncated": truncated,
         "limit": limit,
     }
+    if parameter is not None:
+        response["parameter"] = parameter
+        response["nearby_non_matching_count"] = filtered_out
+    if partial_reasons:
+        response["partial"] = True
+        response["partial_reasons"] = partial_reasons
+    return response
+
+
+def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """Decide which offices to search; return (searched, skipped, reasons).
+
+    Mirrors `publishers_index.publishers_for_parameter`: cached offices
+    are always allowed; uncached offices consume the per-call budget.
+    Offices that error during the actual search are flagged via
+    `partial_reasons` in the parent response.
+    """
+    budget = _fanout_budget()
+    searched: list[str] = []
+    skipped: list[str] = []
+    reasons: list[str] = []
+    for office in requested:
+        cached = _location_catalog_cached(office)
+        if cached or budget > 0:
+            searched.append(office)
+            if not cached:
+                budget -= 1
+        else:
+            skipped.append(office)
+    if not requested:
+        reasons.append("no_offices_in_scope: omit `office` or pass an explicit list to widen")
+    return searched, skipped, reasons
+
+
+def _location_catalog_cached(office: str) -> bool:
+    """Cheap probe: is `office`'s unfiltered locations catalog cached?"""
+
+    cache = get_cache()
+    cfg = current_config()
+    key = build_cache_key("location_catalog", office, "", api_root=cfg.api_root)
+    return cache.get(key) is not None
+
+
+def _gather_enriched(
+    office_ids: list[str],
+    query: str,
+    *,
+    use_cache: bool,
+) -> list[dict[str, Any]]:
+    """Run filtered enrichment per office and merge."""
+    merged: list[dict[str, Any]] = []
+    for office_id in office_ids:
+        try:
+            rows = locations.search(office_id, query, use_cache=use_cache)
+        except Exception:
+            continue
+        merged.extend(rows)
+    return merged
+
+
+def _apply_parameter_filter(
+    enriched: list[dict[str, Any]],
+    parameter: str | None,
+    *,
+    use_cache: bool,
+) -> tuple[list[dict[str, Any]], int]:
+    """Compute `data_at` per row and apply the optional parameter filter.
+
+    Returns `(kept_rows, dropped_count)`. `dropped_count` is 0 when no
+    parameter filter is set.
+
+    When `parameter` is set, also pulls in *co-located siblings publishing
+    the parameter* from the broader (unfiltered) office catalog, even
+    when those siblings did not literally match the search query. This
+    is what makes the Fremont Bridge probe succeed: `cwms_search_places(
+    "Fremont Bridge", parameter="Temp-Water")` surfaces `FBLW_D1-D5,0ft`
+    even though that id contains no "Fremont Bridge" string.
+    """
+    if not enriched:
+        return [], 0
+
+    by_office: dict[str, dict[str, dict[str, Any]]] = {}
+    for r in enriched:
+        by_office.setdefault(r["office_id"], {})[r["name"]] = r
+    broader_by_office: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def broader(office_id: str) -> dict[str, dict[str, Any]]:
+        cached = broader_by_office.get(office_id)
+        if cached is not None:
+            return cached
+        try:
+            rows = catalog.enrich_locations(office_id, use_cache=use_cache)
+        except Exception:
+            rows = []
+        index = {r["name"]: r for r in rows}
+        broader_by_office[office_id] = index
+        return index
+
+    def annotate_data_at(row: dict[str, Any]) -> None:
+        """Set `row["data_at"]` from the broader catalog when this row is barren."""
+        office_id = row["office_id"]
+        in_office_by_name = by_office[office_id]
+        siblings = row.get("co_located") or []
+        data_at = _sibling_data_at(siblings, in_office_by_name, parameter)
+        if not data_at and row.get("parameter_count", 0) == 0:
+            broader_by_name = broader(office_id)
+            target = broader_by_name.get(row["name"])
+            broader_siblings = (target or {}).get("co_located") or siblings
+            data_at = _sibling_data_at(broader_siblings, broader_by_name, parameter)
+        row["data_at"] = data_at if row.get("parameter_count", 0) == 0 else []
+
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    promoted_keys: set[tuple[str, str]] = set()
+    promoted_rows: list[dict[str, Any]] = []
+
+    for row in enriched:
+        annotate_data_at(row)
+        if parameter is None:
+            kept.append(row)
+            continue
+        if parameter in (row.get("parameters") or []):
+            kept.append(row)
+            continue
+        promoted_here = _promote_parameter_siblings(
+            row, parameter, broader, promoted_keys, promoted_rows
+        )
+        if promoted_here and row.get("parameter_count", 0) == 0:
+            # Barren parent whose siblings publish the parameter — keep
+            # as an explicit discovery hint alongside the promoted siblings.
+            row["data_at"] = sorted(promoted_here)
+            kept.append(row)
+        else:
+            dropped += 1
+
+    _append_unique_promotions(kept, enriched, promoted_rows)
+    return kept, dropped
+
+
+def _promote_parameter_siblings(
+    row: dict[str, Any],
+    parameter: str,
+    broader: Any,
+    promoted_keys: set[tuple[str, str]],
+    promoted_rows: list[dict[str, Any]],
+) -> list[str]:
+    """Find broader-catalog siblings publishing `parameter`; append to the
+    shared promoted-rows accumulator. Returns the names found, in input
+    order, so the caller can populate `data_at` on a barren parent."""
+    broader_by_name = broader(row["office_id"])
+    target = broader_by_name.get(row["name"])
+    co_loc = (target or {}).get("co_located") or row.get("co_located") or []
+    found: list[str] = []
+    for sibling_name in co_loc:
+        key = (row["office_id"], sibling_name)
+        if key in promoted_keys:
+            continue
+        sibling = broader_by_name.get(sibling_name)
+        if not sibling:
+            continue
+        if parameter not in (sibling.get("parameters") or []):
+            continue
+        promoted_keys.add(key)
+        sibling_copy = dict(sibling)
+        sibling_copy["data_at"] = []
+        promoted_rows.append(sibling_copy)
+        found.append(sibling_name)
+    return found
+
+
+def _append_unique_promotions(
+    kept: list[dict[str, Any]],
+    enriched: list[dict[str, Any]],
+    promoted_rows: list[dict[str, Any]],
+) -> None:
+    """Append promoted siblings to `kept`, skipping any name already
+    surfaced as a direct query match or earlier in `kept`."""
+    enriched_keys = {(r["office_id"], r["name"]) for r in enriched}
+    kept_keys = {(r["office_id"], r["name"]) for r in kept}
+    for sibling in promoted_rows:
+        key = (sibling["office_id"], sibling["name"])
+        if key in enriched_keys or key in kept_keys:
+            continue
+        kept.append(sibling)
+        kept_keys.add(key)
+
+
+def _sibling_data_at(
+    siblings: list[str],
+    by_name: dict[str, dict[str, Any]],
+    parameter: str | None = None,
+) -> list[str]:
+    """Shared predicate: filter siblings to those that publish data.
+
+    When `parameter` is set, further filter to siblings that publish that
+    specific parameter. Stable ordering so snapshot tests don't churn.
+    """
+    out: list[str] = []
+    for s in siblings:
+        info = by_name.get(s)
+        if not info or info.get("parameter_count", 0) <= 0:
+            continue
+        if parameter is not None and parameter not in (info.get("parameters") or []):
+            continue
+        out.append(s)
+    return sorted(out)
 
 
 def describe_place(
@@ -155,21 +418,6 @@ def list_parameters(
     }
 
 
-def _data_at_hint(row: dict[str, Any], by_name: dict[str, dict[str, Any]]) -> list[str]:
-    """Names of co-located siblings (in the same enriched result set) that
-    publish data, returned only when this row itself is barren.
-
-    Empty when the row has data or when no data-bearing co-located sibling
-    exists. Stable ordering so snapshot tests don't churn.
-    """
-    if row.get("parameter_count", 0) > 0:
-        return []
-    siblings = row.get("co_located") or []
-    if not siblings:
-        return []
-    return sorted(s for s in siblings if (by_name.get(s) or {}).get("parameter_count", 0) > 0)
-
-
 def _data_at_for_location(
     office: str,
     name: str,
@@ -179,10 +427,9 @@ def _data_at_for_location(
     """Find data-bearing co-located siblings for a single named location.
 
     Used by `list_parameters` when the requested location is barren. Pulls
-    the enriched office catalog (cached) and reads the co_located list for
-    `name`, then filters to siblings with `parameter_count > 0`. Returns
-    an empty list when no sibling has data or when the location isn't in
-    the office catalog at all.
+    the unfiltered enriched office catalog (cached) and applies the shared
+    `_sibling_data_at` predicate. Returns an empty list when no sibling has
+    data or when the location isn't in the office catalog at all.
     """
     enriched = catalog.enrich_locations(office, use_cache=use_cache)
     target = next((r for r in enriched if r["name"] == name), None)
@@ -192,7 +439,7 @@ def _data_at_for_location(
     if not siblings:
         return []
     by_name = {r["name"]: r for r in enriched}
-    return sorted(s for s in siblings if (by_name.get(s) or {}).get("parameter_count", 0) > 0)
+    return _sibling_data_at(siblings, by_name)
 
 
 def browse_region(

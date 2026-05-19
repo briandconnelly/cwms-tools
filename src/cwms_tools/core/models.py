@@ -157,6 +157,13 @@ class PlaceSummary(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     parameter_count: int = 0
+    parameters: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Distinct CWMS parameter codes published at this location "
+            "(e.g. Temp-Water, Stage, Elev). Empty for barren/ghost rows."
+        ),
+    )
     publishers: list[str] = Field(default_factory=list)
     last_data_timestamp: str | None = None
     co_located: list[str] = Field(default_factory=list)
@@ -177,7 +184,25 @@ class SearchPlacesResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     query: str
-    office: str
+    office: str | list[str] | None = None
+    offices_searched: list[str] = Field(default_factory=list)
+    offices_skipped_for_budget: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Offices in the requested list that exceeded the per-call fanout "
+            "budget. Pass these back in `office` to widen the search."
+        ),
+    )
+    parameter: str | None = None
+    nearby_non_matching_count: int | None = Field(
+        default=None,
+        description=(
+            "When `parameter` is set, the number of data-bearing rows dropped "
+            "because they don't publish that parameter. Null otherwise."
+        ),
+    )
+    partial: bool = False
+    partial_reasons: list[str] = Field(default_factory=list)
     results: list[PlaceSummary]
     source: SourceMeta
 

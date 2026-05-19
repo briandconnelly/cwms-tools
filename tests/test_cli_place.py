@@ -119,6 +119,77 @@ def test_place_search_respects_limit_flag(configured) -> None:
     assert len(payload["results"]) == 3
 
 
+def test_place_search_parameter_filter_drops_non_publishers(configured) -> None:
+    """`--parameter` filters out data-bearing rows that don't publish it.
+    The new behavior addresses Codex review F2 (Fremont Bridge probe)."""
+    locations_payload = {
+        "locations": [
+            {
+                "office-id": "NWDP",
+                "name": "FBLW",
+                "public-name": "Fremont Bridge",
+                "latitude": 47.65,
+                "longitude": -122.35,
+            },
+            {
+                "office-id": "NWDP",
+                "name": "FBLW_D1-D5,0ft",
+                "latitude": 47.65,
+                "longitude": -122.35,
+            },
+        ]
+    }
+    ts_payload = {
+        "entries": [
+            {"name": "FBLW.Volt-Battery.Inst.1Hour.0.IRIDIUM-REV"},
+            {"name": "FBLW_D1-D5,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"},
+        ]
+    }
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        for _ in range(4):
+            mocked.add(
+                responses.GET,
+                f"{API_ROOT}catalog/LOCATIONS",
+                json=locations_payload,
+                status=200,
+            )
+            mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=ts_payload, status=200)
+        result = runner.invoke(
+            app,
+            [
+                "place",
+                "search",
+                "Fremont Bridge",
+                "--office",
+                "NWDP",
+                "--parameter",
+                "Temp-Water",
+            ],
+        )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    names = [r["name"] for r in payload["results"]]
+    assert "FBLW_D1-D5,0ft" in names
+    assert "FBLW" not in names
+    assert payload["parameter"] == "Temp-Water"
+    assert payload["nearby_non_matching_count"] >= 1
+
+
+def test_place_search_repeatable_office_flag(configured) -> None:
+    """Multiple `--office` flags fan out across each. The response's
+    `offices_searched` reflects what actually ran."""
+    nwdp_locs = {"locations": []}
+    nwdp_ts = {"entries": []}
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        for _ in range(4):
+            mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=nwdp_locs, status=200)
+            mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=nwdp_ts, status=200)
+        result = runner.invoke(app, ["place", "search", "anything", "-o", "NWDP", "-o", "NWDM"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["offices_searched"] == ["NWDP", "NWDM"]
+
+
 def test_place_describe_emits_summary_by_default(configured) -> None:
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm(mocked)

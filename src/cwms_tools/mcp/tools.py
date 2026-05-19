@@ -62,10 +62,23 @@ def register_place_tools(mcp: FastMCP) -> None:
     async def cwms_search_places(
         query: Annotated[str, "Name fragment to match, case-insensitive."],
         office: Annotated[
-            str,
-            "USACE office code (e.g. NWDM, SWT, MVS). Required because catalog "
-            "search is per-office.",
-        ],
+            str | list[str] | None,
+            "USACE office code, or a list of office codes. Omit to fan out "
+            "across offices already cached this session; pass an explicit "
+            "list to widen. Unbounded discovery is intentionally avoided. "
+            "New (uncached) offices in the list are capped per call; "
+            "uncached overflow is returned under `offices_skipped_for_budget` "
+            "with a repair hint pointing back at this tool with that list.",
+        ] = None,
+        parameter: Annotated[
+            str | None,
+            "Filter to locations publishing this parameter (e.g. Temp-Water, "
+            "Elev, Flow-In). When set, locations that don't publish this "
+            "parameter are dropped — except barren parents whose `data_at` "
+            "siblings publish it (kept as a discovery hint). The response "
+            "carries `nearby_non_matching_count` so the agent sees how much "
+            "was filtered out.",
+        ] = None,
         limit: Annotated[
             int,
             "Cap on the number of results (default 50). Broad queries like "
@@ -77,22 +90,32 @@ def register_place_tools(mcp: FastMCP) -> None:
     ) -> SearchPlacesResponse | ErrorRef:
         """Resolve a CWMS place name to ranked location matches.
 
-        Use for ambiguous name lookup within one office. If you already
-        have the canonical `office` and `name`, call `cwms_describe_place`,
+        Use for ambiguous name lookup. If you already have the canonical
+        `office` and `name`, call `cwms_describe_place`,
         `cwms_list_parameters`, or `cwms_get_value` / `cwms_get_history`
         directly instead.
 
         Each result is enriched with parameter_count (0 means a ghost
-        record with no published data), the list of publishers active at
-        the location, the most recent data timestamp, any other ids
-        within ~100m of the same coordinates, and `data_at` — when a
-        barren parent has a co-located data-bearing sibling, the
-        sibling names land in `data_at` so the agent gets the repair
-        hint without walking the co_located list. Data-bearing records
-        sort first; ghosts are kept at the bottom of the list.
+        record with no published data), the parameters published at the
+        location, the list of publishers active there, the most recent
+        data timestamp, any other ids within ~100m of the same
+        coordinates, and `data_at` — when a barren parent has a
+        co-located data-bearing sibling, the sibling names land in
+        `data_at` so the agent gets the repair hint without walking the
+        co_located list. The `data_at` lookup falls back to the full
+        office catalog when an in-result sibling does not match the
+        query, so a parent like `FBLW` can still name its depth-tagged
+        `FBLW_D1-*` temperature sensors. Data-bearing records sort
+        first; ghosts are kept at the bottom of the list.
         """
         effective_limit = None if limit == 0 else limit
-        raw = await _safe(places.search_places, query, office=office, limit=effective_limit)
+        raw = await _safe(
+            places.search_places,
+            query,
+            office=office,
+            parameter=parameter,
+            limit=effective_limit,
+        )
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
         shaped = _shape_detail(raw, detail)

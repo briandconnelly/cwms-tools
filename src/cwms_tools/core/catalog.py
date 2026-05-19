@@ -278,10 +278,17 @@ def _build_ts_like_for_rows(rows: list[dict[str, Any]]) -> tuple[str | None, boo
 
 def _index_ts_payload(
     ts_payload: dict[str, Any],
-) -> tuple[dict[str, list[str]], dict[str, str | None]]:
-    """Group ts ids by location and track the latest observation per location."""
+) -> tuple[dict[str, list[str]], dict[str, str | None], dict[str, set[str]]]:
+    """Group ts ids by location and track the latest observation per location.
+
+    Also tracks the distinct parameters published at each location; the
+    third return value is `{location_name: {parameter, ...}}` and lets the
+    enriched response carry a per-row `parameters` list for downstream
+    parameter-aware filtering (`cwms_search_places(parameter=...)`).
+    """
     by_location: dict[str, list[str]] = {}
     by_location_last: dict[str, str | None] = {}
+    by_location_params: dict[str, set[str]] = {}
     for ts_row in _iter_ts_entries(ts_payload):
         tsid = ts_row.get("name") or ts_row.get("timeseries-id") or ts_row.get("time-series-id")
         if not isinstance(tsid, str):
@@ -290,12 +297,13 @@ def _index_ts_payload(
         if parts is None:
             continue
         by_location.setdefault(parts.location, []).append(tsid)
+        by_location_params.setdefault(parts.location, set()).add(parts.parameter)
         ts = _row_latest_time(ts_row)
         if ts is not None:
             cur = by_location_last.get(parts.location)
             if cur is None or ts > cur:
                 by_location_last[parts.location] = ts
-    return by_location, by_location_last
+    return by_location, by_location_last, by_location_params
 
 
 def enrich_locations(
@@ -346,7 +354,7 @@ def enrich_locations(
             include_extents=ts_like is not None,
             use_cache=use_cache,
         )
-    by_location, by_location_last = _index_ts_payload(ts_payload)
+    by_location, by_location_last, by_location_params = _index_ts_payload(ts_payload)
 
     enriched: list[dict[str, Any]] = []
     for r in rows:
@@ -366,6 +374,7 @@ def enrich_locations(
             "latitude": r.get("latitude"),
             "longitude": r.get("longitude"),
             "parameter_count": len(params),
+            "parameters": sorted(by_location_params.get(name, set())),
             "publishers": pubs,
             "last_data_timestamp": by_location_last.get(name),
             "co_located": siblings,

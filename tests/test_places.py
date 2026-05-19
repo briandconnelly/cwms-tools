@@ -431,6 +431,189 @@ def test_data_at_is_declared_on_response_schemas() -> None:
 
 
 # --------------------------------------------------------------------------
+# search_places — parameter filter + broader data_at + budgeted fanout
+# --------------------------------------------------------------------------
+
+
+def _fremont_locations_payload() -> dict[str, object]:
+    """Locations near Fremont Bridge (NWDP). Only the parent `FBLW` carries
+    "Fremont Bridge" in public-name — the depth-tagged sensors are id-only,
+    so a natural-language query for "Fremont Bridge" does NOT find them
+    via name-search alone. This is exactly the shape the Codex probe found
+    in the wild."""
+    return {
+        "locations": [
+            {
+                "office-id": "NWDP",
+                "name": "FBLW",
+                "public-name": "Fremont Bridge",
+                "latitude": 47.65,
+                "longitude": -122.35,
+            },
+            {
+                "office-id": "NWDP",
+                "name": "FBLW_D1-D5,0ft",
+                # Deliberately NO "Fremont Bridge" in any searchable field.
+                "latitude": 47.65,
+                "longitude": -122.35,
+            },
+            {
+                "office-id": "NWDP",
+                "name": "FBLW_D1-D18,0ft",
+                "latitude": 47.65,
+                "longitude": -122.35,
+            },
+        ]
+    }
+
+
+def _fremont_ts_payload() -> dict[str, object]:
+    """The parent `FBLW` carries only `Volt-Battery`; depth-tagged children
+    are the real `Temp-Water` sensors. Mirrors the Codex probe."""
+    return {
+        "entries": [
+            {"name": "FBLW.Volt-Battery.Inst.1Hour.0.IRIDIUM-REV"},
+            {"name": "FBLW_D1-D5,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"},
+            {"name": "FBLW_D1-D18,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"},
+        ]
+    }
+
+
+def _arm_fremont(mocked, *, copies: int = 6) -> None:
+    """Mock the locations + ts catalog calls for the Fremont search.
+
+    The search runs:
+    - LOCATIONS once (cached after) + TIMESERIES with `like=^(FBLW)\\.`
+    - Then a broader fallback for data_at: unfiltered LOCATIONS (cache hit)
+      + unfiltered TIMESERIES (different cache key, miss)
+    Arm enough copies so multi-office or chained tests don't run out."""
+    locs = _fremont_locations_payload()
+    ts = _fremont_ts_payload()
+    for _ in range(copies):
+        mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=locs, status=200)
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=ts, status=200)
+
+
+def test_search_places_parameter_filter_drops_non_publishers(configured, mocked) -> None:
+    """The Fremont Bridge probe: ask for Temp-Water. The parent `FBLW`
+    (Volt-Battery only) must be filtered out — but kept ONLY if its
+    `data_at` siblings publish Temp-Water (which they do here, via the
+    broader-catalog fallback)."""
+    _arm_fremont(mocked)
+    payload = places.search_places("Fremont Bridge", office="NWDP", parameter="Temp-Water")
+    names = [r["name"] for r in payload["results"]]
+    # FBLW is data-bearing (Volt-Battery) but doesn't publish Temp-Water,
+    # AND it's not barren — must be dropped entirely.
+    assert "FBLW" not in names
+    # The dropped data-bearing row is reflected in the count.
+    assert payload["nearby_non_matching_count"] >= 1
+    assert payload["parameter"] == "Temp-Water"
+
+
+def test_search_places_broader_data_at_expands_beyond_query_match(configured, mocked) -> None:
+    """When a barren parent matches the natural query but its real
+    data-bearing depth-tagged children do NOT match the query, the
+    `data_at` lookup must fall back to the full office catalog and
+    surface those children."""
+    locs = {
+        "locations": [
+            {
+                "office-id": "NWDP",
+                "name": "PARENT",
+                "public-name": "Lonely Site",
+                "latitude": 47.65,
+                "longitude": -122.35,
+            },
+            # Depth child has NO "Lonely Site" anywhere — won't match the query.
+            {
+                "office-id": "NWDP",
+                "name": "PARENT-D5,0ft",
+                "latitude": 47.65,
+                "longitude": -122.35,
+            },
+        ]
+    }
+    # PARENT publishes nothing; PARENT-D5,0ft publishes Temp-Water.
+    ts = {"entries": [{"name": "PARENT-D5,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"}]}
+    for _ in range(4):
+        mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=locs, status=200)
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=ts, status=200)
+    payload = places.search_places("Lonely Site", office="NWDP")
+    by_name = {r["name"]: r for r in payload["results"]}
+    parent = by_name["PARENT"]
+    assert parent["parameter_count"] == 0
+    # Without the broader fallback, data_at would be empty because
+    # PARENT-D5,0ft never landed in the filtered search results.
+    assert parent["data_at"] == ["PARENT-D5,0ft"]
+
+
+def test_search_places_with_office_list_searches_each(configured, mocked) -> None:
+    """Passing an explicit list of offices fans out across each one. The
+    response carries `offices_searched` reflecting what was actually
+    queried."""
+    nwdp_locs = _fremont_locations_payload()
+    nwdp_ts = _fremont_ts_payload()
+    # SWT has nothing matching `Fremont Bridge`.
+    swt_locs = {"locations": []}
+    swt_ts = {"entries": []}
+    # Each office runs filtered + unfiltered fetches via the data_at
+    # broader fallback path; arm enough to satisfy the cold-cache traffic.
+    for _ in range(4):
+        mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=nwdp_locs, status=200)
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=nwdp_ts, status=200)
+        mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=swt_locs, status=200)
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=swt_ts, status=200)
+    payload = places.search_places("Fremont Bridge", office=["NWDP", "SWT"])
+    assert payload["offices_searched"] == ["NWDP", "SWT"]
+    assert payload["offices_skipped_for_budget"] == []
+    names = [r["name"] for r in payload["results"]]
+    assert "FBLW" in names
+
+
+def test_search_places_no_office_arg_uses_cached_scope_only(configured, mocked) -> None:
+    """When `office` is omitted and nothing is cached, the fanout default
+    is empty — the response should not silently expand to every office.
+    The caller is told via `partial: true` + `partial_reasons`."""
+    payload = places.search_places("Fremont Bridge")
+    assert payload["offices_searched"] == []
+    assert payload["results"] == []
+    assert payload["partial"] is True
+    assert any("no_offices_in_scope" in r for r in payload["partial_reasons"])
+
+
+def test_search_places_normalizes_string_office_to_unchanged_response(configured, mocked) -> None:
+    """Passing `office="NWDP"` (string) still works after the type widening.
+    Verifies backwards compatibility for callers that have an office in hand."""
+    _arm_fremont(mocked)
+    payload = places.search_places("Fremont Bridge", office="NWDP")
+    # `office` echoes the caller's input shape, not the normalized list.
+    assert payload["office"] == "NWDP"
+    assert payload["offices_searched"] == ["NWDP"]
+    assert any(r["name"] == "FBLW" for r in payload["results"])
+
+
+def test_search_places_caps_uncached_office_fanout_by_budget(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the caller passes more uncached offices than the per-call
+    budget allows, the overflow lands in `offices_skipped_for_budget`
+    with a repair hint embedded in the response (via the agent's next
+    call). Budget mirrors publishers_index — small ceil(MAX_WORKERS/2)."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    # Two uncached offices, budget of 1 → only one runs.
+    locs = {"locations": []}
+    ts = {"entries": []}
+    for _ in range(2):
+        mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=locs, status=200)
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=ts, status=200)
+    payload = places.search_places("anything", office=["NWDM", "NWDP", "SWT"])
+    assert len(payload["offices_searched"]) == 1
+    assert sorted(payload["offices_skipped_for_budget"]) == sorted(
+        o for o in ["NWDM", "NWDP", "SWT"] if o not in payload["offices_searched"]
+    )
+
+
+# --------------------------------------------------------------------------
 # search_places --limit truncation
 # --------------------------------------------------------------------------
 

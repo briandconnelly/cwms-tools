@@ -95,6 +95,27 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   schema field with a description, so agents reading the response schema
   see the repair hint. Previously the field reached clients only through
   `extra="allow"` (addresses Codex review F3).
+- `cwms_search_places` `office` is now optional and accepts `str | list[str]`
+  (addresses Codex review F1). When omitted, the search fans out across
+  offices already cached this session; explicit lists widen the scope.
+  New (uncached) offices are capped per call by a small fanout budget;
+  the response carries `offices_searched` and `offices_skipped_for_budget`
+  with an embedded repair hint so the agent can widen deterministically.
+  CLI exposes this as a repeatable `--office`/`-o` flag.
+- `cwms_search_places` adds an optional `parameter` filter that drops
+  non-publishing rows from `results` and surfaces co-located siblings
+  that DO publish the parameter — even when those siblings did not
+  literally match the natural-language query (addresses Codex review
+  F2; this is the Fremont Bridge probe fix). The response carries
+  `nearby_non_matching_count` so the agent sees how much was filtered
+  without paying for the filtered rows themselves.
+- `PlaceSummary` now declares a `parameters: list[str]` field — the
+  distinct CWMS parameter codes published at each location — sourced
+  from the enriched catalog. Empty for barren/ghost rows.
+- `cwms_search_places` `data_at` lookup now falls back to the full
+  office catalog when an in-result sibling does not match the natural
+  query, so a parent like `FBLW` can name its `FBLW_D1-*` depth-tagged
+  temperature sensors even when those names never matched.
 
 ### Known limitations (v0.1.0)
 

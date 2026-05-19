@@ -55,16 +55,33 @@ def search(
         typer.Argument(help="Name fragment to match, case-insensitive."),
     ],
     office: Annotated[
-        str,
+        list[str] | None,
         typer.Option(
             "--office",
             "-o",
             help=(
-                "USACE office code (e.g. NWDM, SWT, MVS). Required because "
-                "catalog search is per-office."
+                "USACE office code. Repeat to fan out across multiple "
+                "offices (e.g. `-o NWDP -o NWDM`). Omit to use offices "
+                "already cached this session; unbounded discovery is "
+                "intentionally avoided. Overflow beyond the per-call "
+                "budget lands in `offices_skipped_for_budget`."
             ),
         ),
-    ],
+    ] = None,
+    parameter: Annotated[
+        str | None,
+        typer.Option(
+            "--parameter",
+            "-p",
+            help=(
+                "Filter to locations publishing this parameter "
+                "(e.g. Temp-Water, Elev, Flow-In). When set, non-publishing "
+                "rows are dropped — except barren parents whose `data_at` "
+                "siblings publish it. `nearby_non_matching_count` reflects "
+                "what was filtered out."
+            ),
+        ),
+    ] = None,
     limit: Annotated[
         int,
         typer.Option(
@@ -111,8 +128,23 @@ def search(
         )
         raise typer.Exit(code=2)
     effective_limit = None if limit == 0 else limit
+    # Typer passes repeatable Options as a list[str] (even when one value
+    # was given). Collapse to a single string when only one office is
+    # present, so the response's `office` field echoes the simpler shape.
+    office_arg: str | list[str] | None
+    if not office:
+        office_arg = None
+    elif len(office) == 1:
+        office_arg = office[0]
+    else:
+        office_arg = list(office)
     try:
-        payload = places.search_places(query, office=office, limit=effective_limit)
+        payload = places.search_places(
+            query,
+            office=office_arg,
+            parameter=parameter,
+            limit=effective_limit,
+        )
     except CwmsToolsError as err:
         emit({"ok": False, "error": err.envelope.model_dump(mode="json")})
         raise typer.Exit(code=from_error_code(err.envelope.code)) from err
