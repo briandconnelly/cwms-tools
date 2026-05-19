@@ -116,6 +116,15 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   office catalog when an in-result sibling does not match the natural
   query, so a parent like `FBLW` can name its `FBLW_D1-*` depth-tagged
   temperature sensors even when those names never matched.
+- MCP error envelope normalization: the two manual validation branches
+  (`cwms_browse_region` partial-bbox and `cwms_get_history` datetime
+  parse) now flow through the full `CwmsToolsError.of(...)` envelope via
+  a new `_envelope_ref` helper, so agents see `request_id`,
+  `offending_value`, `hint`, and `source` on these errors just like
+  every other failure (addresses Codex review F4). Datetime parsing is
+  split into separate `begin_iso` / `end_iso` blocks; the response
+  `field` now names the offending field precisely instead of the
+  lumped `"begin_iso/end_iso"`.
 
 ### Known limitations (v0.1.0)
 

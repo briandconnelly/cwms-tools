@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Any
 
 from cwms_tools.core import concurrency, fingerprint, places, publishers_index, values
-from cwms_tools.core.errors import CwmsToolsError
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
 from cwms_tools.core.models import (
     BrowseRegionResponse,
@@ -193,18 +193,20 @@ def register_place_tools(mcp: FastMCP) -> None:
         bbox: BBox | None = None
         provided = [v for v in (south, west, north, east) if v is not None]
         if len(provided) not in {0, 4}:
-            return ErrorRef.model_validate(
-                {
-                    "ok": False,
-                    "error": {
-                        "code": "usage_error",
-                        "message": (
-                            "When specifying a bounding box, all four of south, "
-                            "west, north, east must be provided."
-                        ),
-                        "field": "bbox",
+            return _envelope_ref(
+                CwmsToolsError.of(
+                    ErrorCode.USAGE_ERROR,
+                    "When specifying a bounding box, all four of south, west, "
+                    "north, east must be provided.",
+                    field="bbox",
+                    offending_value={
+                        "south": south,
+                        "west": west,
+                        "north": north,
+                        "east": east,
                     },
-                }
+                    hint="Pass all four bbox edges or omit bbox entirely.",
+                )
             )
         if south is not None and west is not None and north is not None and east is not None:
             bbox = BBox(south=south, west=west, north=north, east=east)
@@ -310,17 +312,27 @@ def register_value_tools(mcp: FastMCP) -> None:
         """
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
+        except ValueError as exc:
+            return _envelope_ref(
+                CwmsToolsError.of(
+                    ErrorCode.INVALID_FIELD,
+                    f"Could not parse begin_iso as RFC3339: {exc}",
+                    field="begin_iso",
+                    offending_value=begin_iso,
+                    hint="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
+                )
+            )
+        try:
             end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         except ValueError as exc:
-            return ErrorRef.model_validate(
-                {
-                    "ok": False,
-                    "error": {
-                        "code": "invalid_field",
-                        "message": f"Could not parse begin/end as RFC3339 datetimes: {exc}",
-                        "field": "begin_iso/end_iso",
-                    },
-                }
+            return _envelope_ref(
+                CwmsToolsError.of(
+                    ErrorCode.INVALID_FIELD,
+                    f"Could not parse end_iso as RFC3339: {exc}",
+                    field="end_iso",
+                    offending_value=end_iso,
+                    hint="RFC3339 with timezone, e.g. 2026-05-18T00:00:00Z",
+                )
             )
         raw = await _safe(
             values.get_history,
@@ -451,6 +463,15 @@ async def _safe(fn, *args, **kwargs) -> dict[str, Any]:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
         return {"ok": False, "error": err.envelope.model_dump(mode="json")}
+
+
+def _envelope_ref(err: CwmsToolsError) -> ErrorRef:
+    """Convert a `CwmsToolsError` to an `ErrorRef` for return from pre-`_safe`
+    validation branches in tool handlers. Mirrors the conversion `_safe` does
+    after catching the same exception class, so manual validation errors land
+    with the same full envelope (`request_id`, `offending_value`, `hint`,
+    `repair`, retry hints, source)."""
+    return ErrorRef.model_validate({"ok": False, "error": err.envelope.model_dump(mode="json")})
 
 
 __all__ = [
