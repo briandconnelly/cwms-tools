@@ -151,6 +151,19 @@ def test_schema_value_get_advertises_with_status_flag() -> None:
     assert "level_lookup_status" in value_get.get("notes", "")
 
 
+def test_place_search_help_documents_data_at_and_limit() -> None:
+    """`place search --help` must document the data_at repair hint (depth-tagged
+    child lookup for barren parents) and the --limit budget. These are two
+    things eval surfaced as easy to miss when reading the help alone."""
+    result = runner.invoke(app, ["place", "search", "--help"])
+    assert result.exit_code == 0
+    out = _strip_ansi(result.stdout)
+    assert "data_at" in out
+    assert "--limit" in out
+    # Realistic id example so callers know the depth-tagged shape is legitimate.
+    assert "UBLW_S1-D21,0ft" in out
+
+
 def test_schema_place_search_advertises_limit_flag() -> None:
     """The schema must advertise --limit on place search so agents know the
     default cap exists and how to disable it."""
