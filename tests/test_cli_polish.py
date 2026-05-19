@@ -122,6 +122,27 @@ def test_schema_output_lists_all_top_level_commands() -> None:
     assert "cwms-tools schema" in paths
 
 
+def test_value_get_help_documents_with_status_and_depth_example() -> None:
+    """`value get --help` must mention `--with-status` and a realistic
+    depth-tagged id example. The classification-opt-in framing and the
+    comma-in-id shape are the two things eval surfaced as easy to miss."""
+    result = runner.invoke(app, ["value", "get", "--help"])
+    assert result.exit_code == 0
+    out = result.stdout
+    assert "--with-status" in out
+    # The depth-tagged example: agents searching for water temp sensors
+    # need to know this id shape is legitimate.
+    assert "UBLW_S1-D21,0ft" in out
+
+
+def test_value_history_help_documents_depth_example() -> None:
+    """`value history --help` must show the depth-tagged id example so
+    callers know commas and depth suffixes in OFFICE/NAME/PARAMETER are ok."""
+    result = runner.invoke(app, ["value", "history", "--help"])
+    assert result.exit_code == 0
+    assert "UBLW_S1-D21,0ft" in result.stdout
+
+
 def test_schema_carries_machine_profile_declaration() -> None:
     result = runner.invoke(app, ["schema"])
     payload = json.loads(result.stdout)
