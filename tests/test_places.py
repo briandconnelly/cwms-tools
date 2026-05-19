@@ -420,6 +420,16 @@ def test_list_parameters_data_at_is_null_when_location_has_data(configured, mock
     assert payload["data_at"] is None
 
 
+def test_data_at_is_declared_on_response_schemas() -> None:
+    """`data_at` must be a declared field on the response models, not just
+    tolerated by `extra="allow"`. FastMCP only documents declared fields in
+    the schema agents read."""
+    from cwms_tools.core.models import ListParametersResponse, PlaceSummary
+
+    assert "data_at" in PlaceSummary.model_fields
+    assert "data_at" in ListParametersResponse.model_fields
+
+
 # --------------------------------------------------------------------------
 # search_places --limit truncation
 # --------------------------------------------------------------------------

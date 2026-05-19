@@ -89,6 +89,13 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   fingerprint snapshot suite that pins the v0.1.0 tool/resource/
   error-code surface.
 
+### Changed
+
+- `PlaceSummary` and `ListParametersResponse` now declare `data_at` as a
+  schema field with a description, so agents reading the response schema
+  see the repair hint. Previously the field reached clients only through
+  `extra="allow"` (addresses Codex review F3).
+
 ### Known limitations (v0.1.0)
 
 - Forecast retrieval (`cwms_get_forecast`) deferred to v0.2 — the

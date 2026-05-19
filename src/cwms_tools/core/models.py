@@ -160,6 +160,15 @@ class PlaceSummary(BaseModel):
     publishers: list[str] = Field(default_factory=list)
     last_data_timestamp: str | None = None
     co_located: list[str] = Field(default_factory=list)
+    data_at: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Repair hint. Names of co-located siblings that publish data when "
+            "this row is barren (parameter_count == 0). Try `cwms_list_parameters` "
+            "on each. Empty when this row already has data or when no data-bearing "
+            "sibling exists."
+        ),
+    )
 
 
 class SearchPlacesResponse(BaseModel):
@@ -221,6 +230,14 @@ class ListParametersResponse(BaseModel):
     by_publisher: list[PublisherAtPlace]
     all_parameters: list[str]
     last_data_timestamp: str | None
+    data_at: list[str] | None = Field(
+        default=None,
+        description=(
+            "Repair hint. Names of co-located siblings that publish data when "
+            "this location is barren (ts_count == 0). Null when the location is "
+            "data-bearing (no repair needed)."
+        ),
+    )
     source: SourceMeta
 
 
