@@ -78,6 +78,45 @@ def test_place_search_emits_machine_json(configured) -> None:
     payload = json.loads(result.stdout)
     assert payload["query"] == "FOSS"
     assert payload["results"][0]["name"] == "FOSS"
+    # New since round 2: cap metadata is always present on the response.
+    assert payload["truncated"] is False
+    assert payload["total_count"] == len(payload["results"])
+    assert payload["limit"] == 50
+
+
+def test_place_search_respects_limit_flag(configured) -> None:
+    """`--limit N` caps the response at N rows. Beyond the cap, results
+    are dropped (data-bearing rows sort first so the useful ones stay)."""
+    locations_payload = {
+        "locations": [
+            {
+                "office-id": "SWT",
+                "name": f"Site_{i:04d}",
+                "latitude": 35.0,
+                "longitude": -98.0,
+            }
+            for i in range(10)
+        ]
+    }
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/LOCATIONS",
+            json=locations_payload,
+            status=200,
+        )
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json={"entries": []},
+            status=200,
+        )
+        result = runner.invoke(app, ["place", "search", "Site", "--office", "SWT", "--limit", "3"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is True
+    assert payload["total_count"] == 10
+    assert len(payload["results"]) == 3
 
 
 def test_place_describe_emits_summary_by_default(configured) -> None:

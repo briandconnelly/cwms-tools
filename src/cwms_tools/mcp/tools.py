@@ -66,6 +66,13 @@ def register_place_tools(mcp: FastMCP) -> None:
             "USACE office code (e.g. NWDM, SWT, MVS). Required because catalog "
             "search is per-office.",
         ],
+        limit: Annotated[
+            int,
+            "Cap on the number of results (default 50). Broad queries like "
+            "'Temp String' can match hundreds of rows; the cap keeps response "
+            "size predictable. Pass 0 for no cap. When the cap kicks in the "
+            "response carries `truncated: true` and `total_count`.",
+        ] = places.DEFAULT_SEARCH_LIMIT,
         detail: Detail = Detail.SUMMARY,
     ) -> SearchPlacesResponse | ErrorRef:
         """Resolve a CWMS place name to ranked location matches.
@@ -77,11 +84,15 @@ def register_place_tools(mcp: FastMCP) -> None:
 
         Each result is enriched with parameter_count (0 means a ghost
         record with no published data), the list of publishers active at
-        the location, the most recent data timestamp, and any other ids
-        within ~100m of the same coordinates. Data-bearing records sort
-        first; ghosts are kept at the bottom of the list.
+        the location, the most recent data timestamp, any other ids
+        within ~100m of the same coordinates, and `data_at` — when a
+        barren parent has a co-located data-bearing sibling, the
+        sibling names land in `data_at` so the agent gets the repair
+        hint without walking the co_located list. Data-bearing records
+        sort first; ghosts are kept at the bottom of the list.
         """
-        raw = await _safe(places.search_places, query, office=office)
+        effective_limit = None if limit == 0 else limit
+        raw = await _safe(places.search_places, query, office=office, limit=effective_limit)
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
         shaped = _shape_detail(raw, detail)

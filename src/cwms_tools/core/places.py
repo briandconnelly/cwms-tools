@@ -13,11 +13,14 @@ from typing import Any
 from cwms_tools.core import catalog, locations, projects, publishers
 from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
 
+DEFAULT_SEARCH_LIMIT: int = 50
+
 
 def search_places(
     query: str,
     *,
     office: str,
+    limit: int | None = DEFAULT_SEARCH_LIMIT,
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """`cwms_search_places` — name resolution with enrichment.
@@ -29,9 +32,22 @@ def search_places(
     siblings that DO publish data (the depth-tagged child case from
     Lake Washington / UBLW_S1 — the parent is empty but `UBLW_S1-D21,0ft`
     holds the actual sensors).
+
+    `limit` caps the number of results returned (default 50). Broad
+    searches like "Temp String" can return hundreds of rows on a big
+    office; the cap prevents flooding the caller. Set `limit=None` (or
+    `limit=0` on the CLI) to return every match. When the cap kicks in,
+    the response carries `truncated: true` and `total_count` so the
+    caller can decide whether to narrow the query.
     """
+    if limit is not None and limit < 0:
+        raise ValueError("limit must be a non-negative integer or None")
     enriched = locations.search(office, query, use_cache=use_cache)
     enriched.sort(key=lambda r: (-r["parameter_count"], r["name"]))
+    total_count = len(enriched)
+    truncated = limit is not None and total_count > limit
+    if limit is not None:
+        enriched = enriched[:limit]
     by_name = {r["name"]: r for r in enriched}
     return {
         "query": query,
@@ -52,6 +68,9 @@ def search_places(
             }
             for r in enriched
         ],
+        "total_count": total_count,
+        "truncated": truncated,
+        "limit": limit,
     }
 
 

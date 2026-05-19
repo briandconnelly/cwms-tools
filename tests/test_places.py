@@ -421,6 +421,77 @@ def test_list_parameters_data_at_is_null_when_location_has_data(configured, mock
 
 
 # --------------------------------------------------------------------------
+# search_places --limit truncation
+# --------------------------------------------------------------------------
+
+
+def test_search_places_caps_result_count_by_default(configured, mocked) -> None:
+    """Broad searches should be capped so agents don't get flooded.
+    Default cap is 50; rows past the cap are dropped and the response
+    carries `truncated: true` plus the full `total_count`."""
+    locations_payload = {
+        "locations": [
+            {
+                "office-id": "NWDP",
+                "name": f"Site_{i:04d}",
+                "public-name": f"Temp String Site #{i}",
+                "latitude": 47.0,
+                "longitude": -122.0,
+            }
+            for i in range(75)
+        ]
+    }
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json=locations_payload,
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        json={"entries": []},
+        status=200,
+    )
+    payload = places.search_places("Temp String", office="NWDP")
+    assert payload["total_count"] == 75
+    assert payload["truncated"] is True
+    assert payload["limit"] == 50
+    assert len(payload["results"]) == 50
+
+
+def test_search_places_no_limit_returns_all(configured, mocked) -> None:
+    """`limit=None` disables the cap entirely. Used by agents that have a
+    legitimate reason to enumerate every match."""
+    locations_payload = {
+        "locations": [
+            {
+                "office-id": "NWDP",
+                "name": f"Site_{i:04d}",
+                "latitude": 47.0,
+                "longitude": -122.0,
+            }
+            for i in range(75)
+        ]
+    }
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json=locations_payload,
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        json={"entries": []},
+        status=200,
+    )
+    payload = places.search_places("Site", office="NWDP", limit=None)
+    assert payload["truncated"] is False
+    assert len(payload["results"]) == 75
+
+
+# --------------------------------------------------------------------------
 # locations.get_one wraps upstream errors via status code
 # --------------------------------------------------------------------------
 

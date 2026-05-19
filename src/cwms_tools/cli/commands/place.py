@@ -65,6 +65,20 @@ def search(
             ),
         ),
     ],
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit",
+            "-n",
+            help=(
+                "Cap on the number of results (default 50). Broad searches "
+                "like 'Temp String' on a big office can match hundreds of "
+                "rows; the cap keeps responses small. Pass `0` to return "
+                "every match (no cap). When the cap kicks in the response "
+                "carries `truncated: true` and `total_count`."
+            ),
+        ),
+    ] = places.DEFAULT_SEARCH_LIMIT,
     detail: Annotated[
         Detail,
         typer.Option(
@@ -76,11 +90,29 @@ def search(
     """Search for places by name in one office.
 
     Each result is enriched with parameter_count (0 = ghost record),
-    active publishers, last data timestamp, and co-located variants.
+    active publishers, last data timestamp, co-located variants, and
+    `data_at` — when a barren parent has a co-located sibling that
+    publishes data (e.g. the Lake Washington `UBLW_S1` parent has no
+    ts ids but `UBLW_S1-D21,0ft` does), `data_at` names that sibling
+    so the agent doesn't have to walk the co_located list to find it.
     Data-bearing records sort first.
     """
+    if limit < 0:
+        emit(
+            {
+                "ok": False,
+                "error": {
+                    "code": ErrorCode.USAGE_ERROR.value,
+                    "message": "--limit must be a non-negative integer.",
+                    "field": "limit",
+                    "offending_value": limit,
+                },
+            }
+        )
+        raise typer.Exit(code=2)
+    effective_limit = None if limit == 0 else limit
     try:
-        payload = places.search_places(query, office=office)
+        payload = places.search_places(query, office=office, limit=effective_limit)
     except CwmsToolsError as err:
         emit({"ok": False, "error": err.envelope.model_dump(mode="json")})
         raise typer.Exit(code=from_error_code(err.envelope.code)) from err
