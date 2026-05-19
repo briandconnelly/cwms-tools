@@ -50,7 +50,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "responses>=0.25",
     "vcrpy>=6",
-    "ruff>=0.7",
+    "ruff>=0.15",
     "ty>=0.0.1a1",
     "prek>=0.2",
 ]

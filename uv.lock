@@ -612,7 +612,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "pytest-cov", specifier = ">=5" },
     { name = "responses", specifier = ">=0.25" },
-    { name = "ruff", specifier = ">=0.7" },
+    { name = "ruff", specifier = ">=0.15" },
     { name = "ty", specifier = ">=0.0.1a1" },
     { name = "vcrpy", specifier = ">=6" },
 ]
