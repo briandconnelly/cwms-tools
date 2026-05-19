@@ -489,3 +489,24 @@ def test_get_timeseries_catalog_wraps_404_as_not_found(configured, mocked) -> No
     env = ex_info.value.envelope
     assert env.code is ErrorCode.NOT_FOUND
     assert env.retryable is False
+
+
+def test_upstream_error_message_does_not_embed_long_url(configured, mocked) -> None:
+    """The error envelope's `message` must stay compact even when the
+    upstream request URL is large (e.g. a 3 KB alternation regex). The URL
+    is implicit in `endpoints_called`; agents that need it can dig in."""
+    huge_regex = "^(" + "|".join(f"Name_{i:04d}" for i in range(200)) + r")\."
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/TIMESERIES",
+        status=500,
+        body="Internal Server Error",
+    )
+    with pytest.raises(CwmsToolsError) as ex_info:
+        catalog.get_timeseries_catalog("SWT", like=huge_regex, use_cache=False)
+    env = ex_info.value.envelope
+    # The message must NOT contain the alternation regex.
+    assert "Name_0050" not in env.message
+    assert "|" not in env.message
+    # And it must stay reasonably compact — well under 200 chars.
+    assert len(env.message) < 200

@@ -34,12 +34,19 @@ from cwms_tools.core.session import current_config
 
 
 def _wrap_api_error(exc: ApiError, *, endpoint: str) -> CwmsToolsError:
-    """Turn a cwms-python ApiError into a status-classified CwmsToolsError."""
+    """Turn a cwms-python ApiError into a status-classified CwmsToolsError.
+
+    The user-facing `message` deliberately omits `ApiError.__str__()`, which
+    embeds the full request URL — for broad searches the URL contains a
+    multi-kilobyte alternation regex and floods the response. The endpoint
+    path is already in `endpoints_called`; the original exception is still
+    reachable via `__cause__` for debugging.
+    """
     status = getattr(getattr(exc, "response", None), "status_code", None)
     return upstream_error_from_status(
         status,
         endpoint=endpoint,
-        message=f"Upstream returned {status or 'error'} for {endpoint}: {exc}",
+        message=f"Upstream returned {status or 'error'} for {endpoint}.",
     )
 
 
