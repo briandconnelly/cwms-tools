@@ -16,14 +16,40 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import quote
 
 import cwms.catalog.catalog as catalog_api
+from cwms.api import ApiError
 
 from cwms_tools.core import publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
-from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
+from cwms_tools.core.errors import (
+    CwmsToolsError,
+    ErrorCode,
+    RepairHint,
+    upstream_error_from_status,
+)
 from cwms_tools.core.geo import GeoPoint, co_located
 from cwms_tools.core.session import current_config
+
+
+def _wrap_api_error(exc: ApiError, *, endpoint: str) -> CwmsToolsError:
+    """Turn a cwms-python ApiError into a status-classified CwmsToolsError."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return upstream_error_from_status(
+        status,
+        endpoint=endpoint,
+        message=f"Upstream returned {status or 'error'} for {endpoint}: {exc}",
+    )
+
+
+# URL-encoded byte budget for the ts catalog `like` parameter. CDA rejects
+# very large alternation regexes with a 500; the empirical threshold is
+# uncertain but ~3 KB fails. This cap stays well under that boundary.
+# When the candidate `like` regex would exceed this, `enrich_locations`
+# skips ts-catalog enrichment for the affected rows and marks them
+# truncated rather than hitting the upstream with a too-large request.
+MAX_TS_LIKE_BYTES: int = 2048
 
 # NW Division district stubs — short-circuit with a repair hint (§6.1).
 _NW_STUBS: frozenset[str] = frozenset({"NWO", "NWK", "NWS", "NWP", "NWW"})
@@ -68,7 +94,10 @@ def get_locations_catalog(
         hit = cache.get(key)
         if hit is not None:
             return hit
-    data = catalog_api.get_locations_catalog(office_id=office_id, like=like)
+    try:
+        data = catalog_api.get_locations_catalog(office_id=office_id, like=like)
+    except ApiError as exc:
+        raise _wrap_api_error(exc, endpoint="/catalog/LOCATIONS") from exc
     payload = data.json
     cache.set(key, payload, ttl=ttl)
     return payload
@@ -107,9 +136,12 @@ def get_timeseries_catalog(
         hit = cache.get(key)
         if hit is not None:
             return hit
-    data = catalog_api.get_timeseries_catalog(
-        office_id=office_id, like=like, include_extents=include_extents
-    )
+    try:
+        data = catalog_api.get_timeseries_catalog(
+            office_id=office_id, like=like, include_extents=include_extents
+        )
+    except ApiError as exc:
+        raise _wrap_api_error(exc, endpoint="/catalog/TIMESERIES") from exc
     payload = data.json
     cache.set(key, payload, ttl=ttl)
     return payload
@@ -207,6 +239,58 @@ def freshness_for_location(
     return best
 
 
+def _dedupe_rows_by_name(raw_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """CDA returns multiple rows per `name` (alias / bounding-office variants).
+
+    Dedupe so the enriched response has at most one entry per location.
+    """
+    rows: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for r in raw_rows:
+        n = r.get("name") or r.get("location-id")
+        if not isinstance(n, str) or n in seen_names:
+            continue
+        seen_names.add(n)
+        rows.append(r)
+    return rows
+
+
+def _build_ts_like_for_rows(rows: list[dict[str, Any]]) -> tuple[str | None, bool]:
+    """Return `(ts_like_or_none, truncated)`.
+
+    Builds the `^(name1|...|nameN)\\.` alternation. When the URL-encoded
+    form would push the request past `MAX_TS_LIKE_BYTES`, returns
+    `(None, True)` so callers can skip the ts-catalog fetch — that path
+    is what an unbounded fallback would 500 on at the upstream.
+    """
+    candidate_like = f"^({'|'.join(re.escape(r['name']) for r in rows)})\\."
+    if len(quote(candidate_like, safe="")) <= MAX_TS_LIKE_BYTES:
+        return candidate_like, False
+    return None, True
+
+
+def _index_ts_payload(
+    ts_payload: dict[str, Any],
+) -> tuple[dict[str, list[str]], dict[str, str | None]]:
+    """Group ts ids by location and track the latest observation per location."""
+    by_location: dict[str, list[str]] = {}
+    by_location_last: dict[str, str | None] = {}
+    for ts_row in _iter_ts_entries(ts_payload):
+        tsid = ts_row.get("name") or ts_row.get("timeseries-id") or ts_row.get("time-series-id")
+        if not isinstance(tsid, str):
+            continue
+        parts = publishers.parse_ts_id(tsid)
+        if parts is None:
+            continue
+        by_location.setdefault(parts.location, []).append(tsid)
+        ts = _row_latest_time(ts_row)
+        if ts is not None:
+            cur = by_location_last.get(parts.location)
+            if cur is None or ts > cur:
+                by_location_last[parts.location] = ts
+    return by_location, by_location_last
+
+
 def enrich_locations(
     office_id: str,
     *,
@@ -229,60 +313,33 @@ def enrich_locations(
     raw_rows = list(_iter_location_entries(loc_payload))
     if like:
         raw_rows = [r for r in raw_rows if _matches_like(r, like)]
-
-    # The upstream catalog returns multiple rows per `name` (one per
-    # bounding-office / alias variant). Dedupe so the enriched response
-    # has at most one entry per location.
-    rows: list[dict[str, Any]] = []
-    seen_names: set[str] = set()
-    for r in raw_rows:
-        n = r.get("name") or r.get("location-id")
-        if not isinstance(n, str) or n in seen_names:
-            continue
-        seen_names.add(n)
-        rows.append(r)
+    rows = _dedupe_rows_by_name(raw_rows)
+    if like and not rows:
+        return []
 
     geopoints: list[GeoPoint] = [g for g in (_to_geopoint(r) for r in rows) if g is not None]
     geopoint_index = {(g.office_id, g.name): g for g in geopoints}
 
-    # Scope the ts-catalog query to the matched names when a name filter is in
-    # play. The full ts catalog for a big office is tens of thousands of rows;
-    # a name-scoped query is typically dozens. The cache key includes the
-    # `like` value so scoped and unscoped fetches never collide.
-    ts_like: str | None = None
+    # Scope the ts-catalog query to the matched names when a name filter
+    # is in play. Without a filter the ts catalog is too large to fetch
+    # with extents; agents who want freshness should describe a specific
+    # place.
+    enrichment_truncated = False
     if like:
-        if not rows:
-            return []
-        # CDA's `like` parameter is a regex against the ts_id. Anchor at start
-        # and alternate over the matched names so the response only contains
-        # ts_ids whose location segment is one of them.
-        ts_like = f"^({'|'.join(re.escape(r['name']) for r in rows)})\\."
-    # Request extents only when we have a tight name filter — for an
-    # unscoped region browse the full ts catalog with extents would be
-    # tens of megabytes and minutes-slow. Without extents, `freshness`
-    # on those results is null; agents who care can `place describe`
-    # the specific places of interest.
-    ts_payload = get_timeseries_catalog(
-        office_id,
-        like=ts_like,
-        include_extents=ts_like is not None,
-        use_cache=use_cache,
-    )
-    by_location: dict[str, list[str]] = {}
-    by_location_last: dict[str, str | None] = {}
-    for ts_row in _iter_ts_entries(ts_payload):
-        tsid = ts_row.get("name") or ts_row.get("timeseries-id") or ts_row.get("time-series-id")
-        if not isinstance(tsid, str):
-            continue
-        parts = publishers.parse_ts_id(tsid)
-        if parts is None:
-            continue
-        by_location.setdefault(parts.location, []).append(tsid)
-        ts = _row_latest_time(ts_row)
-        if ts is not None:
-            cur = by_location_last.get(parts.location)
-            if cur is None or ts > cur:
-                by_location_last[parts.location] = ts
+        ts_like, enrichment_truncated = _build_ts_like_for_rows(rows)
+    else:
+        ts_like = None
+
+    if enrichment_truncated:
+        ts_payload: dict[str, Any] = {"entries": []}
+    else:
+        ts_payload = get_timeseries_catalog(
+            office_id,
+            like=ts_like,
+            include_extents=ts_like is not None,
+            use_cache=use_cache,
+        )
+    by_location, by_location_last = _index_ts_payload(ts_payload)
 
     enriched: list[dict[str, Any]] = []
     for r in rows:
@@ -294,21 +351,23 @@ def enrich_locations(
         siblings = (
             [g.name for g in co_located(target_gp, geopoints)] if target_gp is not None else []
         )
-        enriched.append(
-            {
-                "office_id": office_id,
-                "name": name,
-                "public_name": r.get("public-name") or r.get("public_name"),
-                "location_kind": r.get("location-kind") or r.get("kind"),
-                "latitude": r.get("latitude"),
-                "longitude": r.get("longitude"),
-                "parameter_count": len(params),
-                "publishers": pubs,
-                "last_data_timestamp": by_location_last.get(name),
-                "co_located": siblings,
-                "raw": r,
-            }
-        )
+        entry: dict[str, Any] = {
+            "office_id": office_id,
+            "name": name,
+            "public_name": r.get("public-name") or r.get("public_name"),
+            "location_kind": r.get("location-kind") or r.get("kind"),
+            "latitude": r.get("latitude"),
+            "longitude": r.get("longitude"),
+            "parameter_count": len(params),
+            "publishers": pubs,
+            "last_data_timestamp": by_location_last.get(name),
+            "co_located": siblings,
+            "raw": r,
+        }
+        if enrichment_truncated:
+            entry["enrichment_truncated"] = True
+            entry["enrichment_truncated_reason"] = "alternation_overflow"
+        enriched.append(entry)
     return enriched
 
 

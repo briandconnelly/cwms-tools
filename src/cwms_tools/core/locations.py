@@ -10,10 +10,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from cwms.api import ApiError
 from cwms.locations.physical_locations import get_location
 
 from cwms_tools.core import catalog
-from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
+from cwms_tools.core.errors import (
+    CwmsToolsError,
+    ErrorCode,
+    RepairHint,
+    upstream_error_from_status,
+)
 
 # NW Division district stubs — publish no data in CDA. Documented in
 # cwms-overview.md §6.1. Mirror the short-circuit from `core.catalog` so
@@ -30,7 +36,6 @@ _NW_REPAIR_TARGETS: dict[str, str] = {
 
 
 def _ghost_office_error(office_id: str) -> CwmsToolsError:
-
     target = _NW_REPAIR_TARGETS.get(office_id, "NWDM")
     return CwmsToolsError.of(
         ErrorCode.GHOST_OFFICE,
@@ -56,7 +61,13 @@ def search(
 
 
 def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, Any]:
-    """Return a single Location's raw payload from cwms-python."""
+    """Return a single Location's raw payload from cwms-python.
+
+    Wraps upstream errors with status-code routing: 404 → NOT_FOUND,
+    other 4xx → UPSTREAM_ERROR (non-retryable), 5xx → UPSTREAM_ERROR
+    (retryable). Previously every failure became NOT_FOUND, hiding
+    transient upstream issues behind a "not found" envelope.
+    """
     if office_id in _NW_STUBS:
         raise _ghost_office_error(office_id)
     cache = catalog.get_cache()
@@ -68,15 +79,26 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
         hit = cache.get(key)
         if hit is not None:
             return hit
+    endpoint = f"/locations/{name}"
     try:
         data = get_location(location_id=name, office_id=office_id)
-    except Exception as exc:  # pragma: no cover - upstream wraps as ApiError
+    except ApiError as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        err = upstream_error_from_status(
+            status,
+            endpoint=endpoint,
+            message=f"Location {office_id}/{name} unavailable upstream: {exc}",
+        )
+        if err.envelope.code is ErrorCode.NOT_FOUND:
+            err.envelope.field = "name"
+            err.envelope.offending_value = name
+        raise err from exc
+    except Exception as exc:  # pragma: no cover - defensive for non-ApiError surprises
         raise CwmsToolsError.of(
-            ErrorCode.NOT_FOUND,
-            f"Location {office_id}/{name} not found upstream: {exc}",
-            field="name",
-            offending_value=name,
-            endpoints_called=[f"/locations/{name}"],
+            ErrorCode.UPSTREAM_ERROR,
+            f"Location {office_id}/{name} upstream call failed: {exc}",
+            endpoints_called=[endpoint],
+            retryable=True,
         ) from exc
     payload = data.json if hasattr(data, "json") else data
     cache.set(key, payload, ttl=cache.ttl_for("location_catalog"))

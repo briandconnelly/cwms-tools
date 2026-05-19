@@ -104,6 +104,44 @@ class ErrorEnvelope(BaseModel):
     source: SourceInfo = Field(default_factory=SourceInfo)
 
 
+def upstream_error_from_status(
+    status: int | None,
+    *,
+    endpoint: str,
+    message: str,
+) -> CwmsToolsError:
+    """Classify an upstream HTTP failure by status code.
+
+    - 404 → NOT_FOUND (non-retryable)
+    - other 4xx → UPSTREAM_ERROR (non-retryable)
+    - 5xx and unknown → UPSTREAM_ERROR (retryable)
+
+    Callers that already have an upstream exception (e.g. `cwms.api.ApiError`)
+    pull `exc.response.status_code` off it and pass it in. Keeps this module
+    decoupled from any specific upstream client.
+    """
+    if status == 404:
+        return CwmsToolsError.of(
+            ErrorCode.NOT_FOUND,
+            message,
+            endpoints_called=[endpoint],
+            retryable=False,
+        )
+    if isinstance(status, int) and 400 <= status < 500:
+        return CwmsToolsError.of(
+            ErrorCode.UPSTREAM_ERROR,
+            message,
+            endpoints_called=[endpoint],
+            retryable=False,
+        )
+    return CwmsToolsError.of(
+        ErrorCode.UPSTREAM_ERROR,
+        message,
+        endpoints_called=[endpoint],
+        retryable=True,
+    )
+
+
 class CwmsToolsError(Exception):
     """Base exception carrying an `ErrorEnvelope`. Raised by `core/*`; caught at adapters."""
 
@@ -151,4 +189,5 @@ __all__ = [
     "RepairHint",
     "SourceInfo",
     "exit_code_for",
+    "upstream_error_from_status",
 ]

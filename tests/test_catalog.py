@@ -268,9 +268,7 @@ def test_enrich_locations_does_not_pass_like_to_server_side_locations_catalog(
     assert "like=" not in str(loc_calls[-1].request.url)
 
 
-def test_enrich_locations_dedupes_repeated_rows_from_upstream(
-    configured, mocked
-) -> None:
+def test_enrich_locations_dedupes_repeated_rows_from_upstream(configured, mocked) -> None:
     """The upstream `/catalog/LOCATIONS` returns multiple rows per `name`
     (different bounding-office / alias variants). Enrichment must collapse
     those into one entry per name so the response doesn't carry obvious
@@ -317,9 +315,7 @@ def test_enrich_locations_dedupes_repeated_rows_from_upstream(
     assert rows[0]["name"] == "FOSS"
 
 
-def test_enrich_locations_reads_latest_time_from_extents_array(
-    configured, mocked
-) -> None:
+def test_enrich_locations_reads_latest_time_from_extents_array(configured, mocked) -> None:
     """When `include_extents=True`, ts catalog rows carry an `extents`
     array whose `latest-time` field is the freshness signal. The earlier
     code looked at top-level fields only and reported null."""
@@ -363,9 +359,7 @@ def test_enrich_locations_reads_latest_time_from_extents_array(
     assert rows[0]["last_data_timestamp"] == "2026-05-18T22:00:00Z"
 
 
-def test_get_timeseries_catalog_omits_extents_by_default(
-    configured, mocked
-) -> None:
+def test_get_timeseries_catalog_omits_extents_by_default(configured, mocked) -> None:
     """Default is `include_extents=False`. Requesting extents on every ts
     catalog query inflates responses by 10-100x and made `value get`
     unusable. Callers that need freshness must opt in explicitly."""
@@ -380,9 +374,7 @@ def test_get_timeseries_catalog_omits_extents_by_default(
     assert "include-extents=False" in call_url or "include_extents=False" in call_url
 
 
-def test_get_timeseries_catalog_passes_include_extents_when_requested(
-    configured, mocked
-) -> None:
+def test_get_timeseries_catalog_passes_include_extents_when_requested(configured, mocked) -> None:
     """Opt-in extents make their way through to the upstream call."""
     mocked.add(
         method=responses.GET,
@@ -395,9 +387,7 @@ def test_get_timeseries_catalog_passes_include_extents_when_requested(
     assert "include-extents=True" in call_url or "include_extents=True" in call_url
 
 
-def test_ts_ids_for_location_scopes_request_to_the_location(
-    configured, mocked
-) -> None:
+def test_ts_ids_for_location_scopes_request_to_the_location(configured, mocked) -> None:
     """The ts ids lookup must NOT fetch the whole office's ts catalog —
     it scopes server-side to the matched location segment so a `value get`
     call doesn't pay multi-megabyte transfer cost up front."""
@@ -430,3 +420,72 @@ def test_enrich_locations_returns_empty_when_name_filter_matches_nothing(
     assert out == []
     ts_calls = [c for c in mocked.calls if "catalog/TIMESERIES" in c.request.url]
     assert not ts_calls, "no ts catalog query should be made for an empty match set"
+
+
+def test_enrich_locations_skips_ts_catalog_when_alternation_overflows(
+    configured, mocked, monkeypatch
+) -> None:
+    """Broad searches with many matches would build a too-large alternation
+    regex and CDA rejects the request with a 500. We must skip the ts catalog
+    fetch and mark rows truncated rather than firing the oversized request."""
+    # Tighten the byte budget so we don't need to generate thousands of fixture
+    # rows to trigger the branch.
+    monkeypatch.setattr(catalog, "MAX_TS_LIKE_BYTES", 64)
+    locations_payload = {
+        "locations": [
+            {
+                "office-id": "NWDP",
+                "name": f"Bridge_{i:03d}",
+                "public-name": f"Bridge #{i}",
+                "latitude": 47.0,
+                "longitude": -122.0,
+            }
+            for i in range(25)
+        ]
+    }
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/LOCATIONS",
+        json=locations_payload,
+        status=200,
+    )
+    rows = catalog.enrich_locations("NWDP", like="Bridge")
+    assert len(rows) == 25
+    assert all(r.get("enrichment_truncated") is True for r in rows)
+    assert rows[0]["enrichment_truncated_reason"] == "alternation_overflow"
+    ts_calls = [c for c in mocked.calls if "catalog/TIMESERIES" in c.request.url]
+    assert not ts_calls, "the oversized regex must not hit the upstream"
+
+
+def test_get_locations_catalog_wraps_5xx_as_retryable_upstream_error(configured, mocked) -> None:
+    """Upstream 5xx errors must become a structured CwmsToolsError, not a
+    bare ApiError traceback — that's the regression that broke broad
+    `place search` in the eval."""
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/LOCATIONS",
+        status=500,
+        body="Internal Server Error",
+    )
+    with pytest.raises(CwmsToolsError) as ex_info:
+        catalog.get_locations_catalog("SWT", use_cache=False)
+    env = ex_info.value.envelope
+    assert env.code is ErrorCode.UPSTREAM_ERROR
+    assert env.retryable is True
+    assert env.endpoints_called == ["/catalog/LOCATIONS"]
+
+
+def test_get_timeseries_catalog_wraps_404_as_not_found(configured, mocked) -> None:
+    """A 404 from the ts catalog endpoint is non-retryable and surfaces as
+    NOT_FOUND, not UPSTREAM_ERROR."""
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/TIMESERIES",
+        status=404,
+        body="Not Found",
+    )
+    with pytest.raises(CwmsToolsError) as ex_info:
+        catalog.get_timeseries_catalog("SWT", like="^FOSS\\.", use_cache=False)
+    env = ex_info.value.envelope
+    assert env.code is ErrorCode.NOT_FOUND
+    assert env.retryable is False

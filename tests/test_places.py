@@ -6,8 +6,9 @@ import cwms
 import pytest
 import responses
 
-from cwms_tools.core import places, projects, session
+from cwms_tools.core import locations, places, projects, session
 from cwms_tools.core.cache import Cache, set_cache
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
 
 API_ROOT = "https://example.test/cwms-data/"
@@ -229,3 +230,42 @@ def test_browse_region_filters_by_bbox(configured, mocked) -> None:
     payload = places.browse_region(office="SWT", bbox=bbox)
     names = [r["name"] for r in payload["results"]]
     assert names == ["FOSS"]
+
+
+# --------------------------------------------------------------------------
+# locations.get_one wraps upstream errors via status code
+# --------------------------------------------------------------------------
+
+
+def test_locations_get_one_wraps_5xx_as_retryable_upstream_error(configured, mocked) -> None:
+    """A transient 5xx must surface as UPSTREAM_ERROR(retryable=True), not
+    masquerade as NOT_FOUND. The previous bare `except Exception` collapsed
+    every upstream failure into a 'not found' envelope."""
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/FOSS",
+        status=503,
+        body="Service Unavailable",
+    )
+    with pytest.raises(CwmsToolsError) as ex_info:
+        locations.get_one("SWT", "FOSS", use_cache=False)
+    env = ex_info.value.envelope
+    assert env.code is ErrorCode.UPSTREAM_ERROR
+    assert env.retryable is True
+
+
+def test_locations_get_one_wraps_404_as_not_found_with_field(configured, mocked) -> None:
+    """A genuine 404 still maps to NOT_FOUND and carries `field`/`offending_value`
+    so the agent gets a useful repair surface."""
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/MISSING",
+        status=404,
+        body="Not Found",
+    )
+    with pytest.raises(CwmsToolsError) as ex_info:
+        locations.get_one("SWT", "MISSING", use_cache=False)
+    env = ex_info.value.envelope
+    assert env.code is ErrorCode.NOT_FOUND
+    assert env.field == "name"
+    assert env.offending_value == "MISSING"
