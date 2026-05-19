@@ -70,3 +70,83 @@ def test_session_fingerprint_is_dict_with_expected_keys(
     fp = session.session_fingerprint()
     assert set(fp.keys()) == {"api_root", "user_agent", "pool_connections", "has_operator_email"}
     assert fp["has_operator_email"] is False
+
+
+def test_configure_session_drops_cwms_api_log_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """cwms-python's `cwms/api.py` calls bare `logging.error(...)`, which
+    routes to the root logger and lands on stderr. After we wrap those
+    failures ourselves into structured envelopes, the upstream log line is
+    just noise. The filter targets `record.pathname` so it doesn't catch
+    unrelated libraries' api.py modules."""
+    import logging
+
+    import cwms.api as cwms_api
+
+    session._state["config"] = None
+    session._remove_cwms_api_log_filter()
+    session.configure_session()
+    records: list[logging.LogRecord] = []
+
+    class _CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _CaptureHandler(level=logging.DEBUG)
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        # Simulate a cwms.api log call by constructing a record whose
+        # pathname points at the upstream module's file.
+        rec = logging.LogRecord(
+            name="root",
+            level=logging.ERROR,
+            pathname=cwms_api.__file__,
+            lineno=99,
+            msg="CDA Error: response=<Response [406]>",
+            args=None,
+            exc_info=None,
+        )
+        root.handle(rec)
+    finally:
+        root.removeHandler(handler)
+
+    assert records == [], "cwms.api log writes must be dropped"
+
+
+def test_log_filter_does_not_drop_other_modules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sanity-check: only cwms/api.py is silenced. A record originating
+    from an unrelated path must pass through."""
+    import logging
+
+    session._state["config"] = None
+    session._remove_cwms_api_log_filter()
+    session.configure_session()
+    records: list[logging.LogRecord] = []
+
+    class _CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _CaptureHandler(level=logging.DEBUG)
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        rec = logging.LogRecord(
+            name="root",
+            level=logging.ERROR,
+            pathname="/some/unrelated/library/api.py",
+            lineno=42,
+            msg="unrelated error",
+            args=None,
+            exc_info=None,
+        )
+        root.handle(rec)
+    finally:
+        root.removeHandler(handler)
+
+    assert len(records) == 1
+    assert records[0].msg == "unrelated error"

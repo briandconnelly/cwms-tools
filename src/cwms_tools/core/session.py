@@ -15,12 +15,15 @@ fingerprint can include it.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import cwms
+import cwms.api as cwms_api
 
 from cwms_tools.core.concurrency import MAX_WORKERS
 
@@ -100,7 +103,13 @@ _state: dict[str, SessionConfig | None] = {"config": None}
 
 
 def configure_session(config: SessionConfig | None = None) -> SessionConfig:
-    """Initialize the cwms-python session with our defaults. Idempotent."""
+    """Initialize the cwms-python session with our defaults. Idempotent.
+
+    Also installs a one-time root-logger filter (see _install_cwms_api_log_filter)
+    that drops `logging.error(...)` writes originating from cwms-python's
+    `cwms/api.py`. We translate those failures into structured CwmsToolsError
+    envelopes ourselves; the bare upstream log line is just stderr noise.
+    """
     resolved = config if config is not None else resolve_session_config()
     session: Session = cwms.init_session(
         api_root=resolved.api_root,
@@ -109,8 +118,51 @@ def configure_session(config: SessionConfig | None = None) -> SessionConfig:
     session.headers["User-Agent"] = resolved.user_agent
     if resolved.operator_email:
         session.headers["From"] = resolved.operator_email
+    _install_cwms_api_log_filter()
     _state["config"] = resolved
     return resolved
+
+
+class _CwmsApiOriginFilter(logging.Filter):
+    """Drop records that originate from cwms-python's `cwms/api.py`.
+
+    Matches on `record.pathname` rather than `record.module` because
+    `record.module` is just `"api"` for any `api.py`, which would risk
+    muzzling unrelated libraries.
+    """
+
+    def __init__(self, target_path: Path) -> None:
+        super().__init__()
+        self._target = target_path
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            origin = Path(record.pathname).resolve()
+        except (OSError, ValueError):
+            return True
+        return origin != self._target
+
+
+_LOG_FILTER_STATE: dict[str, _CwmsApiOriginFilter | None] = {"filter": None}
+
+
+def _install_cwms_api_log_filter() -> None:
+    """Attach the cwms.api origin filter to the root logger. Idempotent."""
+    if _LOG_FILTER_STATE["filter"] is not None:
+        return
+    target = Path(cwms_api.__file__).resolve()
+    flt = _CwmsApiOriginFilter(target)
+    logging.getLogger().addFilter(flt)
+    _LOG_FILTER_STATE["filter"] = flt
+
+
+def _remove_cwms_api_log_filter() -> None:
+    """Detach the filter. Used by tests; not normally needed in production."""
+    flt = _LOG_FILTER_STATE["filter"]
+    if flt is None:
+        return
+    logging.getLogger().removeFilter(flt)
+    _LOG_FILTER_STATE["filter"] = None
 
 
 def current_config() -> SessionConfig:
