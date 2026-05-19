@@ -86,9 +86,7 @@ def test_value_get_with_status_runs_classification(configured) -> None:
     ts = datetime(2026, 5, 17, 18, tzinfo=timezone.utc)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_value(mocked, value=1648.21, ts=ts)
-        result = runner.invoke(
-            app, ["value", "get", "SWT/FOSS/Elev", "--with-status"]
-        )
+        result = runner.invoke(app, ["value", "get", "SWT/FOSS/Elev", "--with-status"])
         levels_calls = [c for c in mocked.calls if "/levels" in (c.request.url or "")]
         assert levels_calls, "--with-status must hit the levels endpoint"
     assert result.exit_code == 0, result.stdout

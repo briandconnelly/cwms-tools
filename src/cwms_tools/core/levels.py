@@ -56,9 +56,7 @@ def list_levels(
     cache = get_cache()
     ttl = cache.ttl_for("levels")
     cfg = current_config()
-    cache_key = build_cache_key(
-        "levels", office, level_id_mask or "", api_root=cfg.api_root
-    )
+    cache_key = build_cache_key("levels", office, level_id_mask or "", api_root=cfg.api_root)
     if use_cache:
         hit = cache.get(cache_key)
         if hit is not None:

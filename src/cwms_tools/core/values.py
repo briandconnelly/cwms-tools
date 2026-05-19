@@ -66,19 +66,15 @@ def get_value(
     level_lookup_status = "skipped"
     if classify_against_levels and observation is not None:
         budget = (
-            status_budget_seconds
-            if status_budget_seconds is not None
-            else _STATUS_BUDGET_SECONDS
+            status_budget_seconds if status_budget_seconds is not None else _STATUS_BUDGET_SECONDS
         )
-        thresholds_active, status_class, level_lookup_status = (
-            _resolve_thresholds_with_timeout(
-                timeout=budget,
-                office=office,
-                location=location,
-                parameter=parameter,
-                observation=observation,
-                unit=series.get("unit", unit),
-            )
+        thresholds_active, status_class, level_lookup_status = _resolve_thresholds_with_timeout(
+            timeout=budget,
+            office=office,
+            location=location,
+            parameter=parameter,
+            observation=observation,
+            unit=series.get("unit", unit),
         )
 
     return {

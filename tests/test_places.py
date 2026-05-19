@@ -198,9 +198,7 @@ def test_describe_place_falls_back_on_get_project_format_error(configured, mocke
     assert project_resp["upstream_status"] == 406
 
 
-def test_describe_place_falls_back_when_location_is_not_a_project(
-    configured, mocked
-) -> None:
+def test_describe_place_falls_back_when_location_is_not_a_project(configured, mocked) -> None:
     """A 404 from /projects/{name} means the location is real but not a project.
     Degrade to partial: true with `not_a_project` instead of raising
     UPSTREAM_ERROR. Real-world case: NWDP/UBLW depth-string sensors."""
@@ -225,9 +223,7 @@ def test_describe_place_falls_back_when_location_is_not_a_project(
     assert project_resp["source_workaround"] is None
 
 
-def test_describe_place_falls_back_when_project_lookup_is_other_4xx(
-    configured, mocked
-) -> None:
+def test_describe_place_falls_back_when_project_lookup_is_other_4xx(configured, mocked) -> None:
     """Any 4xx that isn't 404 or the documented 406 format-error becomes a
     `project_lookup_4xx` partial. Surfaces the upstream status so the agent
     can decide whether to dig further."""
@@ -249,9 +245,7 @@ def test_describe_place_falls_back_when_project_lookup_is_other_4xx(
     assert project_resp["upstream_status"] == 400
 
 
-def test_describe_place_raises_upstream_error_on_project_5xx(
-    configured, mocked
-) -> None:
+def test_describe_place_raises_upstream_error_on_project_5xx(configured, mocked) -> None:
     """5xx is transient; we do NOT swallow it into a partial response —
     raise UPSTREAM_ERROR(retryable=True) so the caller can back off and
     retry."""
@@ -308,9 +302,7 @@ def test_browse_region_filters_by_bbox(configured, mocked) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_search_places_carries_data_at_repair_for_barren_parents(
-    configured, mocked
-) -> None:
+def test_search_places_carries_data_at_repair_for_barren_parents(configured, mocked) -> None:
     """When a barren parent location has a co-located data-bearing child,
     `data_at` lists the child names so the agent doesn't have to walk
     co_located manually."""
@@ -361,9 +353,7 @@ def test_search_places_carries_data_at_repair_for_barren_parents(
     assert child["data_at"] == []
 
 
-def test_list_parameters_carries_data_at_when_location_is_barren(
-    configured, mocked
-) -> None:
+def test_list_parameters_carries_data_at_when_location_is_barren(configured, mocked) -> None:
     """A direct `place parameters` call against a barren parent should hint
     at the depth-tagged children that actually carry data."""
     locations_payload = {
@@ -421,9 +411,7 @@ def test_list_parameters_carries_data_at_when_location_is_barren(
     assert payload["data_at"] == ["UBLW_S1-D21,0ft"]
 
 
-def test_list_parameters_data_at_is_null_when_location_has_data(
-    configured, mocked
-) -> None:
+def test_list_parameters_data_at_is_null_when_location_has_data(configured, mocked) -> None:
     """When the location itself is data-bearing, no repair hint is needed —
     `data_at` is null."""
     _arm_all(mocked)

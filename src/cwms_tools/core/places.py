@@ -132,9 +132,7 @@ def list_parameters(
         ],
         "all_parameters": sorted(publishers.parameter_counts(ts_ids).keys()),
         "last_data_timestamp": freshness,
-        "data_at": _data_at_for_location(office, name, use_cache=use_cache)
-        if not ts_ids
-        else None,
+        "data_at": _data_at_for_location(office, name, use_cache=use_cache) if not ts_ids else None,
     }
 
 
@@ -150,9 +148,7 @@ def _data_at_hint(row: dict[str, Any], by_name: dict[str, dict[str, Any]]) -> li
     siblings = row.get("co_located") or []
     if not siblings:
         return []
-    return sorted(
-        s for s in siblings if (by_name.get(s) or {}).get("parameter_count", 0) > 0
-    )
+    return sorted(s for s in siblings if (by_name.get(s) or {}).get("parameter_count", 0) > 0)
 
 
 def _data_at_for_location(
@@ -177,9 +173,7 @@ def _data_at_for_location(
     if not siblings:
         return []
     by_name = {r["name"]: r for r in enriched}
-    return sorted(
-        s for s in siblings if (by_name.get(s) or {}).get("parameter_count", 0) > 0
-    )
+    return sorted(s for s in siblings if (by_name.get(s) or {}).get("parameter_count", 0) > 0)
 
 
 def browse_region(
@@ -200,6 +194,7 @@ def browse_region(
 
     if state:
         target = state.upper()
+
         # CDA returns the two-letter state code as `state` on the catalog row
         # and as `state-initial` on the single-location response. Check both
         # so the filter works regardless of which shape arrived.
