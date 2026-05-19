@@ -135,6 +135,37 @@ def test_schema_output_lists_all_top_level_commands() -> None:
     assert "cwms-tools schema" in paths
 
 
+def test_schema_value_get_advertises_with_status_flag() -> None:
+    """The schema is the agent contract: it must mention --with-status and
+    explain that classification is off by default. Eval found the schema
+    silent on this even though the --help output mentions the flag."""
+    result = runner.invoke(app, ["schema"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    value_get = next(
+        (c for c in payload["commands"] if c["path"].startswith("cwms-tools value get")),
+        None,
+    )
+    assert value_get is not None, "schema must include the `value get` entry"
+    assert "--with-status" in value_get["path"]
+    assert "level_lookup_status" in value_get.get("notes", "")
+
+
+def test_schema_place_search_advertises_limit_flag() -> None:
+    """The schema must advertise --limit on place search so agents know the
+    default cap exists and how to disable it."""
+    result = runner.invoke(app, ["schema"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    place_search = next(
+        (c for c in payload["commands"] if c["path"].startswith("cwms-tools place search")),
+        None,
+    )
+    assert place_search is not None
+    assert "--limit" in place_search["path"]
+    assert "truncated" in place_search.get("notes", "")
+
+
 def test_value_get_help_documents_with_status_and_depth_example() -> None:
     """`value get --help` must mention `--with-status` and a realistic
     depth-tagged id example. The classification-opt-in framing and the

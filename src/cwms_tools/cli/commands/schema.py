@@ -64,9 +64,14 @@ def _commands() -> list[dict[str, Any]]:
         {"path": "cwms-tools schema", "output_class": "record", "reads_stdin": False},
         # Place tools (M4).
         {
-            "path": "cwms-tools place search <query> --office <office>",
+            "path": "cwms-tools place search <query> --office <office> [--limit N]",
             "output_class": "list",
             "reads_stdin": False,
+            "notes": (
+                "Default --limit=50 caps result count to keep responses small "
+                "on broad queries; pass --limit=0 for no cap. Response carries "
+                "`truncated`/`total_count` when the cap is reached."
+            ),
         },
         {
             "path": "cwms-tools place describe <office>/<name>",
@@ -92,12 +97,20 @@ def _commands() -> list[dict[str, Any]]:
             "path": (
                 "cwms-tools value get <OFFICE/NAME/PARAMETER> "
                 "[<OFFICE/NAME/PARAMETER> ...] "
-                "[--window-hours N] [--unit EN|SI] [--detail summary|full]"
+                "[--window-hours N] [--unit EN|SI] [--with-status] "
+                "[--detail summary|full]"
             ),
             "output_class": "bulk-result",
             "reads_stdin": False,
             "supports_partial_failure": True,
             "partial_failure": "non-zero exit on any item failure; per-item errors inline",
+            "notes": (
+                "Threshold classification against CWMS Location Levels is OFF "
+                "by default (the /levels endpoint is reliably slow). Pass "
+                "--with-status to opt in; the response always carries "
+                "`level_lookup_status` so callers can distinguish "
+                "skipped/computed/timed_out/unavailable."
+            ),
         },
         {
             "path": (
