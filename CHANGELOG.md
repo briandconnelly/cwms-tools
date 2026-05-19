@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-05-19
 
 Initial public release. Agent-friendly read-only tools for the USACE
 [CWMS Data API](https://cwms-data.usace.army.mil/cwms-data/), exposed
@@ -84,7 +84,7 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
 - **Bundled overview**: `cwms-overview.md` ships under
   `cwms_tools/data/`, parsed at runtime into stable section slugs
   with 8 KB chunked bodies and stable chunk IDs.
-- **Test suite**: 193 tests (unit + mocked integration via
+- **Test suite**: 240 tests (unit + mocked integration via
   `responses` against the `requests`-backed cwms-python) and a
   fingerprint snapshot suite that pins the v0.1.0 tool/resource/
   error-code surface.
