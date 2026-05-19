@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 import pytest
 from typer.testing import CliRunner
@@ -12,6 +13,17 @@ from cwms_tools.cli import render
 from cwms_tools.cli.app import app
 
 runner = CliRunner()
+
+# Rich renders backtick code-spans from docstrings with ANSI style boundaries
+# that can split flag names across escape sequences (e.g. `--with-status`
+# becomes `-` + `-with` + `-status` with styles between). For substring-
+# matching against help output we strip ANSI first so the test matches what
+# a human reads, not what Rich emits.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(s: str) -> str:
+    return _ANSI_RE.sub("", s)
 
 
 @pytest.fixture(autouse=True)
@@ -80,8 +92,9 @@ def test_mcp_subcommand_shows_serve_in_help() -> None:
 def test_mcp_serve_help_lists_transport_and_port() -> None:
     result = runner.invoke(app, ["mcp", "serve", "--help"])
     assert result.exit_code == 0
-    assert "--transport" in result.stdout
-    assert "--port" in result.stdout
+    out = _strip_ansi(result.stdout)
+    assert "--transport" in out
+    assert "--port" in out
 
 
 # --------------------------------------------------------------------------
@@ -128,7 +141,7 @@ def test_value_get_help_documents_with_status_and_depth_example() -> None:
     comma-in-id shape are the two things eval surfaced as easy to miss."""
     result = runner.invoke(app, ["value", "get", "--help"])
     assert result.exit_code == 0
-    out = result.stdout
+    out = _strip_ansi(result.stdout)
     assert "--with-status" in out
     # The depth-tagged example: agents searching for water temp sensors
     # need to know this id shape is legitimate.
@@ -140,7 +153,7 @@ def test_value_history_help_documents_depth_example() -> None:
     callers know commas and depth suffixes in OFFICE/NAME/PARAMETER are ok."""
     result = runner.invoke(app, ["value", "history", "--help"])
     assert result.exit_code == 0
-    assert "UBLW_S1-D21,0ft" in result.stdout
+    assert "UBLW_S1-D21,0ft" in _strip_ansi(result.stdout)
 
 
 def test_schema_carries_machine_profile_declaration() -> None:

@@ -13,4 +13,3 @@
   release
 
 This package will eventually be published on PyPI when it is ready.
-
