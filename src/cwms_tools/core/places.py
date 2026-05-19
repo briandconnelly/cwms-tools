@@ -90,6 +90,7 @@ def describe_place(
         "ts_ids": ts_ids,
         "last_data_timestamp": freshness,
         "source_workaround": project_resp.get("source_workaround"),
+        "upstream_status": project_resp.get("upstream_status"),
     }
 
 

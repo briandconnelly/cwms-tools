@@ -195,6 +195,77 @@ def test_describe_place_falls_back_on_get_project_format_error(configured, mocke
     assert "get_project_format_error" in project_resp["partial_reasons"]
     assert project_resp["project_metadata"] is None
     assert project_resp["source_workaround"] == "project_format_error_fallback"
+    assert project_resp["upstream_status"] == 406
+
+
+def test_describe_place_falls_back_when_location_is_not_a_project(
+    configured, mocked
+) -> None:
+    """A 404 from /projects/{name} means the location is real but not a project.
+    Degrade to partial: true with `not_a_project` instead of raising
+    UPSTREAM_ERROR. Real-world case: NWDP/UBLW depth-string sensors."""
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/FOSS",
+        json=LOCATION_SINGLE_PAYLOAD,
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}projects/FOSS",
+        status=404,
+        body="Not Found",
+    )
+    project_resp = projects.get_one("SWT", "FOSS", use_cache=False)
+    assert project_resp["partial"] is True
+    assert "not_a_project" in project_resp["partial_reasons"]
+    assert project_resp["project_metadata"] is None
+    assert project_resp["upstream_status"] == 404
+    # The format-error workaround marker must NOT be reused for the 404 case.
+    assert project_resp["source_workaround"] is None
+
+
+def test_describe_place_falls_back_when_project_lookup_is_other_4xx(
+    configured, mocked
+) -> None:
+    """Any 4xx that isn't 404 or the documented 406 format-error becomes a
+    `project_lookup_4xx` partial. Surfaces the upstream status so the agent
+    can decide whether to dig further."""
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/FOSS",
+        json=LOCATION_SINGLE_PAYLOAD,
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}projects/FOSS",
+        status=400,
+        body="Bad Request",
+    )
+    project_resp = projects.get_one("SWT", "FOSS", use_cache=False)
+    assert project_resp["partial"] is True
+    assert "project_lookup_4xx" in project_resp["partial_reasons"]
+    assert project_resp["upstream_status"] == 400
+
+
+def test_describe_place_raises_upstream_error_on_project_5xx(
+    configured, mocked
+) -> None:
+    """5xx is transient; we do NOT swallow it into a partial response —
+    raise UPSTREAM_ERROR(retryable=True) so the caller can back off and
+    retry."""
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}projects/FOSS",
+        status=503,
+        body="Service Unavailable",
+    )
+    with pytest.raises(CwmsToolsError) as ex_info:
+        projects.get_one("SWT", "FOSS", use_cache=False)
+    env = ex_info.value.envelope
+    assert env.code is ErrorCode.UPSTREAM_ERROR
+    assert env.retryable is True
 
 
 # --------------------------------------------------------------------------

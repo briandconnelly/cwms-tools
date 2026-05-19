@@ -45,6 +45,15 @@ class SourceMeta(BaseModel):
         default=False,
         description="True if the response was served wholly from cache.",
     )
+    upstream_status: int | None = Field(
+        default=None,
+        description=(
+            "Upstream HTTP status code from a recovered partial-success path. "
+            "Set on responses where a sub-call returned a non-2xx that we "
+            "handled into a partial response (e.g. project lookup 404 for a "
+            "non-project location). Null on normal success paths."
+        ),
+    )
 
 
 class ErrorRef(BaseModel):

@@ -36,13 +36,21 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
 
 
-def _source(workaround: str | None = None) -> SourceMeta:
-    """Build the per-response provenance, including the capability fingerprint."""
+def _source(
+    workaround: str | None = None,
+    upstream_status: int | None = None,
+) -> SourceMeta:
+    """Build the per-response provenance, including the capability fingerprint.
+
+    `upstream_status` propagates the HTTP status of any recovered partial-success
+    sub-call so agents can see how the response degraded (e.g. 404 from the
+    project lookup on a non-project location).
+    """
     fp = fingerprint.compute(
         tools={name: {"name": name} for name in TOOL_INVENTORY},
         resources=RESOURCE_INVENTORY,
     )
-    return SourceMeta(fingerprint=fp, workaround=workaround)
+    return SourceMeta(fingerprint=fp, workaround=workaround, upstream_status=upstream_status)
 
 
 def register_place_tools(mcp: FastMCP) -> None:
@@ -102,7 +110,11 @@ def register_place_tools(mcp: FastMCP) -> None:
             return ErrorRef.model_validate(raw)
         shaped = _shape_detail(raw, detail)
         workaround = shaped.get("source_workaround")
-        shaped["source"] = _source(workaround=workaround).model_dump(mode="json")
+        upstream_status = shaped.get("upstream_status")
+        shaped["source"] = _source(
+            workaround=workaround,
+            upstream_status=upstream_status,
+        ).model_dump(mode="json")
         return DescribePlaceResponse.model_validate(shaped)
 
     @mcp.tool(
