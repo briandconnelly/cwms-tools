@@ -1,5 +1,9 @@
 # cwms-tools
 
+[![CI](https://github.com/briandconnelly/cwms-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/briandconnelly/cwms-tools/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/cwms-tools.svg)](https://pypi.org/project/cwms-tools/)
+[![Python](https://img.shields.io/pypi/pyversions/cwms-tools.svg)](https://pypi.org/project/cwms-tools/)
+
 Read-only, agent-friendly tools for the U.S. Army Corps of Engineers'
 [CWMS Data API](https://cwms-data.usace.army.mil/cwms-data/). `cwms-tools` wraps the official
 [`cwms-python`](https://github.com/HydrologicEngineeringCenter/cwms-python) client with two surfaces that share one behavioral
@@ -30,24 +34,18 @@ call instead of a brittle chain of raw API lookups.
 
 ## Install
 
-Until the package is published on PyPI, install from source:
+```bash
+uv add cwms-tools
+# or:  pipx install cwms-tools
+```
+
+To run from a checkout instead:
 
 ```bash
 git clone https://github.com/briandconnelly/cwms-tools.git
 cd cwms-tools
 uv sync
-```
-
-Run commands from the checkout with `uv run`:
-
-```bash
 uv run cwms-tools --help
-```
-
-Once published, normal project installs will look like this:
-
-```bash
-uv add cwms-tools
 ```
 
 ## CLI Quick Start
