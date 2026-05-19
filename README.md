@@ -1,49 +1,36 @@
 # cwms-tools
 
-Agent-friendly tools for the U.S. Army Corps of Engineers' [CWMS Data
-API][cda]. Provides an [MCP][mcp] server and a CLI on top of the
-official [`cwms-python`][cwms-python] client, designed so AI agents
-(Claude Code, Codex, custom) can answer hydrologic questions in **one
-tool call instead of five**.
+Read-only, agent-friendly tools for the U.S. Army Corps of Engineers'
+[CWMS Data API](https://cwms-data.usace.army.mil/cwms-data/). `cwms-tools` wraps the official
+[`cwms-python`](https://github.com/HydrologicEngineeringCenter/cwms-python) client with two surfaces that share one behavioral
+core:
 
-## Status
+- an [MCP](https://modelcontextprotocol.io/) server for agent runtimes such as Claude Code, Codex, and custom
+  MCP clients
+- a non-interactive CLI with compact JSON output, stable exit codes, and a
+  machine-readable schema
 
-Pre-PyPI, read-only, alpha. See [CHANGELOG.md](CHANGELOG.md) for the
-release history.
+The goal is simple: let agents answer common hydrologic questions with one task
+call instead of a brittle chain of raw API lookups.
 
-## What it does / doesn't do
+## What It Does
 
-**Does**
-
-- Resolve place names to canonical CWMS locations, with ghost
-  filtering and co-located variant detection.
-- Fetch the latest value or windowed history for any parameter,
-  inline-classified against the applicable thresholds.
-- Browse the catalog by office, region, or bounding box.
-- Ship a bundled orientation document on CWMS as a queryable MCP
-  resource — agents don't have to pre-load it.
-
-**Does not**
-
-- Write, store, or delete any CWMS data.
-- Retrieve forecasts.
-- Serve USGS, NOAA, or any non-CWMS data sources.
-- Decode DSS or XML file attachments.
-
-## What CWMS is
-
-CWMS — the Corps Water Management System — is USACE's platform for
-operating and reporting on the federal water resources it manages:
-mainstem reservoirs, hydropower projects, flood-control dams,
-navigation locks, and environmental monitoring stations. A bundled
-self-contained orientation document ships with the package and is
-served at the `cwms://overview` MCP resource (see *Discovery and
-gotchas* below). This package **wraps the existing public API**; it
-does not replace `cwms-python`.
+- Resolves natural place names to canonical CWMS locations, with ghost-location
+  filtering and co-located sensor hints.
+- Describes a place in one call: location record, project metadata when
+  available, published parameters, publishers, and latest data timestamp.
+- Reads the latest value or bounded history for CWMS time series parameters.
+- Optionally classifies the latest value against CWMS Location Levels when
+  callers opt in with `--with-status` or `with_status=true`.
+- Browses one office's catalog by state or bounding box.
+- Finds publishers for a parameter across cached or explicitly requested
+  offices.
+- Serves a bundled CWMS orientation document as MCP resources so agents can load
+  background material selectively.
 
 ## Install
 
-> Until the package lands on PyPI, install from source:
+Until the package is published on PyPI, install from source:
 
 ```bash
 git clone https://github.com/briandconnelly/cwms-tools.git
@@ -51,75 +38,103 @@ cd cwms-tools
 uv sync
 ```
 
-Once on PyPI:
+Run commands from the checkout with `uv run`:
+
+```bash
+uv run cwms-tools --help
+```
+
+Once published, normal project installs will look like this:
 
 ```bash
 uv add cwms-tools
 ```
 
-Python 3.10+. No authentication required — the CWMS Data API's read
-endpoints are public.
+## CLI Quick Start
 
-## CLI quick-start
+The CLI is designed for non-interactive callers. When stdout is not a TTY,
+machine mode is enabled automatically: compact JSON on stdout, diagnostics on
+stderr, no color, no prompts, and no progress UI. You can force that profile
+with `--machine` or `--json`.
 
 ```bash
-# What does this install think it is, and what does it know how to do?
-$ uv run cwms-tools whoami
-{
-  "identity": "anonymous",
-  "api_root": "https://cwms-data.usace.army.mil/cwms-data/",
-  "user_agent": "cwms-tools/0.1.0 (+https://github.com/briandconnelly/cwms-tools) cwms-python/1.0.7",
-  "operator_email": null
-}
+# Inspect the resolved session and upstream API root.
+uv run cwms-tools whoami
 
-$ uv run cwms-tools fingerprint
-{
-  "fingerprint": "2a627f55864d017fe2dfaad4e0aebd8baac9e551046c6ef35a4cebdf054bb488",
-  "scope": "schema-contract"
-}
+# Print the command tree, output classes, exit codes, environment inputs,
+# MCP tools, and MCP resources as a stable machine-readable contract.
+uv run cwms-tools schema
 
-# Resolve a place name -> ranked, ghost-filtered location matches
-$ uv run cwms-tools place search "Fort Peck" --office NWDM
+# Print a SHA-256 fingerprint over the agent-visible capability surface.
+uv run cwms-tools fingerprint
 
-# Latest value at a place + inline status classification (one tool call)
-$ uv run cwms-tools value get NWDM/FTPK/Elev
+# Resolve a place name to ranked CWMS locations.
+uv run cwms-tools place search "Fort Peck" --office NWDM
 
-# Describe a project: location + project metadata + publisher fingerprint
-$ uv run cwms-tools place describe NWDM/FTPK
+# Describe one place: location, project metadata, parameters, publishers,
+# freshness, and partial-result flags.
+uv run cwms-tools place describe NWDM/FTPK
 
-# Catalog browse with bbox or state filter
-$ uv run cwms-tools region browse --office SWT --state OK
+# List parameters published at a place.
+uv run cwms-tools place parameters NWDM/FTPK
 
-# Which publishers report on a parameter, across cached offices
-$ uv run cwms-tools publisher for-parameter Elev --office NWDM --office SWT
+# Read the latest elevation value. Status lookup is skipped by default because
+# CWMS Location Levels calls can be slow.
+uv run cwms-tools value get NWDM/FTPK/Elev
 
-# Windowed history with summary or full detail
-$ uv run cwms-tools value history NWDM/FTPK/Elev \
-    --begin 2026-05-16T00:00:00Z --end 2026-05-17T00:00:00Z
+# Opt in to threshold classification when status context matters.
+uv run cwms-tools value get NWDM/FTPK/Elev --with-status
+
+# Read a bounded history window.
+uv run cwms-tools value history NWDM/FTPK/Elev \
+  --begin 2026-05-16T00:00:00Z \
+  --end 2026-05-17T00:00:00Z
+
+# Browse an office catalog by state.
+uv run cwms-tools region browse --office SWT --state OK
+
+# Find publishers reporting a parameter in selected offices.
+uv run cwms-tools publisher for-parameter Elev --office NWDM --office SWT
 ```
 
-Top-level flags: `--machine` (compact JSON, auto-enabled on non-TTY),
-`--json` (alias), `--no-cache`, `--isolated`, `--version`.
+Useful global flags:
 
-Exit codes follow `agent-friendly-cli`: `2` usage, `3` not_found,
-`6` rate_limited, `7` timeout, `11` wrapper_bug, `12` ghost.
-Every command emits structured JSON on stdout; diagnostics go to
-stderr.
+- `--machine` / `--json`: compact structured output for agents and scripts.
+- `--no-cache`: bypass the on-disk catalog cache for one invocation.
+- `--isolated`: bypass cache and ignore `CWMS_TOOLS_*` environment variables.
+- `--version`: print the installed `cwms-tools` version.
 
-## MCP quick-start
+Exit codes are part of the CLI contract:
+
+| Exit | Meaning |
+| ---: | --- |
+| `0` | success |
+| `2` | usage or invalid field |
+| `3` | not found or publisher unavailable |
+| `4` | session unconfigured |
+| `6` | rate limited |
+| `7` | timeout |
+| `9` | upstream error or catalog cursor invalidation |
+| `11` | wrapper bug |
+| `12` | ghost location or ghost office |
+
+## MCP Quick Start
+
+Use stdio for local agent runtimes:
 
 ```bash
-# stdio (local agent runtime)
 uv run cwms-tools mcp serve --transport stdio
-
-# streamable HTTP (remote / shared deployment)
-uv run cwms-tools mcp serve --transport streamable-http --port 8765
 ```
 
-Claude Code config snippet:
+Use streamable HTTP for shared or remote deployment:
+
+```bash
+uv run cwms-tools mcp serve --transport streamable-http --host 127.0.0.1 --port 8765
+```
+
+Claude Code config example:
 
 ```jsonc
-// ~/.claude/mcp.json
 {
   "mcpServers": {
     "cwms-tools": {
@@ -130,53 +145,89 @@ Claude Code config snippet:
 }
 ```
 
-## Discovery and gotchas
+The MCP server exposes task-level tools rather than raw endpoint mirrors:
 
-Agents that have already loaded the server can browse the bundled
-overview content without re-fetching it from the network:
+| Tool | Purpose |
+| --- | --- |
+| `cwms_search_places` | Resolve an ambiguous place name to ranked locations. |
+| `cwms_describe_place` | Read location, project, parameter, publisher, and freshness data in one call. |
+| `cwms_list_parameters` | List parameters published at a location, grouped by publisher. |
+| `cwms_get_value` | Read the latest observation, optionally with threshold status. |
+| `cwms_get_history` | Read raw observations across a bounded time window. |
+| `cwms_browse_region` | Browse one office's locations, optionally by state or bounding box. |
+| `cwms_publishers_for_parameter` | List publishers reporting a parameter across selected offices. |
+| `cwms_get_overview_section` | Read bundled CWMS orientation content. |
 
-- `cwms://capabilities` — what the server does, version, fingerprint.
-- `cwms://overview/{section_id}` — sections of the bundled orientation
-  document, with a `?detail=summary|full` toggle and chunked bodies
-  for large sections.
+Resources:
 
-Two recurring traps that the package handles for you but are worth
-knowing exist:
+- `cwms://capabilities`: server version, fingerprint, tools, and resources.
+- `cwms://overview`: index of bundled CWMS overview sections.
+- `cwms://overview/{section_id}{?detail}`: summary or full section body.
+- `cwms://overview/{section_id}/chunk/{chunk_id}`: one large-section chunk.
 
-- **Ghost records.** Many CWMS catalog entries carry no time-series
-  data. `cwms-tools` filters them out by default; explicit error
-  payloads carry a `repair` field pointing at the next call to make.
-- **NW District stubs.** `NWO`, `NWK`, `NWS`, `NWP`, `NWW` are
-  near-empty stubs in CDA; use `NWDM` (Missouri) or `NWDP` (Pacific
-  NW) instead. Calls that target a stub office are auto-rewritten in
-  error envelopes.
+## Configuration
 
-## Etiquette / reporting issues
+`cwms-tools` works anonymously by default. Environment variables are optional:
 
-This package treats the CWMS Data API as a shared public resource.
-We identify ourselves with a descriptive `User-Agent`, cap concurrent
-requests, honor `Retry-After` headers, and never run background
-catalog scans. If you operate the upstream service and this client is
-misbehaving, please open an issue at
-<https://github.com/briandconnelly/cwms-tools/issues> and we will
-ship a point release that the cache namespace key invalidates against.
+| Variable | Purpose |
+| --- | --- |
+| `CWMS_TOOLS_API_ROOT` | Override the CWMS Data API root. |
+| `CWMS_TOOLS_CACHE_DIR` | Override the disk cache location. |
+| `CWMS_TOOLS_WORKERS` | Set bounded worker concurrency. |
+| `CWMS_TOOLS_REPO_URL` | Override the repository URL advertised in the user agent. |
+| `CWMS_TOOLS_USER_AGENT_EXTRA` | Append extra text to the user agent. |
+| `CWMS_TOOLS_OPERATOR_EMAIL` | Send a contact email via the `From` header. |
+| `CWMS_TOOLS_MAX_RPS` | Declared for rate-limit policy; not enforced in v0.1.0. |
+| `CWMS_API_KEY` | Reserved secret input for authenticated CDA deployments. |
+| `CWMS_TOKEN` | Reserved secret input for authenticated CDA deployments. |
+
+Inspect the resolved configuration without making a data call:
+
+```bash
+uv run cwms-tools env
+uv run cwms-tools config show --resolved
+```
+
+## CWMS Notes
+
+CWMS is USACE's Corps Water Management System: the operational data platform for
+federal reservoirs, flood-control dams, navigation locks, hydropower projects,
+and environmental monitoring stations.
+
+Two upstream data-shape issues come up often:
+
+- **Ghost records.** Some catalog locations do not publish time-series data.
+  Search and browse responses expose `parameter_count`, `parameters`, and
+  `data_at` repair hints so agents can move to the data-bearing sibling.
+- **Northwestern Division stubs.** `NWO`, `NWK`, `NWS`, `NWP`, and `NWW` are
+  near-empty CDA stubs. Use `NWDM` for Missouri River data and `NWDP` for
+  Pacific Northwest data. Error envelopes include repair hints when a stub is
+  targeted.
+
+## Upstream Etiquette
+
+The CWMS Data API is a shared public service. `cwms-tools` identifies itself
+with a descriptive `User-Agent`, caps concurrent requests, honors
+`Retry-After`, avoids background scans, and does not cache live time-series
+values. If you operate CDA and see problematic traffic from this client, please
+open an issue at <https://github.com/briandconnelly/cwms-tools/issues>.
 
 ## Development
 
 ```bash
-uv sync                                  # set up dev environment
-uv run prek run --all-files              # ruff, ty, pytest-fast
-uv run pytest --cov=cwms_tools           # full test suite
-uv run ty check                          # type check
+uv sync
+uv run prek run --all-files
+uv run pytest --cov=cwms_tools
+uv run ty check
 ```
 
-Please open an issue before sending non-trivial PRs.
+The test suite uses unit tests and mocked CDA responses. Live CDA integration
+tests are marked `integration` and are skipped unless explicitly selected.
+
+Before opening a substantial PR, please open an issue to discuss the intended
+change. The package is still pre-release, and the CLI/MCP schema contract is
+the main compatibility surface.
 
 ## License
 
-[MIT](LICENSE). Matches the license of the upstream
-[`cwms-python`][cwms-python].
-
-[cda]: https://cwms-data.usace.army.mil/cwms-data/
-[mcp]: https://modelcontextprotocol.io/
-[cwms-python]: https://github.com/HydrologicEngineeringCenter/cwms-python
+[MIT](LICENSE)
