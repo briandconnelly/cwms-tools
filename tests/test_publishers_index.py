@@ -104,10 +104,10 @@ def test_publishers_for_parameter_distinguishes_budget_skipped_from_error_skippe
     """C2: an office whose catalog fetch errors lands in `offices_error_skipped`,
     NOT lumped into `offices_skipped_for_budget` — so the agent can tell "hit the
     budget, re-run with these" from "these errored"."""
-    monkeypatch.setattr(publishers_index, "_budget", lambda: 1)
+    # Budget of 2: BADOFFICE errors (consumes one), SWT succeeds (consumes the
+    # other), MVS is budget-skipped and never fetched.
+    monkeypatch.setattr(publishers_index, "_budget", lambda: 2)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
-        # First office errors (500), second succeeds (consumes the budget of 1),
-        # third is budget-skipped and never fetched.
         mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", status=500, body="err")
         mocked.add(
             responses.GET,
@@ -124,6 +124,26 @@ def test_publishers_for_parameter_distinguishes_budget_skipped_from_error_skippe
     assert cov["offices_indexed"] == ["SWT"]
     assert cov["offices_skipped_for_budget"] == ["MVS"]
     assert cov["complete"] is False
+
+
+def test_publishers_for_parameter_errored_office_consumes_budget(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The per-call fetch budget caps upstream *attempts*: an uncached office that
+    errors still consumes budget, so a run of erroring offices can't blow past the
+    cap. With budget 1, the first (erroring) office uses it and the next is
+    budget-skipped rather than fetched."""
+    monkeypatch.setattr(publishers_index, "_budget", lambda: 1)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        # Only one response registered: if SWT were fetched this would error on
+        # an unmatched second request. It must NOT be fetched.
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", status=500, body="err")
+        payload = publishers_index.publishers_for_parameter("Elev", offices=["BADOFFICE", "SWT"])
+
+    cov = payload["coverage"]
+    assert cov["offices_error_skipped"] == ["BADOFFICE"]
+    assert cov["offices_indexed"] == []
+    assert cov["offices_skipped_for_budget"] == ["SWT"]
 
 
 def test_publishers_for_parameter_returns_locations_known_count(configured) -> None:

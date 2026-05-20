@@ -108,6 +108,8 @@ def register_place_tools(mcp: FastMCP) -> None:
         `FBLW_D1-*` temperature sensors. Data-bearing records sort
         first; ghosts are kept at the bottom of the list.
         """
+        if limit < 0:
+            return ErrorRef.from_error(_negative_limit_error(limit))
         effective_limit = None if limit == 0 else limit
         raw = await _safe(
             places.search_places,
@@ -219,6 +221,8 @@ def register_place_tools(mcp: FastMCP) -> None:
             )
         if south is not None and west is not None and north is not None and east is not None:
             bbox = BBox(south=south, west=west, north=north, east=east)
+        if limit < 0:
+            return ErrorRef.from_error(_negative_limit_error(limit))
         effective_limit = None if limit == 0 else limit
         raw = await _safe(
             places.browse_region, office=office, bbox=bbox, state=state, limit=effective_limit
@@ -475,6 +479,18 @@ def _shape_publishers_detail(payload: dict[str, Any], detail: Detail) -> dict[st
     pruned = dict(payload)
     pruned.pop("_observed_publishers_by_office", None)
     return pruned
+
+
+def _negative_limit_error(limit: int) -> CwmsToolsError:
+    """Usage error for a negative `limit`. Validated in the handler because the
+    core raises a plain `ValueError` that `_safe` (CwmsToolsError-only) won't catch."""
+    return CwmsToolsError.of(
+        ErrorCode.USAGE_ERROR,
+        "limit must be a non-negative integer (0 means no cap).",
+        field="limit",
+        offending_value=limit,
+        hint="Pass limit=0 for no cap, or any non-negative integer.",
+    )
 
 
 async def _safe(fn, *args, **kwargs) -> dict[str, Any]:

@@ -501,8 +501,10 @@ def browse_region(
     if limit is not None:
         rows = rows[:limit]
 
-    # Index the (post-filter) rows so a barren row can name co-located siblings
-    # that DO publish data, matching the `data_at` repair hint from search.
+    # Index the FULL office catalog (pre-filter) so a barren row can name
+    # co-located siblings that publish data even when those siblings fall
+    # outside the bbox/state filter — matching the `data_at` repair hint from
+    # search and the co-location-before-filtering note above.
     by_name = {r["name"]: r for r in enriched}
 
     def _data_at(row: dict[str, Any]) -> list[str]:

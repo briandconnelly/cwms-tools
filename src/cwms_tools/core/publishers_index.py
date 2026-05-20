@@ -116,6 +116,11 @@ def publishers_for_parameter(
     for office in requested:
         was_cached = _office_has_cache(office)
         if was_cached or budget_remaining > 0:
+            # An uncached office consumes the budget on *attempt*, not just on
+            # success: the fetch hits the upstream regardless of outcome, so a
+            # run of erroring offices can't blow past the per-call fetch cap.
+            if not was_cached:
+                budget_remaining -= 1
             try:
                 tsids = _gather_ts_ids(office, use_cache=use_cache)
             except CwmsToolsError:
@@ -126,8 +131,6 @@ def publishers_for_parameter(
                 # CwmsToolsError exceptions propagate so genuine bugs surface.
                 error_skipped.append(office)
                 continue
-            if not was_cached:
-                budget_remaining -= 1
             indexed.append(office)
             for tsid in tsids:
                 parts = publishers.parse_ts_id(tsid)

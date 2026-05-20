@@ -54,7 +54,8 @@ the MCP server and CLI.
   can tell a retry case from a "re-run to continue indexing" case. The internal
   per-office handler now catches `CwmsToolsError` specifically rather than bare
   `Exception`, so genuine bugs surface instead of being silently absorbed into
-  coverage.
+  coverage. The per-call fetch budget is now consumed on *attempt* (not just on
+  success), so a run of erroring uncached offices can't exceed the cap.
 
 ### Removed
 
@@ -84,6 +85,9 @@ the MCP server and CLI.
   traceback on exit 1.
 - **`value history` reports the precise offending field** (`begin` or `end`) on
   a bad timestamp instead of the lumped `begin/end`.
+- **A negative `limit` on `cwms_search_places` / `cwms_browse_region` now returns
+  a `usage_error` envelope** instead of an unstructured server error (the core's
+  `ValueError` was not caught by the tool's `CwmsToolsError`-only handler).
 
 ## [0.1.0] - 2026-05-19
 
