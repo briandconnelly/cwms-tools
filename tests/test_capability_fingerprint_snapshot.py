@@ -79,6 +79,26 @@ def test_capabilities_cli_and_tool_source_share_canonical_fingerprint() -> None:
     assert canon == cap_fp == source_fp == cli_fp
 
 
+def test_canonical_fingerprint_works_inside_running_event_loop() -> None:
+    """`contract._run_coro` must bridge tool-schema extraction to a worker thread
+    when first called from within a running loop (a live async tool handler),
+    not only from plain sync code."""
+    import asyncio
+
+    from cwms_tools.mcp import contract
+
+    contract.tool_definitions.cache_clear()  # force extraction inside the loop
+    try:
+
+        async def _main() -> str:
+            return contract.canonical_fingerprint()
+
+        digest = asyncio.run(_main())
+        assert len(digest) == 64
+    finally:
+        contract.tool_definitions.cache_clear()
+
+
 def test_fingerprint_uses_real_tool_schema_not_inventory_names() -> None:
     """SC1: the fingerprint must cover real input/output schemas (the declared
     `schema-contract` scope), not just tool names. A names-only hash would not
