@@ -211,6 +211,18 @@ class SearchPlacesResponse(BaseModel):
     partial: bool = False
     partial_reasons: list[str] = Field(default_factory=list)
     results: list[PlaceSummary]
+    total_count: int = Field(
+        default=0,
+        description="Total matches before the `limit` cap was applied.",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True when `limit` clipped the results; `total_count` holds the full size.",
+    )
+    limit: int | None = Field(
+        default=None,
+        description="The applied result cap (null means no cap).",
+    )
     source: SourceMeta
 
 
@@ -283,6 +295,22 @@ class BrowseRegionResponse(BaseModel):
     state: str | None
     result_count: int
     ghost_count: int
+    total_count: int = Field(
+        default=0,
+        description="Total matches before the `limit` cap was applied.",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True when `limit` clipped the results; `total_count` holds the full size.",
+    )
+    limit: int | None = Field(
+        default=None,
+        description="The applied result cap (null means no cap).",
+    )
+    truncation_hint: str | None = Field(
+        default=None,
+        description="How to narrow or widen the browse when `truncated` is true.",
+    )
     results: list[PlaceSummary]
     source: SourceMeta
 

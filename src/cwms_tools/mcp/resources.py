@@ -37,6 +37,31 @@ TOOL_INVENTORY: list[str] = [
     "cwms_get_overview_section",
 ]
 
+#: Per-tool error catalog. The codes each tool can return as `error.code`, so an
+#: agent can branch per tool instead of against the global enum. Curated from the
+#: actual emission paths in `core/*`; part of the capability fingerprint (folded
+#: into each tool's definition in `mcp/contract.py`). All CDA-hitting tools can
+#: return `upstream_error`/`rate_limited`; office-scoped tools reach the NW-stub
+#: guard (`ghost_office`).
+TOOL_ERROR_CODES: dict[str, list[str]] = {
+    "cwms_search_places": ["ghost_office", "rate_limited", "upstream_error"],
+    "cwms_describe_place": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_list_parameters": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_browse_region": ["ghost_office", "rate_limited", "upstream_error", "usage_error"],
+    "cwms_get_value": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_get_history": [
+        "ghost_office",
+        "invalid_field",
+        "not_found",
+        "rate_limited",
+        "upstream_error",
+    ],
+    # Per-office failures are absorbed into coverage.offices_error_skipped rather
+    # than failing the call, so the tool itself only surfaces transport-level errors.
+    "cwms_publishers_for_parameter": ["rate_limited", "upstream_error"],
+    "cwms_get_overview_section": ["not_found"],
+}
+
 #: Resource inventory — also kept here for the capability summary. Only resources
 #: actually registered on `build_server()` belong here, otherwise the capability
 #: summary advertises endpoints that 404 (Codex review M9 #4). `cwms://offices` and
@@ -93,6 +118,7 @@ def capabilities_payload() -> dict[str, Any]:
             "user_agent": cfg.user_agent,
         },
         "tools": TOOL_INVENTORY,
+        "tool_error_codes": TOOL_ERROR_CODES,
         "resources": RESOURCE_INVENTORY,
         "error_codes": sorted(c.value for c in ErrorCode),
         "error_handling": {

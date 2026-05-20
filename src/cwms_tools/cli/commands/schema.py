@@ -96,10 +96,14 @@ def _commands() -> list[dict[str, Any]]:
         {
             "path": (
                 "cwms-tools region browse --office <office> "
-                "[--south N --west N --north N --east N] [--state XX]"
+                "[--south N --west N --north N --east N] [--state XX] [--limit N]"
             ),
             "output_class": "list",
             "reads_stdin": False,
+            "notes": (
+                "Default --limit=50 caps result count; pass --limit=0 for no cap. "
+                "Response carries `truncated`/`total_count`/`truncation_hint` when capped."
+            ),
         },
         # Value tools (M5).
         {

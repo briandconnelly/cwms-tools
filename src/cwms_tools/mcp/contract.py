@@ -27,7 +27,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from cwms_tools.core import fingerprint
-from cwms_tools.mcp.resources import RESOURCE_INVENTORY
+from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_ERROR_CODES
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -76,6 +76,9 @@ def tool_definitions() -> dict[str, dict[str, Any]]:
                     if annotations is not None
                     else None
                 ),
+                # Per-tool error catalog is agent-visible surface, so it belongs
+                # in the fingerprint: changing a tool's error codes is a contract change.
+                "error_codes": TOOL_ERROR_CODES.get(mcp_tool.name, []),
             }
         return defs
 

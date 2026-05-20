@@ -74,6 +74,23 @@ def test_capabilities_resource_reads_back_with_fingerprint(server) -> None:
     assert any("write" in line.lower() and "delete" in line.lower() for line in payload["does_not"])
 
 
+def test_capabilities_include_per_tool_error_codes(server) -> None:
+    """M4: the capability summary lists which error codes each tool can return,
+    not just the global enum, so an agent can branch per tool."""
+    payload = _read_json(server, "cwms://capabilities")
+    per_tool = payload["tool_error_codes"]
+    # Every advertised tool has an entry.
+    assert set(per_tool) == set(payload["tools"])
+    # Spot-check a few accurate mappings.
+    assert "usage_error" in per_tool["cwms_browse_region"]  # partial bbox
+    assert per_tool["cwms_get_overview_section"] == ["not_found"]
+    assert "invalid_field" in per_tool["cwms_get_history"]  # bad begin/end
+    # Per-tool codes are a subset of the global enum.
+    global_codes = set(payload["error_codes"])
+    for codes in per_tool.values():
+        assert set(codes) <= global_codes
+
+
 def test_overview_index_returns_summary_only(server) -> None:
     payload = _read_json(server, "cwms://overview")
     assert "sections" in payload
@@ -122,6 +139,21 @@ def test_every_task_tool_publishes_a_real_output_schema(server) -> None:
         assert "anyOf" in result_slot or result_slot.get("properties"), (
             f"{name} output schema is hollow: {schema}"
         )
+
+
+def test_mcp_output_schema_documents_search_pagination_fields(server) -> None:
+    """Missed-A: `cwms_search_places` promises `truncated`/`total_count` in its
+    docstring, so its output schema must declare them (not rely on extra=allow).
+    Same for `cwms_browse_region` after the M2 cap."""
+
+    async def go() -> dict[str, dict]:
+        return {t.name: t.output_schema for t in await server.list_tools()}
+
+    schemas = asyncio.run(go())
+    for tool_name in ("cwms_search_places", "cwms_browse_region"):
+        blob = json.dumps(schemas[tool_name])
+        for field in ("total_count", "truncated", "limit"):
+            assert f'"{field}"' in blob, f"{tool_name} output schema omits {field}"
 
 
 def test_every_task_tool_response_carries_source_fingerprint(server) -> None:

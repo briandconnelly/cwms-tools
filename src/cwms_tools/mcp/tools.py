@@ -182,12 +182,21 @@ def register_place_tools(mcp: FastMCP) -> None:
         north: Annotated[float | None, "Bounding box north latitude in decimal degrees."] = None,
         east: Annotated[float | None, "Bounding box east longitude in decimal degrees."] = None,
         state: Annotated[str | None, "Two-letter US state code (e.g. MT, OK)."] = None,
+        limit: Annotated[
+            int,
+            "Cap on the number of results (default 50). A no-filter browse of a "
+            "large office can return thousands of rows; the cap keeps the response "
+            "bounded. Pass 0 for no cap. When the cap kicks in the response carries "
+            "`truncated: true`, `total_count`, and `truncation_hint`. Data-bearing "
+            "rows sort ahead of ghosts so a capped browse keeps the useful records.",
+        ] = places.DEFAULT_BROWSE_LIMIT,
         detail: Detail = Detail.SUMMARY,
     ) -> BrowseRegionResponse | ErrorRef:
         """Browse the locations published by one office, optionally filtered.
 
-        Returns the same enriched per-place records as `cwms_search_places`,
-        with `result_count` and `ghost_count` totals at the top. The
+        Returns the same enriched per-place records as `cwms_search_places`
+        (including `parameters` and the `data_at` repair hint), with
+        `result_count`, `ghost_count`, and `total_count` totals at the top. The
         bounding-box filter requires all four corners or none.
         """
         bbox: BBox | None = None
@@ -210,7 +219,10 @@ def register_place_tools(mcp: FastMCP) -> None:
             )
         if south is not None and west is not None and north is not None and east is not None:
             bbox = BBox(south=south, west=west, north=north, east=east)
-        raw = await _safe(places.browse_region, office=office, bbox=bbox, state=state)
+        effective_limit = None if limit == 0 else limit
+        raw = await _safe(
+            places.browse_region, office=office, bbox=bbox, state=state, limit=effective_limit
+        )
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
         shaped = _shape_detail(raw, detail)

@@ -297,6 +297,38 @@ def test_browse_region_filters_by_bbox(configured, mocked) -> None:
     assert names == ["FOSS"]
 
 
+def test_browse_region_limit_truncates_and_reports_total_count(configured, mocked) -> None:
+    """M2/C4: browse caps results and reports the full size + a repair hint."""
+    _arm_all(mocked)
+    payload = places.browse_region(office="SWT", limit=1)
+    assert payload["result_count"] == 1
+    assert payload["total_count"] == 2
+    assert payload["truncated"] is True
+    assert payload["limit"] == 1
+    assert "truncation_hint" in payload
+    # Data-bearing FOSS sorts ahead of the CHOU-Lock ghost, so the cap keeps it.
+    assert payload["results"][0]["name"] == "FOSS"
+
+
+def test_browse_region_no_cap_when_limit_none(configured, mocked) -> None:
+    _arm_all(mocked)
+    payload = places.browse_region(office="SWT", limit=None)
+    assert payload["truncated"] is False
+    assert payload["result_count"] == payload["total_count"] == 2
+    assert "truncation_hint" not in payload
+
+
+def test_browse_region_results_include_parameters_and_data_at(configured, mocked) -> None:
+    """Missed-B: browse rows carry `parameters` and `data_at`, not just the
+    fields that were always populated — so the typed PlaceSummary fields aren't
+    silently empty."""
+    _arm_all(mocked)
+    payload = places.browse_region(office="SWT")
+    foss = next(r for r in payload["results"] if r["name"] == "FOSS")
+    assert set(foss["parameters"]) == {"Elev", "Flow-Out"}
+    assert "data_at" in foss  # present on every row (empty for data-bearing FOSS)
+
+
 # --------------------------------------------------------------------------
 # data_at repair hint for barren parents (e.g. UBLW_S1 -> UBLW_S1-D21,0ft)
 # --------------------------------------------------------------------------

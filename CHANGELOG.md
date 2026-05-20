@@ -48,6 +48,25 @@ the MCP server and CLI.
   `error_handling` (tool errors discriminate on `ok`, not the protocol `isError`
   flag, which FastMCP cannot set alongside structured content).
 
+### Added
+
+- **`cwms_browse_region` / `region browse` now cap results** with a `limit`
+  (default 50; `--limit`/`-n` on the CLI, `0` for no cap). Responses carry
+  `total_count`, `truncated`, `limit`, and a `truncation_hint`, and data-bearing
+  rows sort ahead of ghosts so a capped browse keeps the useful records. Closes
+  the unbounded-list hazard where a no-filter browse of a large office could
+  return thousands of rows.
+- **Browse results now carry `parameters` and `data_at`**, matching
+  `cwms_search_places`. Previously `BrowseRegionResponse.results` was typed as
+  `PlaceSummary` (which declares both) but never populated them.
+- **`SearchPlacesResponse` now declares `total_count`/`truncated`/`limit`** as
+  schema fields so the MCP output schema documents the pagination the tool
+  already returned (it had relied on `extra="allow"`).
+- **`cwms://capabilities` now publishes a per-tool error catalog**
+  (`tool_error_codes`): the `error.code` values each tool can return, so an
+  agent can branch per tool instead of against the global enum. The per-tool
+  codes are folded into each tool's fingerprint definition.
+
 ### Changed
 
 - `cwms_publishers_for_parameter` coverage now distinguishes
