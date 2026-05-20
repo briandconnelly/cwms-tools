@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Agent-friendliness contract fixes from a cross-model (Claude + Codex) review of
+the MCP server and CLI.
+
+### Fixed
+
+- **Capability fingerprint is now identical across surfaces and covers tool
+  schemas.** Previously `cwms://capabilities` hashed an empty tool set while the
+  CLI `fingerprint` command and each tool's `source.fingerprint` hashed tool
+  names only, so the three disagreed and a schema change did not move the
+  fingerprint — defeating `fingerprint_scope: "schema-contract"`. A new
+  `mcp/contract.py` extracts the real registered tool definitions (input/output
+  schemas + annotations) once and feeds the single `canonical_fingerprint()`
+  used by all three surfaces.
+- **HTTP 429 is now classified as `rate_limited`** (retryable) with
+  `retry_after_ms` parsed from the upstream `Retry-After` header, instead of the
+  previous non-retryable `upstream_error` — so a backing-off agent waits and
+  retries instead of giving up.
+
+### Removed
+
+- Dropped the `timeout` and `catalog_cursor_invalidated` error codes. They were
+  advertised in the capability summary, CLI schema, exit-code map, and
+  fingerprint but never emitted by any code path. Removing them keeps the
+  advertised error surface honest. (Both were unreachable; this changes the
+  capability fingerprint.)
+
 ## [0.1.0] - 2026-05-19
 
 Initial public release. Agent-friendly read-only tools for the USACE

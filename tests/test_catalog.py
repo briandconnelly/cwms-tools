@@ -7,6 +7,8 @@ enrichment shape (`parameter_count`, `publishers`, `co_located`, `freshness`).
 
 from __future__ import annotations
 
+import json
+
 import cwms
 import pytest
 import responses
@@ -14,6 +16,8 @@ import responses
 from cwms_tools.core import catalog, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
+
+from .conftest import fixture_path
 
 API_ROOT = "https://example.test/cwms-data/"
 
@@ -473,6 +477,32 @@ def test_get_locations_catalog_wraps_5xx_as_retryable_upstream_error(configured,
     assert env.code is ErrorCode.UPSTREAM_ERROR
     assert env.retryable is True
     assert env.endpoints_called == ["/catalog/LOCATIONS"]
+
+
+def test_get_locations_catalog_wraps_429_as_rate_limited_with_retry_after(
+    configured, mocked
+) -> None:
+    """SC2: a 429 must surface as `rate_limited` (retryable) with `retry_after_ms`
+    parsed from the `Retry-After` header — previously every non-404 4xx was
+    misclassified as non-retryable `upstream_error`, so a backing-off agent
+    would give up instead of waiting."""
+    fixture = json.loads(fixture_path("cda_429_rate_limited.json").read_text())
+    resp = fixture["response"]
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/LOCATIONS",
+        status=resp["status"],
+        headers=resp["headers"],
+        body=resp["body"],
+    )
+    with pytest.raises(CwmsToolsError) as ex_info:
+        catalog.get_locations_catalog("SWT", use_cache=False)
+    env = ex_info.value.envelope
+    expected = fixture["expected_envelope"]
+    assert env.code is ErrorCode.RATE_LIMITED
+    assert env.code.value == expected["code"]
+    assert env.retryable is expected["retryable"]
+    assert env.retry_after_ms == expected["retry_after_ms"]
 
 
 def test_get_timeseries_catalog_wraps_404_as_not_found(configured, mocked) -> None:

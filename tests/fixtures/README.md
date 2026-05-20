@@ -13,8 +13,7 @@ recordings land alongside the tool implementations in M3–M6.
 | `nwo_becr_ghost.json`              | Ghost location; verifies `error.code = ghost_location` + repair hint. |
 | `swt_chou_lock_zero_params.json`   | Co-located but zero-publishing variant — ghost detection at parameter level. |
 | `multi_id_value.json`              | List input to `cwms_get_value`; exercises `core/concurrency.py`. |
-| `catalog_cursor_invalidated.json`  | Cursor `NOT_FOUND` retry path. |
 | `catalog_truncated_at_page_cap.json` | `get_timeseries` silent-truncation detection. |
-| `cda_429_rate_limited.json`        | `error.code = rate_limited` with `retry_after_ms`. |
+| `cda_429_rate_limited.json`        | Recorded 429 + `Retry-After`; drives `test_get_locations_catalog_wraps_429_as_rate_limited_with_retry_after`. |
 | `cda_503_upstream_error.json`      | `error.code = upstream_error`, `retryable: true`. |
 | `auth_unconfigured.json`           | Anonymous-session verification (`whoami`, `env`). |

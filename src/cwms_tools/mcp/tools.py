@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from cwms_tools.core import concurrency, fingerprint, places, publishers_index, values
+from cwms_tools.core import concurrency, places, publishers_index, values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
 from cwms_tools.core.models import (
@@ -30,7 +30,7 @@ from cwms_tools.core.models import (
     SourceMeta,
     ValueWithContextResponse,
 )
-from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_INVENTORY
+from cwms_tools.mcp.contract import canonical_fingerprint
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -46,11 +46,11 @@ def _source(
     sub-call so agents can see how the response degraded (e.g. 404 from the
     project lookup on a non-project location).
     """
-    fp = fingerprint.compute(
-        tools={name: {"name": name} for name in TOOL_INVENTORY},
-        resources=RESOURCE_INVENTORY,
+    return SourceMeta(
+        fingerprint=canonical_fingerprint(),
+        workaround=workaround,
+        upstream_status=upstream_status,
     )
-    return SourceMeta(fingerprint=fp, workaround=workaround, upstream_status=upstream_status)
 
 
 def register_place_tools(mcp: FastMCP) -> None:

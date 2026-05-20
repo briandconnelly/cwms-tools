@@ -8,6 +8,8 @@ must be intentional.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -29,9 +31,7 @@ class ErrorCode(str, Enum):
     INVALID_FIELD = "invalid_field"
     RATE_LIMITED = "rate_limited"
     UPSTREAM_ERROR = "upstream_error"
-    TIMEOUT = "timeout"
     WRAPPER_BUG = "wrapper_bug"
-    CATALOG_CURSOR_INVALIDATED = "catalog_cursor_invalidated"
     SESSION_UNCONFIGURED = "session_unconfigured"
     TRUNCATED = "truncated"
     USAGE_ERROR = "usage_error"
@@ -47,9 +47,7 @@ _EXIT_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.INVALID_FIELD: 2,
     ErrorCode.RATE_LIMITED: 6,
     ErrorCode.UPSTREAM_ERROR: 9,
-    ErrorCode.TIMEOUT: 7,
     ErrorCode.WRAPPER_BUG: 11,
-    ErrorCode.CATALOG_CURSOR_INVALIDATED: 9,
     ErrorCode.SESSION_UNCONFIGURED: 4,
     ErrorCode.TRUNCATED: 1,
 }
@@ -104,21 +102,50 @@ class ErrorEnvelope(BaseModel):
     source: SourceInfo = Field(default_factory=SourceInfo)
 
 
+def retry_after_ms_from_response(response: Any) -> int | None:
+    """Parse a `Retry-After` header into milliseconds, or None.
+
+    Accepts the two RFC 9110 forms: delta-seconds (e.g. `Retry-After: 30`) and
+    an HTTP-date. Duck-types the response so this module stays decoupled from
+    `requests`. A date in the past clamps to 0.
+    """
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    raw = headers.get("Retry-After")
+    if not raw:
+        return None
+    raw = str(raw).strip()
+    if raw.isdigit():
+        return int(raw) * 1000
+    try:
+        when = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    delta_ms = int((when - datetime.now(timezone.utc)).total_seconds() * 1000)
+    return max(0, delta_ms)
+
+
 def upstream_error_from_status(
     status: int | None,
     *,
     endpoint: str,
     message: str,
+    retry_after_ms: int | None = None,
 ) -> CwmsToolsError:
     """Classify an upstream HTTP failure by status code.
 
     - 404 → NOT_FOUND (non-retryable)
+    - 429 → RATE_LIMITED (retryable; carries `retry_after_ms` when known)
     - other 4xx → UPSTREAM_ERROR (non-retryable)
     - 5xx and unknown → UPSTREAM_ERROR (retryable)
 
     Callers that already have an upstream exception (e.g. `cwms.api.ApiError`)
-    pull `exc.response.status_code` off it and pass it in. Keeps this module
-    decoupled from any specific upstream client.
+    pull `exc.response.status_code` off it and pass it in, plus
+    `retry_after_ms_from_response(exc.response)` for the 429 path. Keeps this
+    module decoupled from any specific upstream client.
     """
     if status == 404:
         return CwmsToolsError.of(
@@ -126,6 +153,18 @@ def upstream_error_from_status(
             message,
             endpoints_called=[endpoint],
             retryable=False,
+        )
+    if status == 429:
+        return CwmsToolsError.of(
+            ErrorCode.RATE_LIMITED,
+            message,
+            endpoints_called=[endpoint],
+            retryable=True,
+            retry_after_ms=retry_after_ms,
+            hint=(
+                "Upstream rate limit hit. Wait retry_after_ms (when set) before "
+                "retrying; reduce request fan-out via CWMS_TOOLS_WORKERS."
+            ),
         )
     if isinstance(status, int) and 400 <= status < 500:
         return CwmsToolsError.of(

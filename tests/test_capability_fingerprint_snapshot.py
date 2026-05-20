@@ -13,11 +13,17 @@ depends on the resolved User-Agent (which embeds cwms-tools version).
 
 from __future__ import annotations
 
-import pytest
+import json
 
+import pytest
+from typer.testing import CliRunner
+
+from cwms_tools.cli.app import app
 from cwms_tools.core import fingerprint
 from cwms_tools.core.errors import ErrorCode
-from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_INVENTORY
+from cwms_tools.mcp.contract import canonical_fingerprint, tool_definitions
+from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_INVENTORY, capabilities_payload
+from cwms_tools.mcp.tools import _source
 
 
 def test_fingerprint_shape() -> None:
@@ -58,6 +64,37 @@ def test_fingerprint_changes_when_resource_added() -> None:
         ],
     )
     assert base != extended
+
+
+def test_capabilities_cli_and_tool_source_share_canonical_fingerprint() -> None:
+    """SC1: the fingerprint an agent sees must be identical across every
+    surface — the `cwms://capabilities` resource, the CLI `fingerprint`
+    command, and a tool response's `source.fingerprint` — so a client can
+    cache by it. Previously capabilities hashed an empty tool set while the
+    CLI/source hashed names only, so the three disagreed."""
+    canon = canonical_fingerprint()
+    cap_fp = capabilities_payload()["fingerprint"]
+    source_fp = _source().fingerprint
+    cli_fp = json.loads(CliRunner().invoke(app, ["fingerprint"]).stdout)["fingerprint"]
+    assert canon == cap_fp == source_fp == cli_fp
+
+
+def test_fingerprint_uses_real_tool_schema_not_inventory_names() -> None:
+    """SC1: the fingerprint must cover real input/output schemas (the declared
+    `schema-contract` scope), not just tool names. A names-only hash would not
+    move when a tool's arguments or result shape changed."""
+    defs = tool_definitions()
+    # Definitions carry actual schemas, not just {"name": ...}.
+    sample = defs["cwms_search_places"]
+    assert "properties" in (sample["input_schema"] or {})
+    assert "properties" in (sample["output_schema"] or {})
+    # Hashing real schemas differs from hashing names only — proves schemas count.
+    names_only = fingerprint.compute(
+        tools={name: {"name": name} for name in TOOL_INVENTORY},
+        resources=RESOURCE_INVENTORY,
+    )
+    with_schemas = fingerprint.compute(tools=defs, resources=RESOURCE_INVENTORY)
+    assert names_only != with_schemas
 
 
 @pytest.mark.parametrize(
@@ -102,13 +139,28 @@ def test_v0_1_0_resource_inventory_pins_expected_uris(expected_uri: str) -> None
         "invalid_field",
         "rate_limited",
         "upstream_error",
-        "timeout",
         "wrapper_bug",
         "usage_error",
-        "catalog_cursor_invalidated",
     ],
 )
 def test_v0_1_0_error_codes_pinned(expected_code: str) -> None:
     """Renaming or removing any of these codes is a fingerprint-bumping change."""
     values = {c.value for c in ErrorCode}
     assert expected_code in values
+
+
+@pytest.mark.parametrize("dropped_code", ["timeout", "catalog_cursor_invalidated"])
+def test_dropped_error_codes_not_advertised_or_in_exit_map(dropped_code: str) -> None:
+    """SC2: `timeout` and `catalog_cursor_invalidated` were advertised but never
+    emitted. They must not appear in the enum, the exit-code map, the capability
+    summary, or the CLI schema."""
+    from cwms_tools.cli.commands.schema import _schema_payload
+    from cwms_tools.core.errors import _EXIT_CODE_MAP
+    from cwms_tools.mcp.resources import capabilities_payload
+
+    assert dropped_code not in {c.value for c in ErrorCode}
+    assert dropped_code not in {c.value for c in _EXIT_CODE_MAP}
+    assert dropped_code not in capabilities_payload()["error_codes"]
+    schema = _schema_payload()
+    assert dropped_code not in schema["error_codes"]
+    assert dropped_code not in {row["code"] for row in schema["exit_codes"]}

@@ -50,22 +50,23 @@ RESOURCE_INVENTORY: list[dict[str, str]] = [
 ]
 
 
-def capabilities_payload(
-    *,
-    tools_in_server: dict[str, dict[str, Any]] | None = None,
-) -> dict[str, Any]:
+def capabilities_payload() -> dict[str, Any]:
     """Build the structured capability summary served at `cwms://capabilities`.
 
     Per `agent-friendly-mcp` §2: states what the server does, what it does
     NOT do, prerequisites, the capability fingerprint (with scope), the tool
     and resource inventories, the FastMCP capability verdict, and the active
     workarounds. A single-read should be enough for an agent to plan against.
+
+    The fingerprint comes from `canonical_fingerprint()` — the same value the
+    CLI `fingerprint` command and every tool response's `source.fingerprint`
+    report — so a client can cache by it across surfaces.
     """
+    # Lazy import: contract imports this module for RESOURCE_INVENTORY.
+    from cwms_tools.mcp.contract import canonical_fingerprint  # noqa: PLC0415
+
     cfg = current_config()
-    fp = fingerprint.compute(
-        tools=tools_in_server,
-        resources=RESOURCE_INVENTORY,
-    )
+    fp = canonical_fingerprint()
     return {
         "name": SERVER_NAME,
         "title": SERVER_TITLE,
