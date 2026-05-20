@@ -95,6 +95,20 @@ def capabilities_payload() -> dict[str, Any]:
         "tools": TOOL_INVENTORY,
         "resources": RESOURCE_INVENTORY,
         "error_codes": sorted(c.value for c in ErrorCode),
+        "error_handling": {
+            "tools": (
+                "Tool failures return the in-band envelope {ok: false, error: {...}} "
+                "in structuredContent (FastMCP cannot set the protocol isError flag "
+                "alongside structured content). Discriminate on the `ok` field, not "
+                "isError. The error object carries code, message, field, hint, repair, "
+                "retryable, and retry_after_ms."
+            ),
+            "resources": (
+                "resources/read failures surface as JSON-RPC errors; the repair "
+                "contract (machine_code, human_message, repair, recoverable) rides in "
+                "error.data."
+            ),
+        },
         "active_workarounds": active_workarounds(),
         "fastmcp": {
             "installed_version": installed_fastmcp_version(),

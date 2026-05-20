@@ -38,6 +38,15 @@ the MCP server and CLI.
   traceback on exit 1.
 - **`value history` reports the precise offending field** (`begin` or `end`) on
   a bad timestamp instead of the lumped `begin/end`.
+- **MCP error channels are now consistent.** The `cwms_get_overview_section`
+  tool's miss returns the same in-band `{ok: false, error: {...}}` envelope
+  (code `not_found`) as the seven task tools, replacing its bespoke
+  `{error, repair}` shape. Overview `resources/read` misses now raise a JSON-RPC
+  error carrying `machine_code`/`human_message`/`repair`/`recoverable` in
+  `error.data`, instead of returning an error-shaped 200 body that didn't match
+  the section schema. `cwms://capabilities` documents both channels under
+  `error_handling` (tool errors discriminate on `ok`, not the protocol `isError`
+  flag, which FastMCP cannot set alongside structured content).
 
 ### Changed
 

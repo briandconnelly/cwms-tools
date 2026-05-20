@@ -149,6 +149,10 @@ def test_every_task_tool_response_carries_source_fingerprint(server) -> None:
 
 
 def test_overview_section_tool_returns_not_found_payload_for_bad_slug(server) -> None:
+    """M1: the overview tool's miss now uses the SAME in-band {ok: false, error}
+    envelope as the seven task tools (code `not_found` + repair), not the old
+    bespoke {error, repair} shape."""
+
     async def go():
         return await server.call_tool(
             "cwms_get_overview_section",
@@ -160,8 +164,30 @@ def test_overview_section_tool_returns_not_found_payload_for_bad_slug(server) ->
     sc = result.structured_content
     assert sc is not None
     branch = sc.get("result", sc)  # tolerate both shapes
-    assert branch.get("error") == "section_not_found"
-    assert branch["repair"]["tool"] == "cwms_get_overview_section"
+    assert branch["ok"] is False
+    err = branch["error"]
+    assert err["code"] == "not_found"
+    assert err["field"] == "section_id"
+    assert err["repair"]["tool"] == "cwms_get_overview_section"
+    assert err["request_id"]
+
+
+def test_overview_section_resource_miss_raises_structured_jsonrpc_error(server) -> None:
+    """M3: a missing overview section read via the resource URI raises a JSON-RPC
+    error carrying the repair contract in error.data — not an error-shaped 200
+    body that doesn't match the section schema."""
+    from mcp import McpError
+
+    async def go():
+        return await server.read_resource("cwms://overview/does-not-exist")
+
+    with pytest.raises(McpError) as ex:
+        asyncio.run(go())
+    data = ex.value.error.data
+    assert isinstance(data, dict)
+    assert data["machine_code"] == "section_not_found"
+    assert data["repair"]["tool"] == "cwms_get_overview_section"
+    assert data["recoverable"] is False
 
 
 def test_place_tools_register_with_read_only_hint(server) -> None:
