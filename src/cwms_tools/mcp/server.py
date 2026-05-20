@@ -80,16 +80,6 @@ class OverviewSectionResponse(BaseModel):
 _RESOURCE_NOT_FOUND = -32002
 
 
-def _error_ref(err: CwmsToolsError) -> ErrorRef:
-    """Tool-side failure: the in-band `{ok: false, error: {...}}` envelope.
-
-    Mirrors `tools._envelope_ref` so the overview tool's errors match the seven
-    task tools exactly. Tool errors are discriminated by `ok`, not the protocol
-    `isError` flag (FastMCP cannot return `isError` alongside structured content).
-    """
-    return ErrorRef.model_validate({"ok": False, "error": err.envelope.model_dump(mode="json")})
-
-
 def _raise_resource_not_found(
     *, machine_code: str, human_message: str, repair: dict[str, Any]
 ) -> NoReturn:
@@ -234,7 +224,7 @@ def build_server() -> FastMCP:
         if chunk_id is not None:
             chunk = overview_chunk_payload(section_id, chunk_id)
             if chunk is None:
-                return _error_ref(
+                return ErrorRef.from_error(
                     CwmsToolsError.of(
                         ErrorCode.NOT_FOUND,
                         f"No chunk {chunk_id!r} in section {section_id!r}.",
@@ -266,7 +256,7 @@ def build_server() -> FastMCP:
 
         payload = overview_section_payload(section_id, detail=detail.value)
         if payload is None:
-            return _error_ref(
+            return ErrorRef.from_error(
                 CwmsToolsError.of(
                     ErrorCode.NOT_FOUND,
                     f"No overview section {section_id!r}; read cwms://overview for slugs.",

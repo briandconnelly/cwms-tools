@@ -57,8 +57,9 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
         "upstream_error",
     ],
     # Per-office failures are absorbed into coverage.offices_error_skipped rather
-    # than failing the call, so the tool itself only surfaces transport-level errors.
-    "cwms_publishers_for_parameter": ["rate_limited", "upstream_error"],
+    # than failing the call, so this tool returns a result (with coverage) instead
+    # of an error.code in normal operation.
+    "cwms_publishers_for_parameter": [],
     "cwms_get_overview_section": ["not_found"],
 }
 

@@ -202,7 +202,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         bbox: BBox | None = None
         provided = [v for v in (south, west, north, east) if v is not None]
         if len(provided) not in {0, 4}:
-            return _envelope_ref(
+            return ErrorRef.from_error(
                 CwmsToolsError.of(
                     ErrorCode.USAGE_ERROR,
                     "When specifying a bounding box, all four of south, west, "
@@ -333,7 +333,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
         except ValueError as exc:
-            return _envelope_ref(
+            return ErrorRef.from_error(
                 CwmsToolsError.of(
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse begin_iso as RFC3339: {exc}",
@@ -345,7 +345,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         try:
             end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         except ValueError as exc:
-            return _envelope_ref(
+            return ErrorRef.from_error(
                 CwmsToolsError.of(
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse end_iso as RFC3339: {exc}",
@@ -478,20 +478,16 @@ def _shape_publishers_detail(payload: dict[str, Any], detail: Detail) -> dict[st
 
 
 async def _safe(fn, *args, **kwargs) -> dict[str, Any]:
-    """Run a sync core function on the bounded executor; surface known errors structured."""
+    """Run a sync core function on the bounded executor; surface known errors structured.
+
+    Pre-`_safe` validation branches (e.g. partial-bbox, bad RFC3339) build the same
+    shape via `ErrorRef.from_error(...)`, so manual validation errors land with the
+    full envelope (`request_id`, `offending_value`, `hint`, `repair`, source).
+    """
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
         return {"ok": False, "error": err.envelope.model_dump(mode="json")}
-
-
-def _envelope_ref(err: CwmsToolsError) -> ErrorRef:
-    """Convert a `CwmsToolsError` to an `ErrorRef` for return from pre-`_safe`
-    validation branches in tool handlers. Mirrors the conversion `_safe` does
-    after catching the same exception class, so manual validation errors land
-    with the same full envelope (`request_id`, `offending_value`, `hint`,
-    `repair`, retry hints, source)."""
-    return ErrorRef.model_validate({"ok": False, "error": err.envelope.model_dump(mode="json")})
 
 
 __all__ = [
