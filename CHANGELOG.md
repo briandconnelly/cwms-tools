@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-20
+
 Agent-friendliness contract fixes from a cross-model (Claude + Codex) review of
 the MCP server and CLI.
 
@@ -230,4 +232,6 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   ~68 offices) in v0.1.0; `cwms_publishers_for_parameter` answers
   from cached + bounded-fetch offices only.
 
+[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/briandconnelly/cwms-tools/releases/tag/v0.1.0
