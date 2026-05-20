@@ -19,7 +19,8 @@ from typing import Annotated, Any
 
 import typer
 
-from cwms_tools.cli.render import diagnostic
+from cwms_tools.cli.render import emit_error
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.mcp.server import build_server
 
 app = typer.Typer(
@@ -92,15 +93,29 @@ def serve(
     Remote example:   cwms-tools mcp serve --transport streamable-http --port 8765
     """
     transport_norm = transport.lower().strip()
-    server: Any = build_server()
 
+    if transport_norm not in {
+        "stdio",
+        "stdin/stdout",
+        "http",
+        "streamable-http",
+        "streamable_http",
+    }:
+        emit_error(
+            CwmsToolsError.of(
+                ErrorCode.USAGE_ERROR,
+                f"Unknown transport {transport!r}.",
+                field="transport",
+                offending_value=transport,
+                hint="Use --transport stdio or streamable-http.",
+            )
+        )
+
+    server: Any = build_server()
     if transport_norm in {"stdio", "stdin/stdout"}:
         _serve_stdio(server)
-    elif transport_norm in {"http", "streamable-http", "streamable_http"}:
-        _serve_http(server, host=host, port=port)
     else:
-        diagnostic(f"unknown transport {transport!r}; use stdio or streamable-http.")
-        raise typer.Exit(code=2)
+        _serve_http(server, host=host, port=port)
 
 
 def _serve_stdio(server: Any) -> None:

@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from cwms_tools.cli.exit_codes import from_error_code
-from cwms_tools.cli.render import emit
+from cwms_tools.cli.render import emit, emit_error
 from cwms_tools.core import values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail, Unit
@@ -28,18 +28,15 @@ def _parse_id(spec: str) -> tuple[str, str, str]:
     """Parse `OFFICE/NAME/PARAMETER`, e.g. `NWDM/FTPK/Elev`."""
     parts = spec.split("/", 2)
     if len(parts) != 3 or any(not p.strip() for p in parts):
-        emit(
-            {
-                "ok": False,
-                "error": {
-                    "code": ErrorCode.USAGE_ERROR.value,
-                    "message": "Expected `OFFICE/NAME/PARAMETER` form, e.g. `NWDM/FTPK/Elev`.",
-                    "field": "id",
-                    "offending_value": spec,
-                },
-            }
+        emit_error(
+            CwmsToolsError.of(
+                ErrorCode.USAGE_ERROR,
+                "Expected `OFFICE/NAME/PARAMETER` form, e.g. `NWDM/FTPK/Elev`.",
+                field="id",
+                offending_value=spec,
+                hint="Pass each id as OFFICE/NAME/PARAMETER, e.g. NWDM/FTPK/Elev.",
+            )
         )
-        raise typer.Exit(code=2)
     return parts[0].strip(), parts[1].strip(), parts[2].strip()
 
 
@@ -109,11 +106,9 @@ def get(
     failed_count = 0
     last_exit_code = 0
     for spec in id_specs:
-        try:
-            office, name, parameter = _parse_id(spec)
-        except typer.Exit as ex:
-            # _parse_id already emitted an error; re-raise on first bad shape.
-            raise ex
+        # A malformed id is a whole-command usage error: `_parse_id` emits the
+        # envelope to stderr and exits before any aggregate is written.
+        office, name, parameter = _parse_id(spec)
         try:
             payload = values.get_value(
                 office,
@@ -196,21 +191,8 @@ def history(
     page cap (300,000 points) clipped the requested window.
     """
     office, name, parameter = _parse_id(id_spec)
-    try:
-        begin_dt = datetime.fromisoformat(begin.replace("Z", "+00:00"))
-        end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
-    except ValueError as exc:
-        emit(
-            {
-                "ok": False,
-                "error": {
-                    "code": ErrorCode.INVALID_FIELD.value,
-                    "message": f"Could not parse begin/end as RFC3339: {exc}",
-                    "field": "begin/end",
-                },
-            }
-        )
-        raise typer.Exit(code=2) from exc
+    begin_dt = _parse_iso(begin, field="begin")
+    end_dt = _parse_iso(end, field="end")
     try:
         payload = values.get_history(
             office, name, parameter, begin=begin_dt, end=end_dt, unit=unit.value
@@ -224,5 +206,20 @@ def history(
             }
         emit(payload)
     except CwmsToolsError as err:
-        emit({"ok": False, "error": err.envelope.model_dump(mode="json")})
-        raise typer.Exit(code=from_error_code(err.envelope.code)) from err
+        emit_error(err)
+
+
+def _parse_iso(value: str, *, field: str) -> datetime:
+    """Parse an RFC3339 timestamp or emit a precise INVALID_FIELD error to stderr."""
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        emit_error(
+            CwmsToolsError.of(
+                ErrorCode.INVALID_FIELD,
+                f"Could not parse --{field} as RFC3339: {exc}",
+                field=field,
+                offending_value=value,
+                hint="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
+            )
+        )

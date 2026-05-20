@@ -113,7 +113,8 @@ def test_value_get_partial_failure_exits_nonzero(configured) -> None:
 def test_value_get_rejects_bad_id_shape() -> None:
     result = runner.invoke(app, ["value", "get", "missing-slashes"])
     assert result.exit_code == 2
-    payload = json.loads(result.stdout)
+    assert result.stdout == ""  # stdout stays success-only
+    payload = json.loads(result.stderr)
     assert payload["error"]["code"] == "usage_error"
 
 
@@ -155,8 +156,10 @@ def test_value_history_rejects_bad_datetimes() -> None:
         ],
     )
     assert result.exit_code == 2
-    payload = json.loads(result.stdout)
+    assert result.stdout == ""
+    payload = json.loads(result.stderr)
     assert payload["error"]["code"] == "invalid_field"
+    assert payload["error"]["field"] == "begin"  # precise field, not lumped "begin/end"
 
 
 def test_value_get_rejects_unknown_unit() -> None:
@@ -188,3 +191,30 @@ def test_value_history_rejects_unknown_unit() -> None:
     assert result.exit_code == 2
     combined = (result.stdout or "") + (result.stderr or "")
     assert "bogus" in combined
+
+
+def test_usage_error_writes_full_envelope_to_stderr() -> None:
+    """C1/C3: whole-command usage errors emit the FULL ErrorEnvelope (with
+    request_id, hint, field) to stderr — not the old hand-built partial dict on
+    stdout."""
+    result = runner.invoke(app, ["value", "get", "no-slashes"])
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    err = json.loads(result.stderr)["error"]
+    assert err["code"] == "usage_error"
+    assert err["field"] == "id"
+    assert err["request_id"]  # full envelope, not the old partial shape
+    assert err["hint"]
+
+
+def test_value_get_partial_failure_keeps_aggregate_on_stdout(configured) -> None:
+    """C1: the bulk `value get` aggregate IS the success payload and stays on
+    stdout even on partial failure; only the non-zero exit signals it. NWO is an
+    NW-stub office, so resolving it fails with ghost_office without a live call."""
+    result = runner.invoke(app, ["value", "get", "NWO/FTPK/Elev"])
+    assert result.exit_code == 12  # ghost exit, non-zero
+    payload = json.loads(result.stdout)
+    assert payload["partial"] is True
+    assert payload["summary"]["failed"] == 1
+    assert payload["results"][0]["ok"] is False
+    assert payload["results"][0]["error"]["code"] == "ghost_office"

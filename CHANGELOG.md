@@ -24,6 +24,30 @@ the MCP server and CLI.
   `retry_after_ms` parsed from the upstream `Retry-After` header, instead of the
   previous non-retryable `upstream_error` — so a backing-off agent waits and
   retries instead of giving up.
+- **CLI structured errors now go to stderr in one consistent shape.** Every
+  command emits failures as the full `{ok: false, error: {...}}` envelope (with
+  `code`, `request_id`, `hint`, `repair`, …) on stderr; stdout stays
+  success-only. Replaces three divergent shapes (full envelope, a hand-built
+  partial dict, and a string-valued `error`). The bulk `value get` aggregate
+  remains the stdout payload (per-item failures inline, non-zero exit), now
+  declared as an explicit exception in `cwms-tools schema`'s `machine_profile`
+  (`success_stream` / `error_stream` / `error_stream_exceptions`).
+- **`publisher for-parameter` no longer leaks tracebacks.** It now wraps core
+  failures like its sibling commands, so a propagating error becomes a
+  structured envelope with the mapped exit code instead of an uncaught
+  traceback on exit 1.
+- **`value history` reports the precise offending field** (`begin` or `end`) on
+  a bad timestamp instead of the lumped `begin/end`.
+
+### Changed
+
+- `cwms_publishers_for_parameter` coverage now distinguishes
+  `offices_error_skipped` (catalog fetch errored) from
+  `offices_skipped_for_budget` (hit the per-call fanout budget), so the agent
+  can tell a retry case from a "re-run to continue indexing" case. The internal
+  per-office handler now catches `CwmsToolsError` specifically rather than bare
+  `Exception`, so genuine bugs surface instead of being silently absorbed into
+  coverage.
 
 ### Removed
 

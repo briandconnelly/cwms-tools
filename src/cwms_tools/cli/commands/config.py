@@ -7,9 +7,10 @@ from typing import Annotated
 import typer
 
 from cwms_tools.cli.commands.env import READ_VARS, SECRET_VARS
-from cwms_tools.cli.render import emit
+from cwms_tools.cli.render import emit, emit_error
 from cwms_tools.core.cache import resolve_cache_dir
 from cwms_tools.core.concurrency import MAX_WORKERS
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.session import resolve_session_config
 
 app = typer.Typer(
@@ -48,14 +49,13 @@ def show(
     its contract.
     """
     if not resolved:
-        emit(
-            {
-                "error": "usage_error",
-                "message": "Run `cwms-tools config show --resolved`.",
-                "hint": "Pass --resolved to print the merged effective configuration.",
-            }
+        emit_error(
+            CwmsToolsError.of(
+                ErrorCode.USAGE_ERROR,
+                "Run `cwms-tools config show --resolved`.",
+                hint="Pass --resolved to print the merged effective configuration.",
+            )
         )
-        raise typer.Exit(code=2)
 
     cfg = resolve_session_config()
     payload = {

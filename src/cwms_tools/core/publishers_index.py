@@ -17,7 +17,7 @@ from typing import Any
 from cwms_tools.core import catalog, publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.concurrency import MAX_WORKERS
-from cwms_tools.core.errors import RepairHint
+from cwms_tools.core.errors import CwmsToolsError, RepairHint
 from cwms_tools.core.session import current_config
 
 
@@ -108,6 +108,7 @@ def publishers_for_parameter(
 
     indexed: list[str] = []
     skipped: list[str] = []
+    error_skipped: list[str] = []
     by_publisher: dict[str, list[str]] = defaultdict(list)
     freshness: dict[str, str | None] = {}
 
@@ -117,8 +118,13 @@ def publishers_for_parameter(
         if was_cached or budget_remaining > 0:
             try:
                 tsids = _gather_ts_ids(office, use_cache=use_cache)
-            except Exception:
-                skipped.append(office)
+            except CwmsToolsError:
+                # An office whose catalog fetch failed (e.g. upstream_error,
+                # rate_limited, ghost_office) is recorded separately from
+                # budget-skipped offices so the caller can tell "hit the budget,
+                # re-run with these" from "these errored". Unexpected non-
+                # CwmsToolsError exceptions propagate so genuine bugs surface.
+                error_skipped.append(office)
                 continue
             if not was_cached:
                 budget_remaining -= 1
@@ -134,7 +140,7 @@ def publishers_for_parameter(
         else:
             skipped.append(office)
 
-    complete = not skipped
+    complete = not skipped and not error_skipped
     publisher_rows = [
         {
             "publisher": pub,
@@ -162,6 +168,7 @@ def publishers_for_parameter(
             "offices_requested": requested,
             "offices_indexed": indexed,
             "offices_skipped_for_budget": skipped,
+            "offices_error_skipped": error_skipped,
             "complete": complete,
         },
         "repair": repair,

@@ -12,8 +12,7 @@ from typing import Annotated
 
 import typer
 
-from cwms_tools.cli.exit_codes import from_error_code
-from cwms_tools.cli.render import emit
+from cwms_tools.cli.render import emit, emit_error
 from cwms_tools.core import places
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail
@@ -32,18 +31,15 @@ app = typer.Typer(
 def _parse_office_slash_name(spec: str) -> tuple[str, str]:
     """Split `OFFICE/NAME` into (office, name); raises typer.Exit(2) on bad shape."""
     if "/" not in spec:
-        emit(
-            {
-                "ok": False,
-                "error": {
-                    "code": ErrorCode.USAGE_ERROR.value,
-                    "message": "Expected `OFFICE/NAME` form, e.g. `NWDM/FTPK`.",
-                    "field": "spec",
-                    "offending_value": spec,
-                },
-            }
+        emit_error(
+            CwmsToolsError.of(
+                ErrorCode.USAGE_ERROR,
+                "Expected `OFFICE/NAME` form, e.g. `NWDM/FTPK`.",
+                field="spec",
+                offending_value=spec,
+                hint="Pass the place id as OFFICE/NAME, e.g. NWDM/FTPK.",
+            )
         )
-        raise typer.Exit(code=2)
     office, name = spec.split("/", 1)
     return office.strip(), name.strip()
 
@@ -115,18 +111,15 @@ def search(
     Data-bearing records sort first.
     """
     if limit < 0:
-        emit(
-            {
-                "ok": False,
-                "error": {
-                    "code": ErrorCode.USAGE_ERROR.value,
-                    "message": "--limit must be a non-negative integer.",
-                    "field": "limit",
-                    "offending_value": limit,
-                },
-            }
+        emit_error(
+            CwmsToolsError.of(
+                ErrorCode.USAGE_ERROR,
+                "--limit must be a non-negative integer.",
+                field="limit",
+                offending_value=limit,
+                hint="Pass --limit 0 for no cap, or any non-negative integer.",
+            )
         )
-        raise typer.Exit(code=2)
     effective_limit = None if limit == 0 else limit
     # Typer passes repeatable Options as a list[str] (even when one value
     # was given). Collapse to a single string when only one office is
@@ -146,8 +139,7 @@ def search(
             limit=effective_limit,
         )
     except CwmsToolsError as err:
-        emit({"ok": False, "error": err.envelope.model_dump(mode="json")})
-        raise typer.Exit(code=from_error_code(err.envelope.code)) from err
+        emit_error(err)
     if detail is Detail.SUMMARY:
         payload = {
             **payload,
@@ -184,8 +176,7 @@ def describe(
     try:
         payload = places.describe_place(office, name)
     except CwmsToolsError as err:
-        emit({"ok": False, "error": err.envelope.model_dump(mode="json")})
-        raise typer.Exit(code=from_error_code(err.envelope.code)) from err
+        emit_error(err)
     if detail is Detail.SUMMARY and isinstance(payload.get("location"), dict):
         loc = payload["location"]
         payload = {
@@ -228,5 +219,4 @@ def parameters(
     try:
         emit(places.list_parameters(office, name))
     except CwmsToolsError as err:
-        emit({"ok": False, "error": err.envelope.model_dump(mode="json")})
-        raise typer.Exit(code=from_error_code(err.envelope.code)) from err
+        emit_error(err)

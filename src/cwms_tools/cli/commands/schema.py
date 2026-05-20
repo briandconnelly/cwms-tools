@@ -45,6 +45,15 @@ def _schema_payload() -> dict[str, Any]:
             "flags": ["--machine", "--json"],
             "auto_enabled_when": "stdout is not a TTY",
             "stdin": "not_read",
+            "success_stream": "stdout",
+            "error_stream": "stderr",
+            "error_shape": "{ok: false, error: {code, message, field?, hint?, repair?, ...}}",
+            "error_stream_exceptions": [
+                "value get (bulk-result): per-item failures appear inline in the "
+                "stdout aggregate under results[].error; the process still exits "
+                "non-zero on any item failure. Whole-command usage errors (e.g. a "
+                "malformed id) still go to stderr."
+            ],
         },
     }
 

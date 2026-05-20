@@ -371,7 +371,21 @@ class PublishersCoverage(BaseModel):
 
     offices_requested: list[str]
     offices_indexed: list[str]
-    offices_skipped_for_budget: list[str]
+    offices_skipped_for_budget: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Offices not indexed because the per-call fanout budget was exhausted. "
+            "Re-run with these in `offices` to continue the index deterministically."
+        ),
+    )
+    offices_error_skipped: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Offices skipped because their catalog fetch errored (e.g. upstream_error, "
+            "rate_limited). Distinct from budget skips: retrying may help, but these "
+            "did not simply hit the budget."
+        ),
+    )
     complete: bool
 
 

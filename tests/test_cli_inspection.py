@@ -53,8 +53,10 @@ def test_env_redacts_secret_values(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_config_show_requires_resolved_flag() -> None:
     result = runner.invoke(app, ["config", "show"])
     assert result.exit_code == 2  # usage_error
-    payload = json.loads(result.stdout)
-    assert payload["error"] == "usage_error"
+    assert result.stdout == ""  # stdout stays success-only; error goes to stderr
+    payload = json.loads(result.stderr)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "usage_error"
 
 
 def test_config_show_resolved_emits_effective_config() -> None:

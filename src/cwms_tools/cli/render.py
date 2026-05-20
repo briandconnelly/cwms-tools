@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
+
+from cwms_tools.core.errors import CwmsToolsError, exit_code_for
 
 # Per `agent-friendly-cli` §"Agent-Safe Invocation": machine mode is forced on
 # whenever stdout is not a TTY, regardless of flags. Explicit `--machine` /
@@ -75,6 +77,20 @@ def diagnostic(message: str) -> None:
     typer.echo(message, err=True)
 
 
+def emit_error(error: CwmsToolsError) -> NoReturn:
+    """Write a structured error envelope to STDERR and exit with its mapped code.
+
+    Per `agent-friendly-cli`, stdout stays success-only; failures go to stderr
+    as the full `{ok: false, error: {...}}` envelope (the same shape the MCP
+    surface returns), branchable by the symbolic `error.code` and the numeric
+    exit code. Every CLI command routes whole-command failures through here so
+    the error shape and stream are uniform.
+    """
+    payload = {"ok": False, "error": error.envelope.model_dump(mode="json")}
+    typer.echo(json.dumps(payload, default=str), err=True)
+    raise typer.Exit(code=exit_code_for(error.envelope.code))
+
+
 def isolated() -> bool:
     """Return True if the caller asked to bypass on-disk cache + env reads."""
     return _state["isolated"] or os.environ.get("_CWMS_TOOLS_ISOLATED") == "1"
@@ -89,6 +105,7 @@ __all__ = [
     "OutputMode",
     "diagnostic",
     "emit",
+    "emit_error",
     "isolated",
     "no_cache",
     "set_isolated",
