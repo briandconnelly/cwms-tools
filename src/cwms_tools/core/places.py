@@ -18,6 +18,7 @@ from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
 from cwms_tools.core.session import current_config
 
 DEFAULT_SEARCH_LIMIT: int = 50
+DEFAULT_BROWSE_LIMIT: int = 50
 
 
 def _fanout_budget() -> int:
@@ -447,6 +448,7 @@ def browse_region(
     office: str,
     bbox: BBox | None = None,
     state: str | None = None,
+    limit: int | None = DEFAULT_BROWSE_LIMIT,
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """`cwms_browse_region` — enriched catalog filtered by office, bbox, or state.
@@ -454,7 +456,17 @@ def browse_region(
     Filtering happens client-side because CDA doesn't expose bbox or radius
     queries. Co-location is computed across the office's full catalog before
     bbox filtering so siblings outside the bbox can still be flagged.
+
+    `limit` caps the number of results (default 50). A no-filter browse of a
+    large office can return thousands of rows; the cap keeps the response
+    bounded. Set `limit=None` (or `limit=0` on the CLI) for no cap. When the
+    cap kicks in the response carries `truncated: true`, `total_count`, and a
+    `truncation_hint`. Data-bearing rows sort ahead of ghosts so a capped
+    browse keeps the useful records.
     """
+    if limit is not None and limit < 0:
+        raise ValueError("limit must be a non-negative integer or None")
+
     enriched = catalog.enrich_locations(office, use_cache=use_cache)
     rows = enriched
 
@@ -480,15 +492,38 @@ def browse_region(
         in_bbox = {(g.office_id, g.name) for g in filter_by_bbox(geopoints, bbox)}
         rows = [r for r in rows if (r["office_id"], r["name"]) in in_bbox]
 
+    # Data-bearing first, then ghosts; stable by office/name. Mirrors
+    # `cwms_search_places` so a capped browse keeps the useful rows.
+    rows = sorted(rows, key=lambda r: (-r["parameter_count"], r["office_id"], r["name"]))
+    total_count = len(rows)
+    ghost_count = sum(1 for r in rows if r["parameter_count"] == 0)
+    truncated = limit is not None and total_count > limit
+    if limit is not None:
+        rows = rows[:limit]
+
+    # Index the FULL office catalog (pre-filter) so a barren row can name
+    # co-located siblings that publish data even when those siblings fall
+    # outside the bbox/state filter — matching the `data_at` repair hint from
+    # search and the co-location-before-filtering note above.
+    by_name = {r["name"]: r for r in enriched}
+
+    def _data_at(row: dict[str, Any]) -> list[str]:
+        if row.get("parameter_count", 0) != 0:
+            return []
+        return _sibling_data_at(row.get("co_located") or [], by_name)
+
     # Drop the verbose `raw` field for region browse responses — agents asking
     # for a region overview don't need every per-row DTO. They can fetch
     # cwms_describe_place for any specific hit.
-    return {
+    response: dict[str, Any] = {
         "office": office,
         "bbox": _bbox_to_dict(bbox),
         "state": state,
         "result_count": len(rows),
-        "ghost_count": sum(1 for r in rows if r["parameter_count"] == 0),
+        "ghost_count": ghost_count,
+        "total_count": total_count,
+        "truncated": truncated,
+        "limit": limit,
         "results": [
             {
                 "office_id": r["office_id"],
@@ -498,13 +533,20 @@ def browse_region(
                 "latitude": r.get("latitude"),
                 "longitude": r.get("longitude"),
                 "parameter_count": r["parameter_count"],
+                "parameters": r.get("parameters", []),
                 "publishers": r["publishers"],
                 "last_data_timestamp": r.get("last_data_timestamp"),
                 "co_located": r.get("co_located", []),
+                "data_at": _data_at(r),
             }
             for r in rows
         ],
     }
+    if truncated:
+        response["truncation_hint"] = (
+            f"hit cap of {limit}; narrow with --state/bbox or pass --limit 0 for all rows"
+        )
+    return response
 
 
 def _bbox_to_dict(bbox: BBox | None) -> dict[str, float] | None:

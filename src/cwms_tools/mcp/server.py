@@ -11,14 +11,16 @@ in `cwms_tools.mcp.tools`; the discovery resources and the
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 from fastmcp import FastMCP
-from pydantic import BaseModel, ConfigDict, Field
+from mcp import McpError
+from mcp.types import ErrorData
+from pydantic import BaseModel, ConfigDict
 
 from cwms_tools import __version__ as PKG_VERSION
-from cwms_tools.core.errors import RepairHint
-from cwms_tools.core.models import Detail
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
+from cwms_tools.core.models import Detail, ErrorRef
 from cwms_tools.mcp.resources import (
     SERVER_NAME,
     SERVER_TITLE,
@@ -74,14 +76,30 @@ class OverviewSectionResponse(BaseModel):
     next_chunk_id: str | None = None
 
 
-class OverviewSectionError(BaseModel):
-    """Response shape returned when a requested overview section or chunk is missing."""
+# JSON-RPC error code for "resource not found" (MCP convention).
+_RESOURCE_NOT_FOUND = -32002
 
-    model_config = ConfigDict(extra="forbid")
 
-    error: str
-    repair: RepairHint = Field(
-        description="A callable surface (tool name + arguments) the caller should try next.",
+def _raise_resource_not_found(
+    *, machine_code: str, human_message: str, repair: dict[str, Any]
+) -> NoReturn:
+    """Resource-side failure: a JSON-RPC error carrying repair fields in `error.data`.
+
+    `resources/read` is a non-tool RPC method, so its semantic failures surface
+    through the JSON-RPC envelope (not an error-shaped success body). The repair
+    contract rides in `error.data` so agents can branch without parsing prose.
+    """
+    raise McpError(
+        ErrorData(
+            code=_RESOURCE_NOT_FOUND,
+            message=human_message,
+            data={
+                "machine_code": machine_code,
+                "human_message": human_message,
+                "repair": repair,
+                "recoverable": False,
+            },
+        )
     )
 
 
@@ -132,14 +150,16 @@ def build_server() -> FastMCP:
         """
         payload = overview_section_payload(section_id, detail=detail)
         if payload is None:
-            return {
-                "error": "section_not_found",
-                "section_id": section_id,
-                "repair": {
+            _raise_resource_not_found(
+                machine_code="section_not_found",
+                human_message=(
+                    f"No overview section {section_id!r}; read cwms://overview for slugs."
+                ),
+                repair={
                     "tool": "cwms_get_overview_section",
                     "args": {"section_id": "<one of the listed slugs>"},
                 },
-            }
+            )
         return payload
 
     @mcp.resource(
@@ -156,15 +176,17 @@ def build_server() -> FastMCP:
         """
         payload = overview_chunk_payload(section_id, chunk_id)
         if payload is None:
-            return {
-                "error": "chunk_not_found",
-                "section_id": section_id,
-                "chunk_id": chunk_id,
-                "repair": {
+            _raise_resource_not_found(
+                machine_code="chunk_not_found",
+                human_message=(
+                    f"No chunk {chunk_id!r} in section {section_id!r}; re-read the "
+                    "section for current chunk ids."
+                ),
+                repair={
                     "tool": "cwms_get_overview_section",
                     "args": {"section_id": section_id, "detail": "summary"},
                 },
-            }
+            )
         return payload
 
     # ----------------------------------------------------------------------
@@ -188,24 +210,31 @@ def build_server() -> FastMCP:
             "When set, returns just that chunk's body. Chunk ids come from the "
             "`chunks` list on a prior section read.",
         ] = None,
-    ) -> OverviewSectionResponse | OverviewSectionError:
+    ) -> OverviewSectionResponse | ErrorRef:
         """Read one section of the bundled CWMS orientation document.
 
         Use this fallback when the client can't browse MCP resources.
         Without `chunk_id` the response matches the `cwms://overview/
         {section_id}` resource; with `chunk_id` it returns that single
         chunk's body (with `title`/`summary` empty since they apply to
-        the section, not the chunk).
+        the section, not the chunk). On a missing section/chunk it returns
+        the standard `{ok: false, error: {...}}` envelope (code `not_found`),
+        the same shape every task tool uses.
         """
         if chunk_id is not None:
             chunk = overview_chunk_payload(section_id, chunk_id)
             if chunk is None:
-                return OverviewSectionError(
-                    error="chunk_not_found",
-                    repair=RepairHint(
-                        tool="cwms_get_overview_section",
-                        args={"section_id": section_id, "detail": "summary"},
-                    ),
+                return ErrorRef.from_error(
+                    CwmsToolsError.of(
+                        ErrorCode.NOT_FOUND,
+                        f"No chunk {chunk_id!r} in section {section_id!r}.",
+                        field="chunk_id",
+                        offending_value=chunk_id,
+                        repair=RepairHint(
+                            tool="cwms_get_overview_section",
+                            args={"section_id": section_id, "detail": "summary"},
+                        ),
+                    )
                 )
             return OverviewSectionResponse(
                 section_id=chunk["section_id"],
@@ -227,12 +256,17 @@ def build_server() -> FastMCP:
 
         payload = overview_section_payload(section_id, detail=detail.value)
         if payload is None:
-            return OverviewSectionError(
-                error="section_not_found",
-                repair=RepairHint(
-                    tool="cwms_get_overview_section",
-                    args={"section_id": "<one of the listed slugs>"},
-                ),
+            return ErrorRef.from_error(
+                CwmsToolsError.of(
+                    ErrorCode.NOT_FOUND,
+                    f"No overview section {section_id!r}; read cwms://overview for slugs.",
+                    field="section_id",
+                    offending_value=section_id,
+                    repair=RepairHint(
+                        tool="cwms_get_overview_section",
+                        args={"section_id": "<one of the listed slugs>"},
+                    ),
+                )
             )
         return OverviewSectionResponse.model_validate(payload)
 

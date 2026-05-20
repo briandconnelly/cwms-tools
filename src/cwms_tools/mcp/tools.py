@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from cwms_tools.core import concurrency, fingerprint, places, publishers_index, values
+from cwms_tools.core import concurrency, places, publishers_index, values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
 from cwms_tools.core.models import (
@@ -30,7 +30,7 @@ from cwms_tools.core.models import (
     SourceMeta,
     ValueWithContextResponse,
 )
-from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_INVENTORY
+from cwms_tools.mcp.contract import canonical_fingerprint
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -46,11 +46,11 @@ def _source(
     sub-call so agents can see how the response degraded (e.g. 404 from the
     project lookup on a non-project location).
     """
-    fp = fingerprint.compute(
-        tools={name: {"name": name} for name in TOOL_INVENTORY},
-        resources=RESOURCE_INVENTORY,
+    return SourceMeta(
+        fingerprint=canonical_fingerprint(),
+        workaround=workaround,
+        upstream_status=upstream_status,
     )
-    return SourceMeta(fingerprint=fp, workaround=workaround, upstream_status=upstream_status)
 
 
 def register_place_tools(mcp: FastMCP) -> None:
@@ -108,6 +108,8 @@ def register_place_tools(mcp: FastMCP) -> None:
         `FBLW_D1-*` temperature sensors. Data-bearing records sort
         first; ghosts are kept at the bottom of the list.
         """
+        if limit < 0:
+            return ErrorRef.from_error(_negative_limit_error(limit))
         effective_limit = None if limit == 0 else limit
         raw = await _safe(
             places.search_places,
@@ -182,18 +184,27 @@ def register_place_tools(mcp: FastMCP) -> None:
         north: Annotated[float | None, "Bounding box north latitude in decimal degrees."] = None,
         east: Annotated[float | None, "Bounding box east longitude in decimal degrees."] = None,
         state: Annotated[str | None, "Two-letter US state code (e.g. MT, OK)."] = None,
+        limit: Annotated[
+            int,
+            "Cap on the number of results (default 50). A no-filter browse of a "
+            "large office can return thousands of rows; the cap keeps the response "
+            "bounded. Pass 0 for no cap. When the cap kicks in the response carries "
+            "`truncated: true`, `total_count`, and `truncation_hint`. Data-bearing "
+            "rows sort ahead of ghosts so a capped browse keeps the useful records.",
+        ] = places.DEFAULT_BROWSE_LIMIT,
         detail: Detail = Detail.SUMMARY,
     ) -> BrowseRegionResponse | ErrorRef:
         """Browse the locations published by one office, optionally filtered.
 
-        Returns the same enriched per-place records as `cwms_search_places`,
-        with `result_count` and `ghost_count` totals at the top. The
+        Returns the same enriched per-place records as `cwms_search_places`
+        (including `parameters` and the `data_at` repair hint), with
+        `result_count`, `ghost_count`, and `total_count` totals at the top. The
         bounding-box filter requires all four corners or none.
         """
         bbox: BBox | None = None
         provided = [v for v in (south, west, north, east) if v is not None]
         if len(provided) not in {0, 4}:
-            return _envelope_ref(
+            return ErrorRef.from_error(
                 CwmsToolsError.of(
                     ErrorCode.USAGE_ERROR,
                     "When specifying a bounding box, all four of south, west, "
@@ -210,7 +221,12 @@ def register_place_tools(mcp: FastMCP) -> None:
             )
         if south is not None and west is not None and north is not None and east is not None:
             bbox = BBox(south=south, west=west, north=north, east=east)
-        raw = await _safe(places.browse_region, office=office, bbox=bbox, state=state)
+        if limit < 0:
+            return ErrorRef.from_error(_negative_limit_error(limit))
+        effective_limit = None if limit == 0 else limit
+        raw = await _safe(
+            places.browse_region, office=office, bbox=bbox, state=state, limit=effective_limit
+        )
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
         shaped = _shape_detail(raw, detail)
@@ -321,7 +337,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
         except ValueError as exc:
-            return _envelope_ref(
+            return ErrorRef.from_error(
                 CwmsToolsError.of(
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse begin_iso as RFC3339: {exc}",
@@ -333,7 +349,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         try:
             end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         except ValueError as exc:
-            return _envelope_ref(
+            return ErrorRef.from_error(
                 CwmsToolsError.of(
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse end_iso as RFC3339: {exc}",
@@ -465,21 +481,29 @@ def _shape_publishers_detail(payload: dict[str, Any], detail: Detail) -> dict[st
     return pruned
 
 
+def _negative_limit_error(limit: int) -> CwmsToolsError:
+    """Usage error for a negative `limit`. Validated in the handler because the
+    core raises a plain `ValueError` that `_safe` (CwmsToolsError-only) won't catch."""
+    return CwmsToolsError.of(
+        ErrorCode.USAGE_ERROR,
+        "limit must be a non-negative integer (0 means no cap).",
+        field="limit",
+        offending_value=limit,
+        hint="Pass limit=0 for no cap, or any non-negative integer.",
+    )
+
+
 async def _safe(fn, *args, **kwargs) -> dict[str, Any]:
-    """Run a sync core function on the bounded executor; surface known errors structured."""
+    """Run a sync core function on the bounded executor; surface known errors structured.
+
+    Pre-`_safe` validation branches (e.g. partial-bbox, bad RFC3339) build the same
+    shape via `ErrorRef.from_error(...)`, so manual validation errors land with the
+    full envelope (`request_id`, `offending_value`, `hint`, `repair`, source).
+    """
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
         return {"ok": False, "error": err.envelope.model_dump(mode="json")}
-
-
-def _envelope_ref(err: CwmsToolsError) -> ErrorRef:
-    """Convert a `CwmsToolsError` to an `ErrorRef` for return from pre-`_safe`
-    validation branches in tool handlers. Mirrors the conversion `_safe` does
-    after catching the same exception class, so manual validation errors land
-    with the same full envelope (`request_id`, `offending_value`, `hint`,
-    `repair`, retry hints, source)."""
-    return ErrorRef.model_validate({"ok": False, "error": err.envelope.model_dump(mode="json")})
 
 
 __all__ = [

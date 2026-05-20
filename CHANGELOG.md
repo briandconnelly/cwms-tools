@@ -5,6 +5,90 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Agent-friendliness contract fixes from a cross-model (Claude + Codex) review of
+the MCP server and CLI.
+
+### Added
+
+- **`cwms_browse_region` / `region browse` now cap results** with a `limit`
+  (default 50; `--limit`/`-n` on the CLI, `0` for no cap). Responses carry
+  `total_count`, `truncated`, `limit`, and a `truncation_hint`, and data-bearing
+  rows sort ahead of ghosts so a capped browse keeps the useful records. Closes
+  the unbounded-list hazard where a no-filter browse of a large office could
+  return thousands of rows.
+- **Browse results now carry `parameters` and `data_at`**, matching
+  `cwms_search_places`. Previously `BrowseRegionResponse.results` was typed as
+  `PlaceSummary` (which declares both) but never populated them.
+- **`SearchPlacesResponse` now declares `total_count`/`truncated`/`limit`** as
+  schema fields so the MCP output schema documents the pagination the tool
+  already returned (it had relied on `extra="allow"`).
+- **`cwms://capabilities` now publishes a per-tool error catalog**
+  (`tool_error_codes`): the `error.code` values each tool can return, so an
+  agent can branch per tool instead of against the global enum. The per-tool
+  codes are folded into each tool's fingerprint definition.
+
+### Changed
+
+- **CLI structured errors now go to stderr in one consistent shape.** Every
+  command emits failures as the full `{ok: false, error: {...}}` envelope (with
+  `code`, `request_id`, `hint`, `repair`, …) on stderr; stdout stays
+  success-only. Replaces three divergent shapes (full envelope, a hand-built
+  partial dict, and a string-valued `error`). The bulk `value get` aggregate
+  remains the stdout payload (per-item failures inline, non-zero exit), now
+  declared as an explicit exception in `cwms-tools schema`'s `machine_profile`
+  (`success_stream` / `error_stream` / `error_stream_exceptions`).
+- **MCP error channels are now consistent.** The `cwms_get_overview_section`
+  tool's miss returns the same in-band `{ok: false, error: {...}}` envelope
+  (code `not_found`) as the seven task tools, replacing its bespoke
+  `{error, repair}` shape. Overview `resources/read` misses now raise a JSON-RPC
+  error carrying `machine_code`/`human_message`/`repair`/`recoverable` in
+  `error.data`, instead of returning an error-shaped 200 body that didn't match
+  the section schema. `cwms://capabilities` documents both channels under
+  `error_handling` (tool errors discriminate on `ok`, not the protocol `isError`
+  flag, which FastMCP cannot set alongside structured content).
+- `cwms_publishers_for_parameter` coverage now distinguishes
+  `offices_error_skipped` (catalog fetch errored) from
+  `offices_skipped_for_budget` (hit the per-call fanout budget), so the agent
+  can tell a retry case from a "re-run to continue indexing" case. The internal
+  per-office handler now catches `CwmsToolsError` specifically rather than bare
+  `Exception`, so genuine bugs surface instead of being silently absorbed into
+  coverage. The per-call fetch budget is now consumed on *attempt* (not just on
+  success), so a run of erroring uncached offices can't exceed the cap.
+
+### Removed
+
+- Dropped the `timeout` and `catalog_cursor_invalidated` error codes. They were
+  advertised in the capability summary, CLI schema, exit-code map, and
+  fingerprint but never emitted by any code path. Removing them keeps the
+  advertised error surface honest. (Both were unreachable; this changes the
+  capability fingerprint.)
+
+### Fixed
+
+- **Capability fingerprint is now identical across surfaces and covers tool
+  schemas.** Previously `cwms://capabilities` hashed an empty tool set while the
+  CLI `fingerprint` command and each tool's `source.fingerprint` hashed tool
+  names only, so the three disagreed and a schema change did not move the
+  fingerprint — defeating `fingerprint_scope: "schema-contract"`. A new
+  `mcp/contract.py` extracts the real registered tool definitions (input/output
+  schemas + annotations) once and feeds the single `canonical_fingerprint()`
+  used by all three surfaces.
+- **HTTP 429 is now classified as `rate_limited`** (retryable) with
+  `retry_after_ms` parsed from the upstream `Retry-After` header, instead of the
+  previous non-retryable `upstream_error` — so a backing-off agent waits and
+  retries instead of giving up.
+- **`publisher for-parameter` no longer leaks tracebacks.** It now wraps core
+  failures like its sibling commands, so a propagating error becomes a
+  structured envelope with the mapped exit code instead of an uncaught
+  traceback on exit 1.
+- **`value history` reports the precise offending field** (`begin` or `end`) on
+  a bad timestamp instead of the lumped `begin/end`.
+- **A negative `limit` on `cwms_search_places` / `cwms_browse_region` now returns
+  a `usage_error` envelope** instead of an unstructured server error (the core's
+  `ValueError` was not caught by the tool's `CwmsToolsError`-only handler).
+
 ## [0.1.0] - 2026-05-19
 
 Initial public release. Agent-friendly read-only tools for the USACE

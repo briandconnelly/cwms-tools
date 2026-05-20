@@ -37,6 +37,32 @@ TOOL_INVENTORY: list[str] = [
     "cwms_get_overview_section",
 ]
 
+#: Per-tool error catalog. The codes each tool can return as `error.code`, so an
+#: agent can branch per tool instead of against the global enum. Curated from the
+#: actual emission paths in `core/*`; part of the capability fingerprint (folded
+#: into each tool's definition in `mcp/contract.py`). All CDA-hitting tools can
+#: return `upstream_error`/`rate_limited`; office-scoped tools reach the NW-stub
+#: guard (`ghost_office`).
+TOOL_ERROR_CODES: dict[str, list[str]] = {
+    "cwms_search_places": ["ghost_office", "rate_limited", "upstream_error"],
+    "cwms_describe_place": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_list_parameters": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_browse_region": ["ghost_office", "rate_limited", "upstream_error", "usage_error"],
+    "cwms_get_value": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_get_history": [
+        "ghost_office",
+        "invalid_field",
+        "not_found",
+        "rate_limited",
+        "upstream_error",
+    ],
+    # Per-office failures are absorbed into coverage.offices_error_skipped rather
+    # than failing the call, so this tool returns a result (with coverage) instead
+    # of an error.code in normal operation.
+    "cwms_publishers_for_parameter": [],
+    "cwms_get_overview_section": ["not_found"],
+}
+
 #: Resource inventory — also kept here for the capability summary. Only resources
 #: actually registered on `build_server()` belong here, otherwise the capability
 #: summary advertises endpoints that 404 (Codex review M9 #4). `cwms://offices` and
@@ -50,22 +76,23 @@ RESOURCE_INVENTORY: list[dict[str, str]] = [
 ]
 
 
-def capabilities_payload(
-    *,
-    tools_in_server: dict[str, dict[str, Any]] | None = None,
-) -> dict[str, Any]:
+def capabilities_payload() -> dict[str, Any]:
     """Build the structured capability summary served at `cwms://capabilities`.
 
     Per `agent-friendly-mcp` §2: states what the server does, what it does
     NOT do, prerequisites, the capability fingerprint (with scope), the tool
     and resource inventories, the FastMCP capability verdict, and the active
     workarounds. A single-read should be enough for an agent to plan against.
+
+    The fingerprint comes from `canonical_fingerprint()` — the same value the
+    CLI `fingerprint` command and every tool response's `source.fingerprint`
+    report — so a client can cache by it across surfaces.
     """
+    # Lazy import: contract imports this module for RESOURCE_INVENTORY.
+    from cwms_tools.mcp.contract import canonical_fingerprint  # noqa: PLC0415
+
     cfg = current_config()
-    fp = fingerprint.compute(
-        tools=tools_in_server,
-        resources=RESOURCE_INVENTORY,
-    )
+    fp = canonical_fingerprint()
     return {
         "name": SERVER_NAME,
         "title": SERVER_TITLE,
@@ -92,8 +119,23 @@ def capabilities_payload(
             "user_agent": cfg.user_agent,
         },
         "tools": TOOL_INVENTORY,
+        "tool_error_codes": TOOL_ERROR_CODES,
         "resources": RESOURCE_INVENTORY,
         "error_codes": sorted(c.value for c in ErrorCode),
+        "error_handling": {
+            "tools": (
+                "Tool failures return the in-band envelope {ok: false, error: {...}} "
+                "in structuredContent (FastMCP cannot set the protocol isError flag "
+                "alongside structured content). Discriminate on the `ok` field, not "
+                "isError. The error object carries code, message, field, hint, repair, "
+                "retryable, and retry_after_ms."
+            ),
+            "resources": (
+                "resources/read failures surface as JSON-RPC errors; the repair "
+                "contract (machine_code, human_message, repair, recoverable) rides in "
+                "error.data."
+            ),
+        },
         "active_workarounds": active_workarounds(),
         "fastmcp": {
             "installed_version": installed_fastmcp_version(),

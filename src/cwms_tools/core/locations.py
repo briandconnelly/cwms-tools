@@ -18,6 +18,7 @@ from cwms_tools.core.errors import (
     CwmsToolsError,
     ErrorCode,
     RepairHint,
+    retry_after_ms_from_response,
     upstream_error_from_status,
 )
 
@@ -83,11 +84,13 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
     try:
         data = get_location(location_id=name, office_id=office_id)
     except ApiError as exc:
-        status = getattr(getattr(exc, "response", None), "status_code", None)
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
         err = upstream_error_from_status(
             status,
             endpoint=endpoint,
             message=f"Location {office_id}/{name} unavailable upstream: {exc}",
+            retry_after_ms=retry_after_ms_from_response(response),
         )
         if err.envelope.code is ErrorCode.NOT_FOUND:
             err.envelope.field = "name"

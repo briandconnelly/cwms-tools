@@ -195,6 +195,27 @@ def test_browse_region_handler_returns_ghost_office_for_nwo(configured) -> None:
     assert payload["error"]["code"] == "ghost_office"
 
 
+def test_browse_region_handler_rejects_negative_limit(configured) -> None:
+    """A negative limit must return the in-band usage_error envelope, not crash:
+    core raises a plain ValueError that `_safe` (CwmsToolsError-only) won't catch,
+    so the handler validates it up front."""
+    server = build_server()
+    result = _call(server, "cwms_browse_region", {"office": "SWT", "limit": -1})
+    payload = _branch(result.structured_content)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "usage_error"
+    assert payload["error"]["field"] == "limit"
+
+
+def test_search_places_handler_rejects_negative_limit(configured) -> None:
+    server = build_server()
+    result = _call(server, "cwms_search_places", {"query": "x", "office": "SWT", "limit": -1})
+    payload = _branch(result.structured_content)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "usage_error"
+    assert payload["error"]["field"] == "limit"
+
+
 def test_get_value_handler(configured) -> None:
     server = build_server()
     ts = datetime(2026, 5, 17, 18, tzinfo=timezone.utc)

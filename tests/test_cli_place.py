@@ -227,7 +227,9 @@ def test_place_describe_emits_full_location_when_detail_full(configured) -> None
 def test_place_describe_rejects_bad_spec_shape() -> None:
     result = runner.invoke(app, ["place", "describe", "no-slash"])
     assert result.exit_code == 2
-    payload = json.loads(result.stdout)
+    assert result.stdout == ""  # stdout stays success-only
+    payload = json.loads(result.stderr)
+    assert payload["ok"] is False
     assert payload["error"]["code"] == "usage_error"
 
 
@@ -258,7 +260,8 @@ def test_region_browse_rejects_partial_bbox() -> None:
         ["region", "browse", "--office", "SWT", "--south", "30.0", "--north", "40.0"],
     )
     assert result.exit_code == 2
-    payload = json.loads(result.stdout)
+    assert result.stdout == ""
+    payload = json.loads(result.stderr)
     assert payload["error"]["code"] == "usage_error"
 
 
@@ -291,7 +294,8 @@ def test_region_browse_bbox(configured) -> None:
 def test_region_browse_returns_ghost_office_error_for_nwo() -> None:
     result = runner.invoke(app, ["region", "browse", "--office", "NWO"])
     assert result.exit_code == 12  # GHOST exit
-    payload = json.loads(result.stdout)
+    assert result.stdout == ""
+    payload = json.loads(result.stderr)
     assert payload["error"]["code"] == "ghost_office"
     assert payload["error"]["repair"]["tool"] == "cwms_browse_region"
     assert payload["error"]["repair"]["args"]["office"] == "NWDM"

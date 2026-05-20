@@ -111,8 +111,7 @@ Exit codes are part of the CLI contract:
 | `3` | not found or publisher unavailable |
 | `4` | session unconfigured |
 | `6` | rate limited |
-| `7` | timeout |
-| `9` | upstream error or catalog cursor invalidation |
+| `9` | upstream error |
 | `11` | wrapper bug |
 | `12` | ghost location or ghost office |
 
@@ -205,10 +204,13 @@ Two upstream data-shape issues come up often:
 ## Upstream Etiquette
 
 The CWMS Data API is a shared public service. `cwms-tools` identifies itself
-with a descriptive `User-Agent`, caps concurrent requests, honors
-`Retry-After`, avoids background scans, and does not cache live time-series
-values. If you operate CDA and see problematic traffic from this client, please
-open an issue at <https://github.com/briandconnelly/cwms-tools/issues>.
+with a descriptive `User-Agent`, caps concurrent requests, avoids background
+scans, and does not cache live time-series values. The underlying
+`cwms-python` client retries throttled requests with backoff; a `429` that
+still surfaces is returned as a `rate_limited` error whose `retry_after_ms`
+echoes the upstream `Retry-After` header so callers can back off. If you
+operate CDA and see problematic traffic from this client, please open an issue
+at <https://github.com/briandconnelly/cwms-tools/issues>.
 
 ## Development
 

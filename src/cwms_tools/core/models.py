@@ -14,9 +14,12 @@ Two model tiers:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from cwms_tools.core.errors import CwmsToolsError
 
 # --------------------------------------------------------------------------
 # Shared primitives
@@ -76,6 +79,13 @@ class ErrorRef(BaseModel):
 
     ok: Literal[False] = False
     error: dict[str, Any]
+
+    @classmethod
+    def from_error(cls, err: CwmsToolsError) -> ErrorRef:
+        """Build the in-band `{ok: false, error: {...envelope...}}` shape from a
+        `CwmsToolsError`. The single source of this conversion for every MCP tool
+        (task tools and the overview fallback), so all tool errors look identical."""
+        return cls.model_validate({"ok": False, "error": err.envelope.model_dump(mode="json")})
 
 
 # --------------------------------------------------------------------------
@@ -211,6 +221,18 @@ class SearchPlacesResponse(BaseModel):
     partial: bool = False
     partial_reasons: list[str] = Field(default_factory=list)
     results: list[PlaceSummary]
+    total_count: int = Field(
+        default=0,
+        description="Total matches before the `limit` cap was applied.",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True when `limit` clipped the results; `total_count` holds the full size.",
+    )
+    limit: int | None = Field(
+        default=None,
+        description="The applied result cap (null means no cap).",
+    )
     source: SourceMeta
 
 
@@ -281,8 +303,35 @@ class BrowseRegionResponse(BaseModel):
     office: str
     bbox: dict[str, float] | None
     state: str | None
-    result_count: int
-    ghost_count: int
+    result_count: int = Field(
+        default=0,
+        description="Number of rows actually returned in `results` (after the `limit` cap).",
+    )
+    ghost_count: int = Field(
+        default=0,
+        description=(
+            "Ghost rows (parameter_count == 0) among the FULL match set, i.e. out of "
+            "`total_count` — not just the returned rows. Data-bearing rows sort first, "
+            "so a capped browse may return zero ghosts while this stays > 0. Do not "
+            "compute `result_count - ghost_count`."
+        ),
+    )
+    total_count: int = Field(
+        default=0,
+        description="Total matches before the `limit` cap was applied.",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="True when `limit` clipped the results; `total_count` holds the full size.",
+    )
+    limit: int | None = Field(
+        default=None,
+        description="The applied result cap (null means no cap).",
+    )
+    truncation_hint: str | None = Field(
+        default=None,
+        description="How to narrow or widen the browse when `truncated` is true.",
+    )
     results: list[PlaceSummary]
     source: SourceMeta
 
@@ -371,7 +420,21 @@ class PublishersCoverage(BaseModel):
 
     offices_requested: list[str]
     offices_indexed: list[str]
-    offices_skipped_for_budget: list[str]
+    offices_skipped_for_budget: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Offices not indexed because the per-call fanout budget was exhausted. "
+            "Re-run with these in `offices` to continue the index deterministically."
+        ),
+    )
+    offices_error_skipped: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Offices skipped because their catalog fetch errored (e.g. upstream_error, "
+            "rate_limited). Distinct from budget skips: retrying may help, but these "
+            "did not simply hit the budget."
+        ),
+    )
     complete: bool
 
 

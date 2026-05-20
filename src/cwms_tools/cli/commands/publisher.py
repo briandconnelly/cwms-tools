@@ -6,8 +6,9 @@ from typing import Annotated
 
 import typer
 
-from cwms_tools.cli.render import emit
+from cwms_tools.cli.render import emit, emit_error
 from cwms_tools.core import publishers_index
+from cwms_tools.core.errors import CwmsToolsError
 
 app = typer.Typer(
     name="publisher",
@@ -45,8 +46,11 @@ def for_parameter(
     rerun this command with those names passed as repeated `--office`
     arguments to continue the index in chunks.
     """
-    payload = publishers_index.publishers_for_parameter(
-        parameter,
-        offices=list(office) if office else None,
-    )
+    try:
+        payload = publishers_index.publishers_for_parameter(
+            parameter,
+            offices=list(office) if office else None,
+        )
+    except CwmsToolsError as err:
+        emit_error(err)
     emit(payload)

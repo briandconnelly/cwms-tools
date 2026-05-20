@@ -1,0 +1,14 @@
+{
+  "scenario": "CDA returns HTTP 429 with a Retry-After header on a catalog read.",
+  "request": "GET /catalog/LOCATIONS",
+  "response": {
+    "status": 429,
+    "headers": {"Retry-After": "30"},
+    "body": "Too Many Requests"
+  },
+  "expected_envelope": {
+    "code": "rate_limited",
+    "retryable": true,
+    "retry_after_ms": 30000
+  }
+}

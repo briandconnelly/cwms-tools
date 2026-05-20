@@ -45,6 +45,15 @@ def _schema_payload() -> dict[str, Any]:
             "flags": ["--machine", "--json"],
             "auto_enabled_when": "stdout is not a TTY",
             "stdin": "not_read",
+            "success_stream": "stdout",
+            "error_stream": "stderr",
+            "error_shape": "{ok: false, error: {code, message, field?, hint?, repair?, ...}}",
+            "error_stream_exceptions": [
+                "value get (bulk-result): per-item failures appear inline in the "
+                "stdout aggregate under results[].error; the process still exits "
+                "non-zero on any item failure. Whole-command usage errors (e.g. a "
+                "malformed id) still go to stderr."
+            ],
         },
     }
 
@@ -87,10 +96,14 @@ def _commands() -> list[dict[str, Any]]:
         {
             "path": (
                 "cwms-tools region browse --office <office> "
-                "[--south N --west N --north N --east N] [--state XX]"
+                "[--south N --west N --north N --east N] [--state XX] [--limit N]"
             ),
             "output_class": "list",
             "reads_stdin": False,
+            "notes": (
+                "Default --limit=50 caps result count; pass --limit=0 for no cap. "
+                "Response carries `truncated`/`total_count`/`truncation_hint` when capped."
+            ),
         },
         # Value tools (M5).
         {

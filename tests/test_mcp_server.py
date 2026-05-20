@@ -74,6 +74,23 @@ def test_capabilities_resource_reads_back_with_fingerprint(server) -> None:
     assert any("write" in line.lower() and "delete" in line.lower() for line in payload["does_not"])
 
 
+def test_capabilities_include_per_tool_error_codes(server) -> None:
+    """M4: the capability summary lists which error codes each tool can return,
+    not just the global enum, so an agent can branch per tool."""
+    payload = _read_json(server, "cwms://capabilities")
+    per_tool = payload["tool_error_codes"]
+    # Every advertised tool has an entry.
+    assert set(per_tool) == set(payload["tools"])
+    # Spot-check a few accurate mappings.
+    assert "usage_error" in per_tool["cwms_browse_region"]  # partial bbox
+    assert per_tool["cwms_get_overview_section"] == ["not_found"]
+    assert "invalid_field" in per_tool["cwms_get_history"]  # bad begin/end
+    # Per-tool codes are a subset of the global enum.
+    global_codes = set(payload["error_codes"])
+    for codes in per_tool.values():
+        assert set(codes) <= global_codes
+
+
 def test_overview_index_returns_summary_only(server) -> None:
     payload = _read_json(server, "cwms://overview")
     assert "sections" in payload
@@ -124,6 +141,21 @@ def test_every_task_tool_publishes_a_real_output_schema(server) -> None:
         )
 
 
+def test_mcp_output_schema_documents_search_pagination_fields(server) -> None:
+    """Missed-A: `cwms_search_places` promises `truncated`/`total_count` in its
+    docstring, so its output schema must declare them (not rely on extra=allow).
+    Same for `cwms_browse_region` after the M2 cap."""
+
+    async def go() -> dict[str, dict]:
+        return {t.name: t.output_schema for t in await server.list_tools()}
+
+    schemas = asyncio.run(go())
+    for tool_name in ("cwms_search_places", "cwms_browse_region"):
+        blob = json.dumps(schemas[tool_name])
+        for field in ("total_count", "truncated", "limit"):
+            assert f'"{field}"' in blob, f"{tool_name} output schema omits {field}"
+
+
 def test_every_task_tool_response_carries_source_fingerprint(server) -> None:
     """Pin the response-envelope contract: every successful tool response
     must include `source.fingerprint`. Exercises the path through the
@@ -149,6 +181,10 @@ def test_every_task_tool_response_carries_source_fingerprint(server) -> None:
 
 
 def test_overview_section_tool_returns_not_found_payload_for_bad_slug(server) -> None:
+    """M1: the overview tool's miss now uses the SAME in-band {ok: false, error}
+    envelope as the seven task tools (code `not_found` + repair), not the old
+    bespoke {error, repair} shape."""
+
     async def go():
         return await server.call_tool(
             "cwms_get_overview_section",
@@ -160,8 +196,30 @@ def test_overview_section_tool_returns_not_found_payload_for_bad_slug(server) ->
     sc = result.structured_content
     assert sc is not None
     branch = sc.get("result", sc)  # tolerate both shapes
-    assert branch.get("error") == "section_not_found"
-    assert branch["repair"]["tool"] == "cwms_get_overview_section"
+    assert branch["ok"] is False
+    err = branch["error"]
+    assert err["code"] == "not_found"
+    assert err["field"] == "section_id"
+    assert err["repair"]["tool"] == "cwms_get_overview_section"
+    assert err["request_id"]
+
+
+def test_overview_section_resource_miss_raises_structured_jsonrpc_error(server) -> None:
+    """M3: a missing overview section read via the resource URI raises a JSON-RPC
+    error carrying the repair contract in error.data — not an error-shaped 200
+    body that doesn't match the section schema."""
+    from mcp import McpError
+
+    async def go():
+        return await server.read_resource("cwms://overview/does-not-exist")
+
+    with pytest.raises(McpError) as ex:
+        asyncio.run(go())
+    data = ex.value.error.data
+    assert isinstance(data, dict)
+    assert data["machine_code"] == "section_not_found"
+    assert data["repair"]["tool"] == "cwms_get_overview_section"
+    assert data["recoverable"] is False
 
 
 def test_place_tools_register_with_read_only_hint(server) -> None:

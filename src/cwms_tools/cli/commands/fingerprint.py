@@ -6,7 +6,7 @@ import typer
 
 from cwms_tools.cli.render import emit
 from cwms_tools.core import fingerprint as fp
-from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_INVENTORY
+from cwms_tools.mcp.contract import canonical_fingerprint
 
 app = typer.Typer(
     name="fingerprint",
@@ -21,15 +21,15 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def fingerprint_cmd() -> None:
-    """Compute and print the capability fingerprint."""
-    # We pass the tool inventory as a stable list of names (no per-tool schema
-    # introspection on the CLI side) — that matches what the MCP server sees
-    # because the tool surface in v0.1.0 is statically registered.
-    tools = {name: {"name": name} for name in TOOL_INVENTORY}
-    digest = fp.compute(tools=tools, resources=RESOURCE_INVENTORY)
+    """Compute and print the capability fingerprint.
+
+    Routes through the same `canonical_fingerprint()` the MCP
+    `cwms://capabilities` resource and every tool response use, so all three
+    surfaces report an identical value an agent can cache against.
+    """
     emit(
         {
-            "fingerprint": digest,
+            "fingerprint": canonical_fingerprint(),
             "scope": fp.FINGERPRINT_SCOPE,
         }
     )

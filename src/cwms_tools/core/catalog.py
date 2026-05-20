@@ -27,6 +27,7 @@ from cwms_tools.core.errors import (
     CwmsToolsError,
     ErrorCode,
     RepairHint,
+    retry_after_ms_from_response,
     upstream_error_from_status,
 )
 from cwms_tools.core.geo import GeoPoint, co_located
@@ -42,11 +43,13 @@ def _wrap_api_error(exc: ApiError, *, endpoint: str) -> CwmsToolsError:
     path is already in `endpoints_called`; the original exception is still
     reachable via `__cause__` for debugging.
     """
-    status = getattr(getattr(exc, "response", None), "status_code", None)
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
     return upstream_error_from_status(
         status,
         endpoint=endpoint,
         message=f"Upstream returned {status or 'error'} for {endpoint}.",
+        retry_after_ms=retry_after_ms_from_response(response),
     )
 
 
