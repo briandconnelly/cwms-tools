@@ -1,6 +1,6 @@
 [project]
 name = "cwms-tools"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent-friendly tools (MCP server and CLI) for the USACE Corps Water Management System (CWMS) Data API."
 readme = "README.md"
 requires-python = ">=3.10"

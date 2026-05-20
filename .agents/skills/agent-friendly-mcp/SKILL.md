@@ -4,7 +4,7 @@ metadata:
     github-path: agent-friendly-mcp
     github-ref: refs/heads/main
     github-repo: https://github.com/briandconnelly/skills
-    github-tree-sha: 1dd65f357e0521b91ea664c0753e0cbc7fd3b9a0
+    github-tree-sha: 04db2cea0f69e87c07fbbcadb0fb73dede06b34d
 name: agent-friendly-mcp
 ---
 # Agent-Friendly MCP
@@ -14,12 +14,29 @@ Use this skill to make MCP servers easy for agents to discover, invoke correctly
 ## Core Standard
 
 - Tool and resource schemas are the operational contract; prompts are advisory scaffolding for orchestration. Do not hide essential behavior in prompts.
+- Optional MCP features only exist for an agent after protocol version and capability negotiation.
+  Gate roots, completions, resource subscriptions, elicitation, list-change notifications, and tasks on the initialized capabilities.
 - Optimize for the first successful tool call **and** the first successful repair from a cold start.
 - Design around user/agent tasks, not the underlying API's endpoint surface.
 - Make side effects, idempotency, rate limits, and agent-actionable prerequisites visible.
 - Default to compact, deterministic, structured output; structured data is authoritative and text or markdown is supplemental rendering for human-facing clients.
 - Provide explicit discovery primitives so agents can load capabilities selectively.
 - Design for the least-capable realistic client: some preload tools, paginate discovery, ignore annotations, or expose resources poorly.
+
+## Native Fields vs Convention Extensions
+
+This skill is deliberately opinionated: native MCP fields alone are often insufficient for agent-friendliness, so well-designed servers add convention extensions such as structured `errors`, `repair` hints, a capability `fingerprint`, prompt prerequisites, and detail toggles.
+Keep them — but never let them masquerade as protocol.
+
+- Use native fields with their exact spec names and casing.
+  Tool: `name`, `title`, `description`, `icons`, `inputSchema`, `outputSchema`, `annotations`, `execution`, `_meta`.
+  Resource: `uri`, `name`, `title`, `description`, `mimeType`, `size`, `icons`, `annotations`, `_meta`.
+  Resource template: `uriTemplate`, `name`, `title`, `description`, `mimeType`, `icons`, `annotations`, `_meta`.
+  Prompt: `name`, `title`, `description`, `icons`, `arguments`, `_meta`.
+  Implementation: `name`, `title`, `version`, `description`, `icons`, `websiteUrl`.
+- Put convention metadata under a namespaced `_meta` key (e.g., `com.example/chunks`) — the spec-sanctioned extension point — so it cannot collide with future MCP fields.
+- Label every convention extension as such where it appears, so a reader can tell protocol from house style.
+- The examples in this skill keep some conventions inline at the top level for readability; production servers SHOULD namespace convention metadata under `_meta`. See `examples.md` §3/§4 for the worked `_meta` pattern.
 
 ## When To Use
 
@@ -31,10 +48,12 @@ Use this skill to make MCP servers easy for agents to discover, invoke correctly
 
 ## When Not To Use
 
-- General code review of MCP server internals that does not face agents — use the standard code-review skill.
+- General code review of MCP server internals that does not face agents — use your normal code-review workflow.
 - Library or SDK design that is not exposed via MCP — this skill is MCP-specific.
 - Trivial schema additions to an already agent-friendly server; just follow the existing contract.
-- Out of scope: elicitation, sampling, server logging streams, server-operator dashboards, packaging/deployment, and skills-over-MCP (experimental at https://github.com/modelcontextprotocol/experimental-ext-skills — revisit when stable).
+- Out of scope: sampling, server logging streams, server-operator dashboards, packaging/deployment, and skills-over-MCP (experimental at https://github.com/modelcontextprotocol/experimental-ext-skills — revisit when stable).
+  Elicitation is in scope only as an agent-facing contract boundary: when a server needs missing user input, confirmation, or sensitive external interaction, declare whether it supports MCP elicitation and how non-elicitation clients recover.
+  Do not use this skill for designing full user-experience flows.
 
 ## Vocabulary
 
@@ -44,6 +63,8 @@ Use this skill to make MCP servers easy for agents to discover, invoke correctly
 - **Prompt scaffold**: a reusable task starter that points at tools and resources, with explicit prerequisites and expected follow-on actions.
 - **Composable primitive vs workflow tool**: granularity decision: one tool that completes a user task vs. several tools the agent must chain.
 - **Operational prerequisites**: auth scopes, workspace/project context, prior setup, or implicit state that affects capability availability, result shape, permissions, or repair.
+- **Negotiated capability**: an optional MCP feature that both sides advertised during initialization; agents must not assume it exists from schema prose alone.
+- **Root**: a client-declared filesystem boundary exposed through `roots/list`; useful for workspace-scoped servers, but guidance rather than access control.
 - **Capability fingerprint**: a versioned identity for the server's surface, so clients can detect breaking changes.
 - **Code-execution client**: an agent that writes code against the MCP server's surface (per "Code Execution with MCP") rather than calling tools directly.
 - **Repair signal**: error fields that tell the agent specifically how to retry: stable code, offending field, allowed values, retryability, suggested next call.
@@ -65,9 +86,11 @@ Use this skill to make MCP servers easy for agents to discover, invoke correctly
 - Use blocking `tools/call` for short operations, progress notifications for bounded multi-step work, and task-augmented requests when clients need later recovery.
 - Declare expected duration, timeout behavior, and whether partial progress is observable.
 - Support `progressToken` and rate-limited `notifications/progress` when progress exists.
-- Support cancellation through `notifications/cancelled` or `tasks/cancel` where work can continue after the call starts.
-- For task-capable tools, document `execution.taskSupport` as `optional`, `required`, or `forbidden`.
-- Define status/result retrieval, polling interval, TTL, and terminal states.
+- Use `notifications/cancelled` to cancel request-bound non-task work, and `tasks/cancel` to cancel task-augmented work.
+- Enable native tasks at both levels: the server declares `server.capabilities.tasks.requests.tools.call` and the tool declares `execution.taskSupport` as `optional`, `required`, or `forbidden`.
+- Recover via native operations — poll `tasks/get` (respecting `pollInterval`), fetch with `tasks/result`, using the spec's task fields (`taskId`, `status`, `ttl`, `createdAt`, `lastUpdatedAt`) and statuses (`working`, `input_required`, `completed`, `failed`, `cancelled`).
+- If a task can enter `input_required`, declare whether it uses MCP elicitation (`elicitation/create`) or a domain-specific repair/status fallback, and gate that path on the client's negotiated `client.capabilities.elicitation` and `client.capabilities.tasks.requests.elicitation.create` capabilities.
+- Tasks are experimental in MCP 2025-11-25, so a domain-specific status/cancel tool is an acceptable labeled fallback for clients without task support, mirroring the native signals rather than replacing `tasks/*`.
 
 ## Workflow
 

@@ -6,7 +6,7 @@ A review is grounded when its findings cite evidence from the schema, the respon
 
 ## Severity Scale
 
-- **Critical** — agent will reliably fail to use the server correctly, or there is a security or data-integrity risk. Examples: a mutating tool advertised `readOnlyHint: true`, `idempotentHint: true` on a tool that creates duplicates on retry, undocumented destructive side effects, secrets leaked in error payloads, a `stdio` server logging to stdout, an auth model collapsed to "credential failure" with no distinction between missing / wrong / insufficient scope. Blocks merge.
+- **Critical** — agent will reliably fail to use the server correctly, or there is a security or data-integrity risk. Examples: a tool that mutates shared or persistent state advertised `readOnlyHint: true` (§3), `idempotentHint: true` on a tool that creates duplicates on retry, undocumented destructive side effects, secrets leaked in error payloads, a `stdio` server logging to stdout, an auth model collapsed to "credential failure" with no distinction between missing / wrong / insufficient scope. Blocks merge.
 - **Major** — agent will frequently choose the wrong primitive, waste tokens, or hit avoidable errors. Examples: overlapping tool descriptions, no progressive-disclosure mechanism on a 50-tool server, unstructured error strings with no symbolic codes, no capability fingerprint, resource lists that inline bodies.
 - **Minor** — degrades agent experience but recoverable. Examples: verbose default responses with no detail toggle, missing `request_id` correlation, ambiguous parameter names whose schema types still constrain shape, summaries longer than three sentences.
 - **Nit** — style, naming, or doc improvement. Examples: inconsistent verb usage across tools, capitalization drift, a prompt that could be one sentence shorter.
@@ -35,6 +35,12 @@ Seven questions to ask while reading code and transcripts. Each should be answer
 - **Tool selection.** Given two adjacent tools (same verb, overlapping nouns, or similar surface), can an agent pick the right one without invoking both? Are descriptions narrow enough that the schema alone disambiguates? Look for tools whose descriptions you cannot tell apart at a glance. *(maps to §3; see `examples.md` §10 for the failure-mode shape)*
 - **First repair.** When the agent makes an invalid call, does the error response tell it specifically how to retry — which field, which allowed values, which tool to call instead? Force one invalid call per error code documented for the tool and read the payload, not just the message. *(maps to §6; see `examples.md` §6 for the target payload shape)*
 - **Discovery cost.** How many tokens does the agent spend learning the server's surface before its first useful call? Does discovery paginate, filter, and offer summaries before full definitions? Count, do not estimate — a 50-tool server with no progressive disclosure typically costs an order of magnitude more than one with `search_tools` / `describe_tool`. *(maps to §2, §8; see `examples.md` §8 for one valid progressive-disclosure shape)*
+- **Capability gating.** Which optional MCP capabilities does the server rely on after initialization?
+  Verify that roots, completions, resource subscriptions, elicitation, tasks, and list-change notifications are advertised before use, and that weaker clients get a structured fallback instead of a mysterious method failure.
+  *(maps to §1, §2, §4, §6, §7, §9)*
+- **Resource freshness.** If the agent holds a resource URI across turns, can it tell whether the catalog changed vs. the resource body changed?
+  Check `listChanged`, `resources/subscribe`, `notifications/resources/updated`, and `annotations.lastModified` behavior where available.
+  *(maps to §4, §9)*
 - **Long-running operation.** Does a 2-minute operation give useful progress, and can the client cancel it or recover the result later? *(maps to §7; see `examples.md` §11 for one valid shape)*
   Exercise the status and cancellation surface, not only the initial call.
 - **Security boundary.** Do confirmation boundaries, least-privilege scopes, secret redaction, and untrusted-content handling show up in schema, annotations, and response payloads? Trace at least one open-world or external-send tool when available. *(maps to §3 security subsection)*
