@@ -772,7 +772,14 @@ def test_search_places_paginates_with_cursor(monkeypatch):
         }
         for i in range(5)
     ]
-    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    fanout_calls = 0
+
+    def _counting_fanout(req):
+        nonlocal fanout_calls
+        fanout_calls += 1
+        return (["NWDM"], [], [])
+
+    monkeypatch.setattr(places, "_run_fanout", _counting_fanout)
     monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: list(rows))
 
     page1 = places.search_places("L", office="NWDM", limit=2)
@@ -784,11 +791,51 @@ def test_search_places_paginates_with_cursor(monkeypatch):
     page2 = places.search_places("L", office="NWDM", limit=2, cursor=page1["next_cursor"])
     assert [r["name"] for r in page2["results"]] == ["L2", "L3"]
     assert page2["has_more"] is True
+    assert page2["next_cursor"] is not None
 
     page3 = places.search_places("L", office="NWDM", limit=2, cursor=page2["next_cursor"])
     assert [r["name"] for r in page3["results"]] == ["L4"]
     assert page3["has_more"] is False
     assert page3["next_cursor"] is None
+
+    assert fanout_calls == 1  # only page 1 fans out; pages 2-3 use the locked cursor
+
+
+def test_search_places_cursor_rejects_catalog_shift(monkeypatch):
+    five = [
+        {
+            "office_id": "NWDM",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    six = [
+        *five,
+        {
+            "office_id": "NWDM",
+            "name": "L5",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        },
+    ]
+    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    calls = {"n": 0}
+
+    def _shifting_gather(offices, q, use_cache):
+        calls["n"] += 1
+        return list(five if calls["n"] == 1 else six)  # catalog grows between calls
+
+    monkeypatch.setattr(places, "_gather_enriched", _shifting_gather)
+    page1 = places.search_places("L", office="NWDM", limit=2)
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("L", office="NWDM", limit=2, cursor=page1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
 
 
 def test_search_places_rejects_mismatched_cursor(monkeypatch):

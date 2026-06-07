@@ -84,6 +84,14 @@ def search_places(
     prevents flooding the caller. Set `limit=None` (or `limit=0` on the
     CLI) to return every match. When the cap kicks in, the response
     carries `truncated: true` and `total_count`.
+
+    Pagination: when the result set exceeds `limit`, the response sets
+    `has_more: true` and returns an opaque `next_cursor`. Pass that value
+    back as `cursor` to fetch the next page; the cursor locks the searched
+    office set and the query/parameter, so continuation is deterministic.
+    A stale cursor (changed query/parameter, or a catalog that shifted)
+    raises an `invalid_cursor` error — restart without `cursor`. `limit=None`
+    (or `limit=0` on the CLI) returns all results and never paginates.
     """
     if limit is not None and limit < 0:
         raise ValueError("limit must be a non-negative integer or None")
