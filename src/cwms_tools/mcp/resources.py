@@ -160,6 +160,14 @@ def capabilities_payload() -> dict[str, Any]:
             ),
         },
         "active_workarounds": active_workarounds(),
+        "completions": {
+            "supported": False,
+            "reason": (
+                "FastMCP 3.3.1 exposes no completion handler; the overview index "
+                "is the discovery path for resource-template variables."
+            ),
+            "discover_section_ids_via": "cwms://overview",
+        },
         "fastmcp": {
             "installed_version": installed_fastmcp_version(),
             "verified": list(VERIFIED.keys()),

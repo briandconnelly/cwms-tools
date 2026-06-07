@@ -307,3 +307,9 @@ def test_capabilities_declare_tool_latency():
     assert lat["cwms_get_overview_section"] == "local"
     # every advertised tool has a latency class
     assert set(lat) == set(cap["tools"])
+
+
+def test_capabilities_document_completion_fallback():
+    comp = capabilities_payload()["completions"]
+    assert comp["supported"] is False
+    assert comp["discover_section_ids_via"] == "cwms://overview"
