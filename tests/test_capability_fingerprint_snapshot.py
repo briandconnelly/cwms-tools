@@ -184,3 +184,16 @@ def test_dropped_error_codes_not_advertised_or_in_exit_map(dropped_code: str) ->
     schema = _schema_payload()
     assert dropped_code not in schema["error_codes"]
     assert dropped_code not in {row["code"] for row in schema["exit_codes"]}
+
+
+def test_invalid_cursor_is_a_fingerprinted_error_code() -> None:
+    assert "invalid_cursor" in {c.value for c in ErrorCode}
+
+
+def test_cli_contract_is_a_fingerprint_input() -> None:
+    # Two different CLI contracts must yield different digests (M-2 closed).
+    base = fingerprint.compute(tools={}, resources=[], cli_contract={"commands": []})
+    changed = fingerprint.compute(
+        tools={}, resources=[], cli_contract={"commands": [{"path": "x"}]}
+    )
+    assert base != changed
