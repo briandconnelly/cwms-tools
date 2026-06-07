@@ -23,6 +23,10 @@ CURSOR_VERSION = 1
 #: able to drive an unbounded fan-out. (USACE has ~70 offices; 200 is generous.)
 MAX_CURSOR_OFFICES = 200
 
+#: Per-office-code length cap inside a cursor - office codes are 2-5 chars in
+#: practice; this bounds a forged cursor's embedded strings.
+MAX_CURSOR_OFFICE_LEN = 32
+
 
 def request_hash(parts: dict[str, Any]) -> str:
     """Stable, order-independent short hash of the normalized request."""
@@ -31,6 +35,7 @@ def request_hash(parts: dict[str, Any]) -> str:
 
 
 def encode_cursor(payload: dict[str, Any]) -> str:
+    """Encode a cursor payload as a padding-stripped base64url(JSON) token."""
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
@@ -69,7 +74,7 @@ def validate_continuation(cursor: dict[str, Any], *, kind: str, req: str) -> int
     if cursor.get("req") != req:
         raise invalid_cursor("cursor does not match the current query/filters")
     offset = cursor.get("off")
-    if not isinstance(offset, int) or offset < 0:
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
         raise invalid_cursor("cursor offset is malformed")
     return offset
 
@@ -90,7 +95,7 @@ def coerce_offices(cursor: dict[str, Any]) -> list[str]:
     if (
         not isinstance(offices, list)
         or len(offices) > MAX_CURSOR_OFFICES
-        or not all(isinstance(o, str) for o in offices)
+        or not all(isinstance(o, str) and len(o) <= MAX_CURSOR_OFFICE_LEN for o in offices)
     ):
         raise invalid_cursor("cursor office set is malformed")
     return cast("list[str]", list(offices))
@@ -99,6 +104,7 @@ def coerce_offices(cursor: dict[str, Any]) -> list[str]:
 __all__ = [
     "CURSOR_VERSION",
     "MAX_CURSOR_OFFICES",
+    "MAX_CURSOR_OFFICE_LEN",
     "coerce_offices",
     "decode_cursor",
     "encode_cursor",

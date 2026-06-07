@@ -1,3 +1,6 @@
+import base64
+import json
+
 import pytest
 
 from cwms_tools.core import pagination
@@ -70,3 +73,34 @@ def test_coerce_offices_rejects_malformed_payloads():
         with pytest.raises(CwmsToolsError) as exc:
             pagination.coerce_offices(bad)
         assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_decode_rejects_valid_base64_non_dict_and_wrong_version():
+    list_token = base64.urlsafe_b64encode(b"[1,2,3]").decode().rstrip("=")
+    with pytest.raises(CwmsToolsError) as e1:
+        pagination.decode_cursor(list_token)
+    assert e1.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+    bad_ver = base64.urlsafe_b64encode(json.dumps({"v": 99}).encode()).decode().rstrip("=")
+    with pytest.raises(CwmsToolsError) as e2:
+        pagination.decode_cursor(bad_ver)
+    assert e2.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_validate_continuation_rejects_bool_offset_and_accepts_zero():
+    base = {"v": 1, "kind": "search_places", "req": "abc"}
+    for bad_off in (True, False):
+        with pytest.raises(CwmsToolsError):
+            pagination.validate_continuation(
+                {**base, "off": bad_off}, kind="search_places", req="abc"
+            )
+    assert (
+        pagination.validate_continuation({**base, "off": 0}, kind="search_places", req="abc") == 0
+    )
+
+
+def test_coerce_offices_rejects_overlong_office_strings():
+    bad = {"offices": ["A" * (pagination.MAX_CURSOR_OFFICE_LEN + 1)]}
+    with pytest.raises(CwmsToolsError) as exc:
+        pagination.coerce_offices(bad)
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
