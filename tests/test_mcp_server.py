@@ -8,6 +8,7 @@ import json
 import pytest
 
 from cwms_tools.core import overview
+from cwms_tools.mcp.resources import TOOL_ERROR_CODES
 from cwms_tools.mcp.server import build_server
 
 
@@ -263,3 +264,8 @@ def test_overview_section_tool_returns_section_for_good_slug(server) -> None:
     branch = sc.get("result", sc)
     assert branch["section_id"] == sid
     assert "body" in branch
+
+
+def test_list_tools_declare_invalid_cursor():
+    assert "invalid_cursor" in TOOL_ERROR_CODES["cwms_search_places"]
+    assert "invalid_cursor" in TOOL_ERROR_CODES["cwms_browse_region"]

@@ -44,10 +44,16 @@ TOOL_INVENTORY: list[str] = [
 #: return `upstream_error`/`rate_limited`; office-scoped tools reach the NW-stub
 #: guard (`ghost_office`).
 TOOL_ERROR_CODES: dict[str, list[str]] = {
-    "cwms_search_places": ["ghost_office", "rate_limited", "upstream_error"],
+    "cwms_search_places": ["ghost_office", "invalid_cursor", "rate_limited", "upstream_error"],
     "cwms_describe_place": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
     "cwms_list_parameters": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
-    "cwms_browse_region": ["ghost_office", "rate_limited", "upstream_error", "usage_error"],
+    "cwms_browse_region": [
+        "ghost_office",
+        "invalid_cursor",
+        "rate_limited",
+        "upstream_error",
+        "usage_error",
+    ],
     "cwms_get_value": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
     "cwms_get_history": [
         "ghost_office",
