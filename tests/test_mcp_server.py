@@ -269,3 +269,30 @@ def test_overview_section_tool_returns_section_for_good_slug(server) -> None:
 def test_list_tools_declare_invalid_cursor():
     assert "invalid_cursor" in TOOL_ERROR_CODES["cwms_search_places"]
     assert "invalid_cursor" in TOOL_ERROR_CODES["cwms_browse_region"]
+
+
+_CDA_TOOLS = {
+    "cwms_search_places",
+    "cwms_describe_place",
+    "cwms_list_parameters",
+    "cwms_get_value",
+    "cwms_get_history",
+    "cwms_browse_region",
+    "cwms_publishers_for_parameter",
+}
+
+
+def test_cda_tools_declare_open_world_and_idempotent():
+    async def go():
+        mcp = build_server()
+        return {t.name: t.to_mcp_tool() for t in await mcp.list_tools()}
+
+    tools = asyncio.run(go())
+    for name in _CDA_TOOLS:
+        ann = tools[name].annotations
+        assert ann.readOnlyHint is True
+        assert ann.openWorldHint is True
+        assert ann.idempotentHint is True
+    overview = tools["cwms_get_overview_section"].annotations
+    assert overview.openWorldHint is False
+    assert overview.idempotentHint is True
