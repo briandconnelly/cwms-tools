@@ -120,6 +120,7 @@ def get_history(
         "value_count": len(series["values"]),
         "truncated": series.get("truncated", False),
         "truncation_hint": series.get("truncation_hint"),
+        "next_begin": series.get("next_begin"),
     }
 
 
