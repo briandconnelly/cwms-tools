@@ -753,3 +753,59 @@ def test_locations_get_one_wraps_404_as_not_found_with_field(configured, mocked)
     assert env.code is ErrorCode.NOT_FOUND
     assert env.field == "name"
     assert env.offending_value == "MISSING"
+
+
+# --------------------------------------------------------------------------
+# search_places — cursor pagination
+# --------------------------------------------------------------------------
+
+
+def test_search_places_paginates_with_cursor(monkeypatch):
+    rows = [
+        {
+            "office_id": "NWDM",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": ["Elev"],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: list(rows))
+
+    page1 = places.search_places("L", office="NWDM", limit=2)
+    assert len(page1["results"]) == 2
+    assert page1["has_more"] is True
+    assert page1["total_count"] == 5
+    assert page1["next_cursor"]
+
+    page2 = places.search_places("L", office="NWDM", limit=2, cursor=page1["next_cursor"])
+    assert [r["name"] for r in page2["results"]] == ["L2", "L3"]
+    assert page2["has_more"] is True
+
+    page3 = places.search_places("L", office="NWDM", limit=2, cursor=page2["next_cursor"])
+    assert [r["name"] for r in page3["results"]] == ["L4"]
+    assert page3["has_more"] is False
+    assert page3["next_cursor"] is None
+
+
+def test_search_places_rejects_mismatched_cursor(monkeypatch):
+    rows = [
+        {
+            "office_id": "NWDM",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: list(rows))
+    page1 = places.search_places("L", office="NWDM", limit=2)
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("DIFFERENT", office="NWDM", limit=2, cursor=page1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR

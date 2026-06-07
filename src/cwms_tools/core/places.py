@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from cwms_tools.core import catalog, locations, offices, projects, publishers
+from cwms_tools.core import catalog, locations, offices, pagination, projects, publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.concurrency import MAX_WORKERS
 from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
@@ -52,6 +52,7 @@ def search_places(
     office: str | list[str] | None = None,
     parameter: str | None = None,
     limit: int | None = DEFAULT_SEARCH_LIMIT,
+    cursor: str | None = None,
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """`cwms_search_places` — name resolution with enrichment.
@@ -86,11 +87,26 @@ def search_places(
     """
     if limit is not None and limit < 0:
         raise ValueError("limit must be a non-negative integer or None")
+    if limit == 0:
+        limit = None  # 0 means "no cap"; normalize so pagination math is well-defined
 
-    requested = _normalize_office_arg(office)
-    if requested is None:
-        requested = offices.cached_offices_for_locations()
-    offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
+    req = pagination.request_hash({"q": query, "parameter": parameter})
+    decoded: dict[str, Any] | None = None
+    offset = 0
+    if cursor is not None:
+        decoded = pagination.decode_cursor(cursor)
+        # Cheap checks BEFORE upstream fan-out: kind, request hash, offset shape,
+        # and a bounded/typed office set (a forged cursor must not widen the fan-out).
+        offset = pagination.validate_continuation(decoded, kind="search_places", req=req)
+        offices_searched = pagination.coerce_offices(decoded)
+        offices_skipped: list[str] = []
+        partial_reasons: list[str] = []
+    else:
+        requested = _normalize_office_arg(office)
+        if requested is None:
+            requested = offices.cached_offices_for_locations()
+        offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
+
     enriched, filtered_out = _apply_parameter_filter(
         _gather_enriched(offices_searched, query, use_cache=use_cache),
         parameter,
@@ -98,9 +114,28 @@ def search_places(
     )
     enriched.sort(key=lambda r: (-r["parameter_count"], r["office_id"], r["name"]))
     total_count = len(enriched)
-    truncated = limit is not None and total_count > limit
-    if limit is not None:
-        enriched = enriched[:limit]
+    if decoded is not None:
+        pagination.ensure_total(decoded, total=total_count)  # catalog-shift guard
+
+    next_cursor: str | None = None
+    if limit is None:
+        page = enriched[offset:]
+        has_more = False
+    else:
+        next_offset = offset + limit
+        page = enriched[offset:next_offset]
+        has_more = next_offset < total_count
+        if has_more:
+            next_cursor = pagination.encode_cursor(
+                {
+                    "v": pagination.CURSOR_VERSION,
+                    "kind": "search_places",
+                    "off": next_offset,
+                    "req": req,
+                    "offices": offices_searched,
+                    "total": total_count,
+                }
+            )
 
     results = [
         {
@@ -117,7 +152,7 @@ def search_places(
             "co_located": r.get("co_located", []),
             "data_at": r.get("data_at", []),
         }
-        for r in enriched
+        for r in page
     ]
 
     response: dict[str, Any] = {
@@ -127,7 +162,9 @@ def search_places(
         "offices_skipped_for_budget": offices_skipped,
         "results": results,
         "total_count": total_count,
-        "truncated": truncated,
+        "truncated": has_more,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
         "limit": limit,
     }
     if parameter is not None:
