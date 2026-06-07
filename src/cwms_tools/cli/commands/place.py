@@ -92,6 +92,18 @@ def search(
             ),
         ),
     ] = places.DEFAULT_SEARCH_LIMIT,
+    cursor: Annotated[
+        str | None,
+        typer.Option(
+            "--cursor",
+            help=(
+                "Opaque pagination cursor from a prior call's `next_cursor`. "
+                "Pass it back to fetch the next page; omit for the first page. "
+                "A stale cursor returns the `invalid_cursor` error (exit 2) — "
+                "re-run without --cursor to restart."
+            ),
+        ),
+    ] = None,
     detail: Annotated[
         Detail,
         typer.Option(
@@ -137,6 +149,7 @@ def search(
             office=office_arg,
             parameter=parameter,
             limit=effective_limit,
+            cursor=cursor,
         )
     except CwmsToolsError as err:
         emit_error(err)
