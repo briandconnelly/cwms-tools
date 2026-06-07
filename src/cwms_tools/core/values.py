@@ -8,7 +8,7 @@ resolves in one tool call rather than four.
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from cwms_tools.core import levels, publishers, timeseries
@@ -191,7 +191,7 @@ def _resolve_thresholds(
     unit: str,
 ) -> tuple[list[dict[str, Any]], str]:
     """Find every level matching `<location>.<parameter>.*` and classify."""
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     try:
         rows = levels.list_levels(office, location=location, parameter=parameter)
     except Exception:

@@ -7,7 +7,7 @@ detects the silent truncation at the upstream `page_size=300000` cap.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import cwms.timeseries.timeseries as ts_api
@@ -98,7 +98,7 @@ def fetch_latest(
     Returns the highest-timestamp row with `value` populated, or None if the
     window is empty.
     """
-    end = datetime.now(tz=timezone.utc)
+    end = datetime.now(tz=UTC)
     begin = end - window
     series = fetch_window(ts_id, office=office, begin=begin, end=end, unit=unit)
     latest = _latest_point(series["values"])
@@ -174,7 +174,7 @@ def _detect_truncation(payload: dict[str, Any], *, requested_end: datetime) -> b
             break
     if last_ms is None:
         return True  # cap-sized response with no parseable timestamp; safer to flag
-    last_dt = datetime.fromtimestamp(last_ms / 1000, tz=timezone.utc)
+    last_dt = datetime.fromtimestamp(last_ms / 1000, tz=UTC)
     return last_dt < requested_end
 
 
@@ -219,7 +219,7 @@ def _ms_to_rfc3339(ts_ms: Any) -> str | None:
     if ts_ms is None:
         return None
     try:
-        dt = datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
+        dt = datetime.fromtimestamp(int(ts_ms) / 1000, tz=UTC)
     except (ValueError, TypeError, OSError):
         return None
     return dt.isoformat().replace("+00:00", "Z")

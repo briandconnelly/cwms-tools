@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import cwms
 import pytest
@@ -63,7 +63,7 @@ def _arm_value(mocked, *, value: float, ts: datetime):
 
 
 def test_value_get_single_id(configured) -> None:
-    ts = datetime(2026, 5, 17, 18, tzinfo=timezone.utc)
+    ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_value(mocked, value=1648.21, ts=ts)
         result = runner.invoke(app, ["value", "get", "SWT/FOSS/Elev"])
@@ -83,7 +83,7 @@ def test_value_get_with_status_runs_classification(configured) -> None:
     """`--with-status` opts into the slow threshold lookup. Hitting the
     /levels endpoint is required; the response reports the lookup ran to
     completion via level_lookup_status."""
-    ts = datetime(2026, 5, 17, 18, tzinfo=timezone.utc)
+    ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_value(mocked, value=1648.21, ts=ts)
         result = runner.invoke(app, ["value", "get", "SWT/FOSS/Elev", "--with-status"])
@@ -96,7 +96,7 @@ def test_value_get_with_status_runs_classification(configured) -> None:
 
 
 def test_value_get_partial_failure_exits_nonzero(configured) -> None:
-    ts = datetime(2026, 5, 17, 18, tzinfo=timezone.utc)
+    ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_value(mocked, value=1648.21, ts=ts)
         # Use a non-existent parameter for the second id so it 404s.
@@ -119,7 +119,7 @@ def test_value_get_rejects_bad_id_shape() -> None:
 
 
 def test_value_history_returns_windowed_series(configured) -> None:
-    ts = datetime(2026, 5, 17, 18, tzinfo=timezone.utc)
+    ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_value(mocked, value=1648.21, ts=ts)
         result = runner.invoke(

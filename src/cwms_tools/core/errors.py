@@ -8,21 +8,17 @@ must be intentional.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class ErrorCode(str, Enum):
-    """All error codes the server can emit. Part of the capability fingerprint.
-
-    Subclassing both `str` and `Enum` (rather than `StrEnum`, which is 3.11+) so the
-    package can target Python 3.10.
-    """
+class ErrorCode(StrEnum):
+    """All error codes the server can emit. Part of the capability fingerprint."""
 
     GHOST_LOCATION = "ghost_location"
     GHOST_OFFICE = "ghost_office"
@@ -125,8 +121,8 @@ def retry_after_ms_from_response(response: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    delta_ms = int((when - datetime.now(timezone.utc)).total_seconds() * 1000)
+        when = when.replace(tzinfo=UTC)
+    delta_ms = int((when - datetime.now(UTC)).total_seconds() * 1000)
     return max(0, delta_ms)
 
 
