@@ -69,6 +69,22 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
     "cwms_get_overview_section": ["not_found"],
 }
 
+#: Per-tool latency class (local | cached | network | slow). `slow` flags paths
+#: that routinely exceed ~1s: the levels-classified value path and the
+#: potentially 300k-point history pull. `cwms_get_value` is `network` for the
+#: default fast path; its slow `--with-status` path is documented in the tool
+#: description and `level_lookup_status`.
+TOOL_LATENCY: dict[str, str] = {
+    "cwms_search_places": "network",
+    "cwms_describe_place": "network",
+    "cwms_list_parameters": "network",
+    "cwms_get_value": "network",
+    "cwms_get_history": "slow",
+    "cwms_browse_region": "network",
+    "cwms_publishers_for_parameter": "network",
+    "cwms_get_overview_section": "local",
+}
+
 #: Resource inventory — also kept here for the capability summary. Only resources
 #: actually registered on `build_server()` belong here, otherwise the capability
 #: summary advertises endpoints that 404 (Codex review M9 #4). `cwms://offices` and
@@ -126,6 +142,7 @@ def capabilities_payload() -> dict[str, Any]:
         },
         "tools": TOOL_INVENTORY,
         "tool_error_codes": TOOL_ERROR_CODES,
+        "tool_latency": TOOL_LATENCY,
         "resources": RESOURCE_INVENTORY,
         "error_codes": sorted(c.value for c in ErrorCode),
         "error_handling": {
@@ -240,7 +257,9 @@ __all__ = [
     "RESOURCE_INVENTORY",
     "SERVER_NAME",
     "SERVER_TITLE",
+    "TOOL_ERROR_CODES",
     "TOOL_INVENTORY",
+    "TOOL_LATENCY",
     "capabilities_payload",
     "overview_chunk_payload",
     "overview_index_payload",

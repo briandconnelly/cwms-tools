@@ -8,7 +8,7 @@ import json
 import pytest
 
 from cwms_tools.core import overview
-from cwms_tools.mcp.resources import TOOL_ERROR_CODES
+from cwms_tools.mcp.resources import TOOL_ERROR_CODES, capabilities_payload
 from cwms_tools.mcp.server import build_server
 
 
@@ -296,3 +296,14 @@ def test_cda_tools_declare_open_world_and_idempotent():
     overview = tools["cwms_get_overview_section"].annotations
     assert overview.openWorldHint is False
     assert overview.idempotentHint is True
+
+
+def test_capabilities_declare_tool_latency():
+    cap = capabilities_payload()
+    lat = cap["tool_latency"]
+    assert lat["cwms_get_value"] in {"network", "slow"}
+    assert lat["cwms_get_history"] == "slow"
+    assert lat["cwms_search_places"] == "network"
+    assert lat["cwms_get_overview_section"] == "local"
+    # every advertised tool has a latency class
+    assert set(lat) == set(cap["tools"])
