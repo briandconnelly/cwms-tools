@@ -12,9 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCPB bundle packaging: `manifest.json` generated from `pyproject.toml` and the
   live server by `scripts/gen_manifest.py`, packed into an installable `.mcpb`
   on release (`.github/workflows/mcpb.yml`). Manifest staleness is guarded by a
-  prek hook, the CI `verify` job, and `tests/test_manifest.py`. See
-  `docs/mcpb-packaging.md`.
-- CI now also tests on Python 3.14, with the macOS/Windows checks bumped to 3.14.
+  prek hook, the CI `verify` job, and `tests/test_manifest.py`.
+- CI now tests on Python 3.14, with the macOS/Windows checks bumped to 3.14.
 
 ### Changed
 
@@ -22,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pyproject` version, and latest CHANGELOG heading agree; PyPI publish uses
   `skip-existing` for safe reruns; least-privilege top-level `permissions`; and
   the dist upload fails fast on no files.
+
+### Removed
+
+- Dropped Python 3.10 support; the minimum is now Python 3.11
+  (`requires-python = ">=3.11"`). 3.10 reaches end-of-life in October 2026.
 
 ## [0.3.0] - 2026-06-06
 
