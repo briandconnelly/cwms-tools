@@ -94,3 +94,29 @@ def test_schema_is_stable_across_invocations() -> None:
     one = runner.invoke(app, ["schema"]).stdout
     two = runner.invoke(app, ["schema"]).stdout
     assert one == two
+
+
+def test_schema_commands_are_structured() -> None:
+    result = runner.invoke(app, ["schema"])
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    cmd = {c["path"]: c for c in doc["commands"]}["cwms-tools place search"]
+    names = {o["name"] for o in cmd["options"]}
+    assert {"--office", "--limit", "--cursor", "--detail"} <= names
+    limit_opt = next(o for o in cmd["options"] if o["name"] == "--limit")
+    assert limit_opt["type"] == "integer" and limit_opt["default"] == 50
+    detail_opt = next(o for o in cmd["options"] if o["name"] == "--detail")
+    assert detail_opt["enum"] == ["summary", "full"]
+    office_opt = next(o for o in cmd["options"] if o["name"] == "--office")
+    assert office_opt["repeatable"] is True
+    assert "invalid_cursor" in {e["code"] for e in cmd["error_codes"]}
+    assert cmd["latency_class"] in {"local", "cached", "network", "slow", "async"}
+
+
+def test_schema_value_get_marks_with_status_slow_path() -> None:
+    result = runner.invoke(app, ["schema"])
+    doc = json.loads(result.stdout)
+    cmd = {c["path"]: c for c in doc["commands"]}["cwms-tools value get"]
+    assert cmd["latency_class"] in {"network", "slow"}
+    ws = next(o for o in cmd["options"] if o["name"] == "--with-status")
+    assert ws["type"] == "boolean"

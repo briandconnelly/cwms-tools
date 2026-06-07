@@ -143,11 +143,12 @@ def test_schema_value_get_advertises_with_status_flag() -> None:
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     value_get = next(
-        (c for c in payload["commands"] if c["path"].startswith("cwms-tools value get")),
+        (c for c in payload["commands"] if c["path"] == "cwms-tools value get"),
         None,
     )
     assert value_get is not None, "schema must include the `value get` entry"
-    assert "--with-status" in value_get["path"]
+    opt_names = {o["name"] for o in value_get["options"]}
+    assert "--with-status" in opt_names
     assert "level_lookup_status" in value_get.get("notes", "")
 
 
@@ -171,11 +172,12 @@ def test_schema_place_search_advertises_limit_flag() -> None:
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     place_search = next(
-        (c for c in payload["commands"] if c["path"].startswith("cwms-tools place search")),
+        (c for c in payload["commands"] if c["path"] == "cwms-tools place search"),
         None,
     )
     assert place_search is not None
-    assert "--limit" in place_search["path"]
+    opt_names = {o["name"] for o in place_search["options"]}
+    assert "--limit" in opt_names
     assert "truncated" in place_search.get("notes", "")
 
 
