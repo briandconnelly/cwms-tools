@@ -26,9 +26,13 @@ latency metadata, and CLI contract folded into the capability fingerprint.
   `next_begin` (ISO-8601) in the response, giving the exact timestamp to
   pass as the next `begin_iso` / `--begin` to continue the window without
   overlap or gap.
-- **`invalid_cursor` error code** (exit 2). A base64-decodable but
-  structurally invalid or expired cursor returns `error.code = "invalid_cursor"`
-  before any network call is made.
+- **`invalid_cursor` error code** (exit 2). A malformed or mismatched cursor
+  returns `error.code = "invalid_cursor"`. Cheap mismatches — an undecodable
+  token, a changed query/parameter, a malformed offset, or a cursor combined
+  with an unlimited limit — are rejected before any fan-out. Catalog-shift
+  staleness (the result-set size changed since the cursor was minted) is
+  detected after the result set is assembled, which may have touched the
+  network or cache depending on cache state.
 - **`openWorldHint` and `idempotentHint` annotations** on all eight MCP tools.
   The seven live-CDA tools declare `openWorldHint: true` and `idempotentHint: true`;
   the bundled local-content tool (`cwms_get_overview_section`) declares `openWorldHint: false`
@@ -37,10 +41,10 @@ latency metadata, and CLI contract folded into the capability fingerprint.
   Each tool entry lists its expected latency class (`local`, `cached`, `network`,
   `slow`) so agents can budget timeouts before calling.
 - **Structured CLI `schema` output.** Each command entry now includes an
-  `args` list (positional arguments with types, descriptions, and required
-  flags), a `flags` dict (with types, defaults, enums, and descriptions), a
-  per-command `error_catalog` (the error codes that command can emit with
-  their exit codes and repair hints), and a `latency_class` field.
+  `arguments` list (positional arguments with name, type, required, variadic),
+  an `options` list (flags with name, type, default, enum, required,
+  repeatable), a per-command `error_codes` list (each `{code, exit}` the
+  command can emit), and a `latency_class` field.
 - **CLI command contract folded into the capability fingerprint.** The
   fingerprint now covers the full CLI command schema in addition to the MCP
   tool/resource surface, so any change to a command's flags, error codes, or

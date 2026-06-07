@@ -91,7 +91,9 @@ def search_places(
     office set and the query/parameter, so continuation is deterministic.
     A stale cursor (changed query/parameter, or a catalog that shifted)
     raises an `invalid_cursor` error — restart without `cursor`. `limit=None`
-    (or `limit=0` on the CLI) returns all results and never paginates.
+    (or `limit=0` on the CLI) returns all results and never paginates;
+    passing `cursor` together with an unlimited limit is rejected as
+    `invalid_cursor`.
     """
     if limit is not None and limit < 0:
         raise ValueError("limit must be a non-negative integer or None")
@@ -102,6 +104,12 @@ def search_places(
     decoded: dict[str, Any] | None = None
     offset = 0
     if cursor is not None:
+        if limit is None:
+            # `cursor` implies paged access; an unlimited limit (None / CLI 0)
+            # would slice a tail subset yet report has_more=false — contradictory.
+            raise pagination.invalid_cursor(
+                "cursor pagination requires a positive limit; omit `cursor` to fetch all results"
+            )
         decoded = pagination.decode_cursor(cursor)
         # Cheap checks BEFORE upstream fan-out: kind, request hash, offset shape,
         # and a bounded/typed office set (a forged cursor must not widen the fan-out).
@@ -524,6 +532,12 @@ def browse_region(
     decoded: dict[str, Any] | None = None
     offset = 0
     if cursor is not None:
+        if limit is None:
+            # `cursor` implies paged access; an unlimited limit (None / CLI 0)
+            # would slice a tail subset yet report has_more=false — contradictory.
+            raise pagination.invalid_cursor(
+                "cursor pagination requires a positive limit; omit `cursor` to fetch all results"
+            )
         decoded = pagination.decode_cursor(cursor)
         offset = pagination.validate_continuation(decoded, kind="browse_region", req=req)
 

@@ -858,6 +858,16 @@ def test_search_places_rejects_mismatched_cursor(monkeypatch):
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
 
 
+def test_search_places_rejects_cursor_with_unlimited_limit(monkeypatch):
+    # A cursor combined with an unlimited limit (0 -> None) is contradictory and
+    # must be rejected before any fan-out, not silently return a tail subset.
+    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: [])
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("L", office="NWDM", limit=0, cursor="anytoken")
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
 def test_browse_region_paginates_with_cursor(monkeypatch):
     rows = [
         {
@@ -899,4 +909,11 @@ def test_browse_region_cursor_rejects_mismatch(monkeypatch):
     # changing the state filter invalidates the cursor (req hash differs)
     with pytest.raises(CwmsToolsError) as exc:
         places.browse_region(office="SWT", state="OK", limit=2, cursor=p1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_browse_region_rejects_cursor_with_unlimited_limit(monkeypatch):
+    monkeypatch.setattr(places.catalog, "enrich_locations", lambda office, use_cache=True: [])
+    with pytest.raises(CwmsToolsError) as exc:
+        places.browse_region(office="SWT", limit=0, cursor="anytoken")
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
