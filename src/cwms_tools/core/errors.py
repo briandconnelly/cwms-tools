@@ -26,6 +26,7 @@ class ErrorCode(str, Enum):
 
     GHOST_LOCATION = "ghost_location"
     GHOST_OFFICE = "ghost_office"
+    INVALID_CURSOR = "invalid_cursor"
     PUBLISHER_UNAVAILABLE = "publisher_unavailable"
     NOT_FOUND = "not_found"
     INVALID_FIELD = "invalid_field"
@@ -40,6 +41,7 @@ class ErrorCode(str, Enum):
 # CLI exit-code map (numeric → ErrorCode). Per agent-friendly-cli §"Errors And Exit Codes".
 _EXIT_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.USAGE_ERROR: 2,
+    ErrorCode.INVALID_CURSOR: 2,
     ErrorCode.NOT_FOUND: 3,
     ErrorCode.GHOST_LOCATION: 12,
     ErrorCode.GHOST_OFFICE: 12,

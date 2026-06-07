@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-06
+
+Agent-friendliness remediation (M-1, M-2, C-1, m-4–m-7): opaque cursor
+pagination, history continuation, structured CLI schema, tool annotations,
+latency metadata, and CLI contract folded into the capability fingerprint.
+
+### Added
+
+- **Opaque cursor pagination on `cwms_search_places` / `cwms_browse_region`.**
+  Both tools now accept an optional `cursor` parameter (CLI: `--cursor`).
+  Success responses carry `has_more` and `next_cursor`; when `has_more` is
+  `true`, pass `next_cursor` as `cursor` on the next call to continue paging
+  without repeating the search. The cursor encodes the office set so the
+  fanout is locked across pages.
+- **History window-continuation via `next_begin`.** When `cwms_get_history`
+  truncates a response at the upstream 300 000-point limit it now sets
+  `next_begin` (ISO-8601) in the response, giving the exact timestamp to
+  pass as the next `begin_iso` / `--begin` to continue the window without
+  overlap or gap.
+- **`invalid_cursor` error code** (exit 2). A malformed or mismatched cursor
+  returns `error.code = "invalid_cursor"`. Cheap mismatches — an undecodable
+  token, a changed query/parameter, a malformed offset, or a cursor combined
+  with an unlimited limit — are rejected before any fan-out. Catalog-shift
+  staleness (the result-set size changed since the cursor was minted) is
+  detected after the result set is assembled, which may have touched the
+  network or cache depending on cache state.
+- **`openWorldHint` and `idempotentHint` annotations** on all eight MCP tools.
+  The seven live-CDA tools declare `openWorldHint: true` and `idempotentHint: true`;
+  the bundled local-content tool (`cwms_get_overview_section`) declares `openWorldHint: false`
+  so clients know which tools reach external services.
+- **Per-tool latency metadata in `cwms://capabilities`** (`tool_latency`).
+  Each tool entry lists its expected latency class (`local`, `cached`, `network`,
+  `slow`) so agents can budget timeouts before calling.
+- **Structured CLI `schema` output.** Each command entry now includes an
+  `arguments` list (positional arguments with name, type, required, variadic),
+  an `options` list (flags with name, type, default, enum, required,
+  repeatable), a per-command `error_codes` list (each `{code, exit}` the
+  command can emit), and a `latency_class` field.
+- **CLI command contract folded into the capability fingerprint.** The
+  fingerprint now covers the full CLI command schema in addition to the MCP
+  tool/resource surface, so any change to a command's flags, error codes, or
+  latency class moves the fingerprint.
+- **Explicit `ok: true` discriminator** on all success responses. Every
+  successful task response now carries `ok: true` alongside the existing
+  `ok: false` on error envelopes, giving agents a single boolean to branch on
+  without inspecting content.
+
+### Changed
+
+- Capability fingerprint value changes (additive surface growth). Agents or
+  clients that cached the v0.2.0 fingerprint should re-walk `cwms://capabilities`
+  on first call.
+- Tool input/output schemas gained fields (`cursor`, `has_more`, `next_cursor`,
+  `next_begin`, `ok`). These are all additive; existing callers that ignore
+  unknown fields are unaffected.
+
+### Known Limitations
+
+- **m-5 (completion for resource-template variables) deferred.** FastMCP 3.3.1
+  exposes no completion hook for URI-template variables; agents discover valid
+  `{section_id}` values via the `cwms://overview` index resource. This will be
+  revisited when the hook lands upstream.
+- The MCP `isError` flag on tool failures remains framework-limited (FastMCP
+  cannot set it alongside structured content). The in-band `ok: false`
+  discriminator is the documented and tested contract.
+
 ## [0.2.0] - 2026-05-20
 
 Agent-friendliness contract fixes from a cross-model (Claude + Codex) review of
@@ -232,6 +298,7 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   ~68 offices) in v0.1.0; `cwms_publishers_for_parameter` answers
   from cached + bounded-fetch offices only.
 
-[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/briandconnelly/cwms-tools/releases/tag/v0.1.0

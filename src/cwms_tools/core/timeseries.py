@@ -59,6 +59,19 @@ def fetch_window(
     )
     payload = data.json if hasattr(data, "json") else data
     truncated = _detect_truncation(payload, requested_end=end)
+    next_begin = _next_begin(payload) if truncated else None
+    if not truncated:
+        truncation_hint = None
+    elif next_begin is not None:
+        truncation_hint = (
+            "hit upstream page cap of 300000; continue the window from `next_begin`, "
+            "or narrow --begin/--end"
+        )
+    else:
+        truncation_hint = (
+            "hit upstream page cap of 300000 but could not derive a continuation "
+            "timestamp; narrow --begin/--end and re-request"
+        )
     return {
         "ts_id": ts_id,
         "office_id": office,
@@ -67,11 +80,8 @@ def fetch_window(
         "end": end.isoformat(),
         "values": _values_from_payload(payload),
         "truncated": truncated,
-        "truncation_hint": (
-            "hit upstream page cap of 300000; narrow the window or split the request"
-            if truncated
-            else None
-        ),
+        "next_begin": next_begin,
+        "truncation_hint": truncation_hint,
         "raw": payload,
     }
 
@@ -123,6 +133,26 @@ def require_canonical_ts_id(
             ),
         )
     return tsid
+
+
+def _next_begin(payload: dict[str, Any]) -> str | None:
+    """RFC3339 timestamp one millisecond after the latest returned point.
+
+    Used as the `begin` of the next slice when a window truncated at the page
+    cap, so the continuation has no duplicate or skipped seam point (CWMS
+    point timestamps are millisecond-resolution).
+    """
+    values = payload.get("values")
+    if not isinstance(values, list):
+        return None
+    last_ms: int | None = None
+    for row in reversed(values):
+        if isinstance(row, list) and row and isinstance(row[0], (int, float)):
+            last_ms = int(row[0])
+            break
+    if last_ms is None:
+        return None
+    return _ms_to_rfc3339(last_ms + 1)
 
 
 def _detect_truncation(payload: dict[str, Any], *, requested_end: datetime) -> bool:

@@ -10,6 +10,7 @@ import responses
 from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
+from cwms_tools.cli.commands import place as place_cmd
 from cwms_tools.core import session
 from cwms_tools.core.cache import Cache, set_cache
 
@@ -299,3 +300,23 @@ def test_region_browse_returns_ghost_office_error_for_nwo() -> None:
     assert payload["error"]["code"] == "ghost_office"
     assert payload["error"]["repair"]["tool"] == "cwms_browse_region"
     assert payload["error"]["repair"]["args"]["office"] == "NWDM"
+
+
+def test_place_search_accepts_cursor(monkeypatch):
+    captured = {}
+
+    def fake_search(query, *, office=None, parameter=None, limit=None, cursor=None, use_cache=True):
+        captured["cursor"] = cursor
+        return {
+            "query": query,
+            "results": [],
+            "has_more": False,
+            "next_cursor": None,
+            "total_count": 0,
+            "source": {"fingerprint": "x"},
+        }
+
+    monkeypatch.setattr(place_cmd.places, "search_places", fake_search)
+    result = runner.invoke(app, ["place", "search", "L", "-o", "NWDM", "--cursor", "TOKEN"])
+    assert result.exit_code == 0
+    assert captured["cursor"] == "TOKEN"

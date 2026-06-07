@@ -77,6 +77,18 @@ def browse(
             ),
         ),
     ] = places.DEFAULT_BROWSE_LIMIT,
+    cursor: Annotated[
+        str | None,
+        typer.Option(
+            "--cursor",
+            help=(
+                "Opaque pagination cursor from a prior call's `next_cursor`. "
+                "Pass it back to fetch the next page; omit for the first page. "
+                "A stale cursor returns the `invalid_cursor` error (exit 2) — "
+                "re-run without --cursor to restart."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Browse the locations published by one office, with optional filters.
 
@@ -116,7 +128,11 @@ def browse(
     try:
         emit(
             places.browse_region(
-                office=office, bbox=bbox, state=state, limit=None if limit == 0 else limit
+                office=office,
+                bbox=bbox,
+                state=state,
+                limit=None if limit == 0 else limit,
+                cursor=cursor,
             )
         )
     except CwmsToolsError as err:

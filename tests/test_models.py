@@ -8,8 +8,10 @@ import pytest
 
 from cwms_tools.core.models import (
     ActiveThreshold,
+    BrowseRegionResponse,
     CdaLocation,
     Detail,
+    HistoryResponse,
     PlaceSummary,
     SearchPlacesResponse,
     SourceMeta,
@@ -138,3 +140,29 @@ def test_active_threshold_rejects_bad_relation() -> None:
                 "relation": "near",  # not in Literal
             }
         )
+
+
+def test_success_models_default_ok_true_and_carry_cursor_fields():
+    src = SourceMeta(fingerprint="abc")
+    s = SearchPlacesResponse(query="x", results=[], source=src)
+    assert s.ok is True
+    assert s.has_more is False
+    assert s.next_cursor is None
+
+    b = BrowseRegionResponse(office="SWT", bbox=None, state=None, results=[], source=src)
+    assert b.ok is True and b.has_more is False and b.next_cursor is None
+
+    h = HistoryResponse(
+        ts_id="t",
+        office_id="o",
+        location="l",
+        parameter="p",
+        publisher=None,
+        unit="EN",
+        begin="2026-01-01T00:00:00Z",
+        end="2026-01-02T00:00:00Z",
+        values=[],
+        value_count=0,
+        source=src,
+    )
+    assert h.ok is True and h.next_begin is None

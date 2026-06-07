@@ -12,6 +12,7 @@ from cwms_tools.core.errors import ErrorCode, exit_code_for
 OK = 0
 GENERIC_ERROR = 1
 USAGE_ERROR = 2
+INVALID_CURSOR = 2
 NOT_FOUND = 3
 UNAUTHENTICATED = 4
 FORBIDDEN = 5
@@ -32,6 +33,7 @@ __all__ = [
     "FORBIDDEN",
     "GENERIC_ERROR",
     "GHOST",
+    "INVALID_CURSOR",
     "NOT_FOUND",
     "OK",
     "RATE_LIMITED",

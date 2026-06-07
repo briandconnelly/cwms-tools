@@ -200,6 +200,7 @@ class SearchPlacesResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    ok: Literal[True] = True
     query: str
     office: str | list[str] | None = None
     offices_searched: list[str] = Field(default_factory=list)
@@ -233,6 +234,16 @@ class SearchPlacesResponse(BaseModel):
         default=None,
         description="The applied result cap (null means no cap).",
     )
+    has_more: bool = Field(
+        default=False,
+        description="True when more results exist beyond this page; fetch with `next_cursor`.",
+    )
+    next_cursor: str | None = Field(
+        default=None,
+        description=(
+            "Opaque cursor for the next page. Pass back as `cursor`. Null when has_more is false."
+        ),
+    )
     source: SourceMeta
 
 
@@ -250,6 +261,7 @@ class DescribePlaceResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    ok: Literal[True] = True
     office_id: str
     name: str
     location: dict[str, Any]
@@ -278,6 +290,7 @@ class ListParametersResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    ok: Literal[True] = True
     office_id: str
     name: str
     ts_count: int
@@ -300,6 +313,7 @@ class BrowseRegionResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    ok: Literal[True] = True
     office: str
     bbox: dict[str, float] | None
     state: str | None
@@ -332,6 +346,16 @@ class BrowseRegionResponse(BaseModel):
         default=None,
         description="How to narrow or widen the browse when `truncated` is true.",
     )
+    has_more: bool = Field(
+        default=False,
+        description="True when more results exist beyond this page; fetch with `next_cursor`.",
+    )
+    next_cursor: str | None = Field(
+        default=None,
+        description=(
+            "Opaque cursor for the next page. Pass back as `cursor`. Null when has_more is false."
+        ),
+    )
     results: list[PlaceSummary]
     source: SourceMeta
 
@@ -363,6 +387,7 @@ class ValueWithContextResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    ok: Literal[True] = True
     ts_id: str
     office_id: str
     location: str
@@ -391,6 +416,7 @@ class HistoryResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    ok: Literal[True] = True
     ts_id: str
     office_id: str
     location: str
@@ -403,6 +429,13 @@ class HistoryResponse(BaseModel):
     value_count: int
     truncated: bool = False
     truncation_hint: str | None = None
+    next_begin: str | None = Field(
+        default=None,
+        description=(
+            "When `truncated` is true, the RFC3339 timestamp to use as `begin` on the "
+            "next request to continue the window with no duplicate/skipped point. Null otherwise."
+        ),
+    )
     source: SourceMeta
 
 
@@ -443,6 +476,7 @@ class PublishersForParameterResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    ok: Literal[True] = True
     parameter: str
     publishers: list[PublisherCoverage]
     publisher_count: int

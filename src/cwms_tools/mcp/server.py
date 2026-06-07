@@ -193,7 +193,14 @@ def build_server() -> FastMCP:
     # Tools
     # ----------------------------------------------------------------------
 
-    @mcp.tool(annotations={"readOnlyHint": True, "title": "Get overview section"})
+    @mcp.tool(
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "idempotentHint": True,
+            "title": "Get overview section",
+        }
+    )
     async def cwms_get_overview_section(
         section_id: Annotated[
             str,

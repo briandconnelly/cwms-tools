@@ -44,10 +44,16 @@ TOOL_INVENTORY: list[str] = [
 #: return `upstream_error`/`rate_limited`; office-scoped tools reach the NW-stub
 #: guard (`ghost_office`).
 TOOL_ERROR_CODES: dict[str, list[str]] = {
-    "cwms_search_places": ["ghost_office", "rate_limited", "upstream_error"],
+    "cwms_search_places": ["ghost_office", "invalid_cursor", "rate_limited", "upstream_error"],
     "cwms_describe_place": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
     "cwms_list_parameters": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
-    "cwms_browse_region": ["ghost_office", "rate_limited", "upstream_error", "usage_error"],
+    "cwms_browse_region": [
+        "ghost_office",
+        "invalid_cursor",
+        "rate_limited",
+        "upstream_error",
+        "usage_error",
+    ],
     "cwms_get_value": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
     "cwms_get_history": [
         "ghost_office",
@@ -61,6 +67,22 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
     # of an error.code in normal operation.
     "cwms_publishers_for_parameter": [],
     "cwms_get_overview_section": ["not_found"],
+}
+
+#: Per-tool latency class (local | cached | network | slow). `slow` flags paths
+#: that routinely exceed ~1s: the levels-classified value path and the
+#: potentially 300k-point history pull. `cwms_get_value` is `network` for the
+#: default fast path; its slow `--with-status` path is documented in the tool
+#: description and `level_lookup_status`.
+TOOL_LATENCY: dict[str, str] = {
+    "cwms_search_places": "network",
+    "cwms_describe_place": "network",
+    "cwms_list_parameters": "network",
+    "cwms_get_value": "network",
+    "cwms_get_history": "slow",
+    "cwms_browse_region": "network",
+    "cwms_publishers_for_parameter": "network",
+    "cwms_get_overview_section": "local",
 }
 
 #: Resource inventory — also kept here for the capability summary. Only resources
@@ -120,6 +142,7 @@ def capabilities_payload() -> dict[str, Any]:
         },
         "tools": TOOL_INVENTORY,
         "tool_error_codes": TOOL_ERROR_CODES,
+        "tool_latency": TOOL_LATENCY,
         "resources": RESOURCE_INVENTORY,
         "error_codes": sorted(c.value for c in ErrorCode),
         "error_handling": {
@@ -137,6 +160,14 @@ def capabilities_payload() -> dict[str, Any]:
             ),
         },
         "active_workarounds": active_workarounds(),
+        "completions": {
+            "supported": False,
+            "reason": (
+                "FastMCP 3.3.1 exposes no completion handler; the overview index "
+                "is the discovery path for resource-template variables."
+            ),
+            "discover_section_ids_via": "cwms://overview",
+        },
         "fastmcp": {
             "installed_version": installed_fastmcp_version(),
             "verified": list(VERIFIED.keys()),
@@ -234,7 +265,9 @@ __all__ = [
     "RESOURCE_INVENTORY",
     "SERVER_NAME",
     "SERVER_TITLE",
+    "TOOL_ERROR_CODES",
     "TOOL_INVENTORY",
+    "TOOL_LATENCY",
     "capabilities_payload",
     "overview_chunk_payload",
     "overview_index_payload",

@@ -57,7 +57,12 @@ def register_place_tools(mcp: FastMCP) -> None:
     """Register the place-related tools on the FastMCP server."""
 
     @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Search places by name"},
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": True,
+            "idempotentHint": True,
+            "title": "Search places by name",
+        },
     )
     async def cwms_search_places(
         query: Annotated[str, "Name fragment to match, case-insensitive."],
@@ -84,8 +89,16 @@ def register_place_tools(mcp: FastMCP) -> None:
             "Cap on the number of results (default 50). Broad queries like "
             "'Temp String' can match hundreds of rows; the cap keeps response "
             "size predictable. Pass 0 for no cap. When the cap kicks in the "
-            "response carries `truncated: true` and `total_count`.",
+            "response carries `truncated: true` and `total_count`. When the cap is hit, "
+            "the response sets has_more:true and returns next_cursor for the next page.",
         ] = places.DEFAULT_SEARCH_LIMIT,
+        cursor: Annotated[
+            str | None,
+            "Opaque pagination cursor from a prior call's `next_cursor`. Pass it "
+            "back verbatim to fetch the next page; omit it for the first page. "
+            "On a stale cursor (changed query/filters or a shifted catalog) the "
+            "tool returns the `invalid_cursor` error — restart without `cursor`.",
+        ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> SearchPlacesResponse | ErrorRef:
         """Resolve a CWMS place name to ranked location matches.
@@ -117,6 +130,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             office=office,
             parameter=parameter,
             limit=effective_limit,
+            cursor=cursor,
         )
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
@@ -125,7 +139,12 @@ def register_place_tools(mcp: FastMCP) -> None:
         return SearchPlacesResponse.model_validate(shaped)
 
     @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Describe a place"},
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": True,
+            "idempotentHint": True,
+            "title": "Describe a place",
+        },
     )
     async def cwms_describe_place(
         office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
@@ -154,7 +173,12 @@ def register_place_tools(mcp: FastMCP) -> None:
         return DescribePlaceResponse.model_validate(shaped)
 
     @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "List parameters at a place"},
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": True,
+            "idempotentHint": True,
+            "title": "List parameters at a place",
+        },
     )
     async def cwms_list_parameters(
         office: Annotated[str, "USACE office code."],
@@ -175,7 +199,12 @@ def register_place_tools(mcp: FastMCP) -> None:
         return ListParametersResponse.model_validate(shaped)
 
     @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Browse a region's catalog"},
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": True,
+            "idempotentHint": True,
+            "title": "Browse a region's catalog",
+        },
     )
     async def cwms_browse_region(
         office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
@@ -190,8 +219,17 @@ def register_place_tools(mcp: FastMCP) -> None:
             "large office can return thousands of rows; the cap keeps the response "
             "bounded. Pass 0 for no cap. When the cap kicks in the response carries "
             "`truncated: true`, `total_count`, and `truncation_hint`. Data-bearing "
-            "rows sort ahead of ghosts so a capped browse keeps the useful records.",
+            "rows sort ahead of ghosts so a capped browse keeps the useful records. "
+            "When the cap is hit, the response sets has_more:true and returns "
+            "next_cursor for the next page.",
         ] = places.DEFAULT_BROWSE_LIMIT,
+        cursor: Annotated[
+            str | None,
+            "Opaque pagination cursor from a prior call's `next_cursor`. Pass it "
+            "back verbatim to fetch the next page; omit it for the first page. "
+            "On a stale cursor (changed query/filters or a shifted catalog) the "
+            "tool returns the `invalid_cursor` error — restart without `cursor`.",
+        ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> BrowseRegionResponse | ErrorRef:
         """Browse the locations published by one office, optionally filtered.
@@ -225,7 +263,12 @@ def register_place_tools(mcp: FastMCP) -> None:
             return ErrorRef.from_error(_negative_limit_error(limit))
         effective_limit = None if limit == 0 else limit
         raw = await _safe(
-            places.browse_region, office=office, bbox=bbox, state=state, limit=effective_limit
+            places.browse_region,
+            office=office,
+            bbox=bbox,
+            state=state,
+            limit=effective_limit,
+            cursor=cursor,
         )
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
@@ -238,7 +281,12 @@ def register_value_tools(mcp: FastMCP) -> None:
     """Register the value-related tools on the FastMCP server."""
 
     @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Current value (optional status)"},
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": True,
+            "idempotentHint": True,
+            "title": "Current value (optional status)",
+        },
     )
     async def cwms_get_value(
         office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
@@ -300,7 +348,12 @@ def register_value_tools(mcp: FastMCP) -> None:
         return ValueWithContextResponse.model_validate(shaped)
 
     @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Windowed history"},
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": True,
+            "idempotentHint": True,
+            "title": "Windowed history",
+        },
     )
     async def cwms_get_history(
         office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
@@ -378,7 +431,12 @@ def register_publisher_tools(mcp: FastMCP) -> None:
     """Register the publisher-related helper tools on the FastMCP server."""
 
     @mcp.tool(
-        annotations={"readOnlyHint": True, "title": "Publishers reporting a parameter"},
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": True,
+            "idempotentHint": True,
+            "title": "Publishers reporting a parameter",
+        },
     )
     async def cwms_publishers_for_parameter(
         parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage)."],

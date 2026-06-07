@@ -753,3 +753,167 @@ def test_locations_get_one_wraps_404_as_not_found_with_field(configured, mocked)
     assert env.code is ErrorCode.NOT_FOUND
     assert env.field == "name"
     assert env.offending_value == "MISSING"
+
+
+# --------------------------------------------------------------------------
+# search_places — cursor pagination
+# --------------------------------------------------------------------------
+
+
+def test_search_places_paginates_with_cursor(monkeypatch):
+    rows = [
+        {
+            "office_id": "NWDM",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": ["Elev"],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    fanout_calls = 0
+
+    def _counting_fanout(req):
+        nonlocal fanout_calls
+        fanout_calls += 1
+        return (["NWDM"], [], [])
+
+    monkeypatch.setattr(places, "_run_fanout", _counting_fanout)
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: list(rows))
+
+    page1 = places.search_places("L", office="NWDM", limit=2)
+    assert len(page1["results"]) == 2
+    assert page1["has_more"] is True
+    assert page1["total_count"] == 5
+    assert page1["next_cursor"]
+
+    page2 = places.search_places("L", office="NWDM", limit=2, cursor=page1["next_cursor"])
+    assert [r["name"] for r in page2["results"]] == ["L2", "L3"]
+    assert page2["has_more"] is True
+    assert page2["next_cursor"] is not None
+
+    page3 = places.search_places("L", office="NWDM", limit=2, cursor=page2["next_cursor"])
+    assert [r["name"] for r in page3["results"]] == ["L4"]
+    assert page3["has_more"] is False
+    assert page3["next_cursor"] is None
+
+    assert fanout_calls == 1  # only page 1 fans out; pages 2-3 use the locked cursor
+
+
+def test_search_places_cursor_rejects_catalog_shift(monkeypatch):
+    five = [
+        {
+            "office_id": "NWDM",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    six = [
+        *five,
+        {
+            "office_id": "NWDM",
+            "name": "L5",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        },
+    ]
+    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    calls = {"n": 0}
+
+    def _shifting_gather(offices, q, use_cache):
+        calls["n"] += 1
+        return list(five if calls["n"] == 1 else six)  # catalog grows between calls
+
+    monkeypatch.setattr(places, "_gather_enriched", _shifting_gather)
+    page1 = places.search_places("L", office="NWDM", limit=2)
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("L", office="NWDM", limit=2, cursor=page1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_search_places_rejects_mismatched_cursor(monkeypatch):
+    rows = [
+        {
+            "office_id": "NWDM",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: list(rows))
+    page1 = places.search_places("L", office="NWDM", limit=2)
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("DIFFERENT", office="NWDM", limit=2, cursor=page1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_search_places_rejects_cursor_with_unlimited_limit(monkeypatch):
+    # A cursor combined with an unlimited limit (0 -> None) is contradictory and
+    # must be rejected before any fan-out, not silently return a tail subset.
+    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: [])
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("L", office="NWDM", limit=0, cursor="anytoken")
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_browse_region_paginates_with_cursor(monkeypatch):
+    rows = [
+        {
+            "office_id": "SWT",
+            "name": f"B{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    monkeypatch.setattr(
+        places.catalog, "enrich_locations", lambda office, use_cache=True: list(rows)
+    )
+    p1 = places.browse_region(office="SWT", limit=2)
+    assert p1["has_more"] is True and p1["total_count"] == 5 and p1["next_cursor"]
+    p2 = places.browse_region(office="SWT", limit=2, cursor=p1["next_cursor"])
+    assert [r["name"] for r in p2["results"]] == ["B2", "B3"]
+    assert p2["has_more"] is True
+
+
+def test_browse_region_cursor_rejects_mismatch(monkeypatch):
+    rows = [
+        {
+            "office_id": "SWT",
+            "name": f"B{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    monkeypatch.setattr(
+        places.catalog, "enrich_locations", lambda office, use_cache=True: list(rows)
+    )
+    p1 = places.browse_region(office="SWT", limit=2)
+    # changing the state filter invalidates the cursor (req hash differs)
+    with pytest.raises(CwmsToolsError) as exc:
+        places.browse_region(office="SWT", state="OK", limit=2, cursor=p1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_browse_region_rejects_cursor_with_unlimited_limit(monkeypatch):
+    monkeypatch.setattr(places.catalog, "enrich_locations", lambda office, use_cache=True: [])
+    with pytest.raises(CwmsToolsError) as exc:
+        places.browse_region(office="SWT", limit=0, cursor="anytoken")
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR

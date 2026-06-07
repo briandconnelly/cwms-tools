@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from cwms_tools.core import catalog, locations, offices, projects, publishers
+from cwms_tools.core import catalog, locations, offices, pagination, projects, publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.concurrency import MAX_WORKERS
 from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
@@ -52,6 +52,7 @@ def search_places(
     office: str | list[str] | None = None,
     parameter: str | None = None,
     limit: int | None = DEFAULT_SEARCH_LIMIT,
+    cursor: str | None = None,
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """`cwms_search_places` — name resolution with enrichment.
@@ -83,14 +84,45 @@ def search_places(
     prevents flooding the caller. Set `limit=None` (or `limit=0` on the
     CLI) to return every match. When the cap kicks in, the response
     carries `truncated: true` and `total_count`.
+
+    Pagination: when the result set exceeds `limit`, the response sets
+    `has_more: true` and returns an opaque `next_cursor`. Pass that value
+    back as `cursor` to fetch the next page; the cursor locks the searched
+    office set and the query/parameter, so continuation is deterministic.
+    A stale cursor (changed query/parameter, or a catalog that shifted)
+    raises an `invalid_cursor` error — restart without `cursor`. `limit=None`
+    (or `limit=0` on the CLI) returns all results and never paginates;
+    passing `cursor` together with an unlimited limit is rejected as
+    `invalid_cursor`.
     """
     if limit is not None and limit < 0:
         raise ValueError("limit must be a non-negative integer or None")
+    if limit == 0:
+        limit = None  # 0 means "no cap"; normalize so pagination math is well-defined
 
-    requested = _normalize_office_arg(office)
-    if requested is None:
-        requested = offices.cached_offices_for_locations()
-    offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
+    req = pagination.request_hash({"q": query, "parameter": parameter})
+    decoded: dict[str, Any] | None = None
+    offset = 0
+    if cursor is not None:
+        if limit is None:
+            # `cursor` implies paged access; an unlimited limit (None / CLI 0)
+            # would slice a tail subset yet report has_more=false — contradictory.
+            raise pagination.invalid_cursor(
+                "cursor pagination requires a positive limit; omit `cursor` to fetch all results"
+            )
+        decoded = pagination.decode_cursor(cursor)
+        # Cheap checks BEFORE upstream fan-out: kind, request hash, offset shape,
+        # and a bounded/typed office set (a forged cursor must not widen the fan-out).
+        offset = pagination.validate_continuation(decoded, kind="search_places", req=req)
+        offices_searched = pagination.coerce_offices(decoded)
+        offices_skipped: list[str] = []
+        partial_reasons: list[str] = []
+    else:
+        requested = _normalize_office_arg(office)
+        if requested is None:
+            requested = offices.cached_offices_for_locations()
+        offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
+
     enriched, filtered_out = _apply_parameter_filter(
         _gather_enriched(offices_searched, query, use_cache=use_cache),
         parameter,
@@ -98,9 +130,28 @@ def search_places(
     )
     enriched.sort(key=lambda r: (-r["parameter_count"], r["office_id"], r["name"]))
     total_count = len(enriched)
-    truncated = limit is not None and total_count > limit
-    if limit is not None:
-        enriched = enriched[:limit]
+    if decoded is not None:
+        pagination.ensure_total(decoded, total=total_count)  # catalog-shift guard
+
+    next_cursor: str | None = None
+    if limit is None:
+        page = enriched[offset:]
+        has_more = False
+    else:
+        next_offset = offset + limit
+        page = enriched[offset:next_offset]
+        has_more = next_offset < total_count
+        if has_more:
+            next_cursor = pagination.encode_cursor(
+                {
+                    "v": pagination.CURSOR_VERSION,
+                    "kind": "search_places",
+                    "off": next_offset,
+                    "req": req,
+                    "offices": offices_searched,
+                    "total": total_count,
+                }
+            )
 
     results = [
         {
@@ -117,7 +168,7 @@ def search_places(
             "co_located": r.get("co_located", []),
             "data_at": r.get("data_at", []),
         }
-        for r in enriched
+        for r in page
     ]
 
     response: dict[str, Any] = {
@@ -127,7 +178,9 @@ def search_places(
         "offices_skipped_for_budget": offices_skipped,
         "results": results,
         "total_count": total_count,
-        "truncated": truncated,
+        "truncated": has_more,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
         "limit": limit,
     }
     if parameter is not None:
@@ -449,6 +502,7 @@ def browse_region(
     bbox: BBox | None = None,
     state: str | None = None,
     limit: int | None = DEFAULT_BROWSE_LIMIT,
+    cursor: str | None = None,
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """`cwms_browse_region` — enriched catalog filtered by office, bbox, or state.
@@ -460,12 +514,32 @@ def browse_region(
     `limit` caps the number of results (default 50). A no-filter browse of a
     large office can return thousands of rows; the cap keeps the response
     bounded. Set `limit=None` (or `limit=0` on the CLI) for no cap. When the
-    cap kicks in the response carries `truncated: true`, `total_count`, and a
-    `truncation_hint`. Data-bearing rows sort ahead of ghosts so a capped
-    browse keeps the useful records.
+    cap kicks in the response carries `has_more: true`, `total_count`,
+    `next_cursor`, and a `truncation_hint`. Data-bearing rows sort ahead of
+    ghosts so a capped browse keeps the useful records.
+
+    Pass the opaque `next_cursor` from a prior response as `cursor` to fetch
+    the next page. The cursor encodes the request fingerprint; passing a cursor
+    from a different request (different office/state/bbox) raises
+    ``INVALID_CURSOR``.
     """
     if limit is not None and limit < 0:
         raise ValueError("limit must be a non-negative integer or None")
+    if limit == 0:
+        limit = None  # 0 means "no cap"
+
+    req = pagination.request_hash({"office": office, "bbox": _bbox_to_dict(bbox), "state": state})
+    decoded: dict[str, Any] | None = None
+    offset = 0
+    if cursor is not None:
+        if limit is None:
+            # `cursor` implies paged access; an unlimited limit (None / CLI 0)
+            # would slice a tail subset yet report has_more=false — contradictory.
+            raise pagination.invalid_cursor(
+                "cursor pagination requires a positive limit; omit `cursor` to fetch all results"
+            )
+        decoded = pagination.decode_cursor(cursor)
+        offset = pagination.validate_continuation(decoded, kind="browse_region", req=req)
 
     enriched = catalog.enrich_locations(office, use_cache=use_cache)
     rows = enriched
@@ -497,9 +571,25 @@ def browse_region(
     rows = sorted(rows, key=lambda r: (-r["parameter_count"], r["office_id"], r["name"]))
     total_count = len(rows)
     ghost_count = sum(1 for r in rows if r["parameter_count"] == 0)
-    truncated = limit is not None and total_count > limit
-    if limit is not None:
-        rows = rows[:limit]
+    if decoded is not None:
+        pagination.ensure_total(decoded, total=total_count)  # catalog-shift guard
+    if limit is None:
+        rows = rows[offset:]
+        has_more = False
+    else:
+        rows = rows[offset : offset + limit]
+        has_more = offset + limit < total_count
+    next_cursor: str | None = None
+    if has_more and limit is not None:
+        next_cursor = pagination.encode_cursor(
+            {
+                "v": pagination.CURSOR_VERSION,
+                "kind": "browse_region",
+                "off": offset + limit,
+                "req": req,
+                "total": total_count,
+            }
+        )
 
     # Index the FULL office catalog (pre-filter) so a barren row can name
     # co-located siblings that publish data even when those siblings fall
@@ -522,7 +612,9 @@ def browse_region(
         "result_count": len(rows),
         "ghost_count": ghost_count,
         "total_count": total_count,
-        "truncated": truncated,
+        "truncated": has_more,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
         "limit": limit,
         "results": [
             {
@@ -542,9 +634,10 @@ def browse_region(
             for r in rows
         ],
     }
-    if truncated:
+    if has_more:
         response["truncation_hint"] = (
-            f"hit cap of {limit}; narrow with --state/bbox or pass --limit 0 for all rows"
+            f"returned {len(rows)} of {total_count}; fetch the next page with the "
+            "`next_cursor`, or pass --limit 0 for all rows"
         )
     return response
 

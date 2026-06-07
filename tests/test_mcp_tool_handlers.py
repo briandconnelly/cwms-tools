@@ -336,3 +336,13 @@ def test_publishers_for_parameter_handler(configured) -> None:
     payload = _branch(result.structured_content)
     assert any(p["publisher"] == "Ccp-Rev" for p in payload["publishers"])
     assert payload["coverage"]["complete"] is True
+
+
+def test_search_places_tool_exposes_cursor_in_schema():
+    async def go():
+        mcp = build_server()
+        return {t.name: t for t in await mcp.list_tools()}
+
+    tools = asyncio.run(go())
+    assert "cursor" in tools["cwms_search_places"].to_mcp_tool().inputSchema["properties"]
+    assert "cursor" in tools["cwms_browse_region"].to_mcp_tool().inputSchema["properties"]

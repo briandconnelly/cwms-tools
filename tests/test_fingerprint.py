@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cwms_tools.core import fingerprint
 from cwms_tools.core.errors import ErrorCode
+from cwms_tools.mcp.contract import canonical_fingerprint
 
 
 def test_fingerprint_is_stable_for_identical_inputs() -> None:
@@ -46,3 +47,25 @@ def test_fingerprint_input_includes_all_error_codes() -> None:
 
 def test_fingerprint_scope_constant() -> None:
     assert fingerprint.FINGERPRINT_SCOPE == "schema-contract"
+
+
+def test_cli_contract_changes_move_the_fingerprint():
+    base = fingerprint.compute(tools={}, resources=[], cli_contract={"commands": []})
+    changed = fingerprint.compute(
+        tools={}, resources=[], cli_contract={"commands": [{"path": "x"}]}
+    )
+    assert base != changed
+
+
+def test_canonical_fingerprint_includes_cli_contract(monkeypatch):
+    import cwms_tools.cli.commands.schema as schema_cmd
+
+    before = canonical_fingerprint()
+    orig = schema_cmd.cli_contract_payload
+    monkeypatch.setattr(
+        schema_cmd,
+        "cli_contract_payload",
+        lambda: {**orig(), "commands": [*orig()["commands"], {"path": "cwms-tools probe"}]},
+    )
+    after = canonical_fingerprint()
+    assert before != after

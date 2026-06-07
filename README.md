@@ -91,8 +91,33 @@ uv run cwms-tools value history NWDM/FTPK/Elev \
 # Browse an office catalog by state.
 uv run cwms-tools region browse --office SWT --state OK
 
+# Page through a large browse result. Pass the prior response's `next_cursor`
+# value as --cursor to continue without re-issuing the same search.
+uv run cwms-tools region browse --office NWDM --cursor <next_cursor>
+
 # Find publishers reporting a parameter in selected offices.
 uv run cwms-tools publisher for-parameter Elev --office NWDM --office SWT
+```
+
+Pagination works the same way for `place search`:
+
+```bash
+RESULT=$(uv run cwms-tools --machine place search "Reservoir" --office NWDM)
+CURSOR=$(echo "$RESULT" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('next_cursor',''))")
+# If CURSOR is non-empty, there are more pages:
+uv run cwms-tools --machine place search "Reservoir" --office NWDM --cursor "$CURSOR"
+```
+
+`value history` sets `next_begin` in the response when the upstream truncates
+at 300 000 points. Pass that value as `--begin` on the next call to continue
+the window without overlap or gap:
+
+```bash
+uv run cwms-tools --machine value history NWDM/FTPK/Elev \
+  --begin 2025-01-01T00:00:00Z --end 2025-12-31T23:59:59Z
+# If response.next_begin is set, continue from there:
+uv run cwms-tools --machine value history NWDM/FTPK/Elev \
+  --begin <next_begin> --end 2025-12-31T23:59:59Z
 ```
 
 Useful global flags:
@@ -107,7 +132,7 @@ Exit codes are part of the CLI contract:
 | Exit | Meaning |
 | ---: | --- |
 | `0` | success |
-| `2` | usage or invalid field |
+| `2` | usage, invalid field, or invalid cursor (`invalid_cursor`) |
 | `3` | not found or publisher unavailable |
 | `4` | session unconfigured |
 | `6` | rate limited |

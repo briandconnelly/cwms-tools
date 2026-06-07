@@ -132,3 +132,8 @@ def test_retry_after_ms_from_response_handles_missing_or_bad_values() -> None:
     assert retry_after_ms_from_response(_FakeResponse({})) is None
     assert retry_after_ms_from_response(None) is None
     assert retry_after_ms_from_response(_FakeResponse({"Retry-After": "garbage"})) is None
+
+
+def test_invalid_cursor_code_maps_to_usage_exit() -> None:
+    assert ErrorCode.INVALID_CURSOR.value == "invalid_cursor"
+    assert exit_code_for(ErrorCode.INVALID_CURSOR) == 2

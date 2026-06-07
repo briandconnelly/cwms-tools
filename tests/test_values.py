@@ -207,3 +207,52 @@ def test_get_history_returns_windowed_values(configured) -> None:
     assert payload["values"][0]["timestamp"].startswith("2026-05-17T18:00")
     assert payload["values"][-1]["value"] == pytest.approx(1648.5)
     assert payload["truncated"] is False
+
+
+# --------------------------------------------------------------------------
+# next_begin continuation timestamp
+# --------------------------------------------------------------------------
+
+
+def test_fetch_window_emits_next_begin_when_truncated(monkeypatch):
+    from cwms_tools.core import timeseries
+
+    cap = timeseries._UPSTREAM_PAGE_SIZE_CAP
+    last_ms = 1_700_000_000_000
+    values_data = [[last_ms - (cap - 1 - i) * 60000, float(i), 0] for i in range(cap)]
+    payload = {"values": values_data, "units": "ft"}
+
+    class _Resp:
+        json = payload
+
+    monkeypatch.setattr(timeseries.ts_api, "get_timeseries", lambda **kw: _Resp())
+    out = timeseries.fetch_window(
+        "t",
+        office="NWDM",
+        begin=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        end=datetime(2099, 1, 1, tzinfo=timezone.utc),  # far future forces truncation
+        unit="EN",
+    )
+    assert out["truncated"] is True
+    expected = datetime.fromtimestamp((last_ms + 1) / 1000, tz=timezone.utc)
+    assert out["next_begin"] == expected.isoformat().replace("+00:00", "Z")
+
+
+def test_fetch_window_next_begin_none_when_not_truncated(monkeypatch):
+    from cwms_tools.core import timeseries
+
+    payload = {"values": [[1_700_000_000_000, 1.0, 0]], "units": "ft"}
+
+    class _Resp:
+        json = payload
+
+    monkeypatch.setattr(timeseries.ts_api, "get_timeseries", lambda **kw: _Resp())
+    out = timeseries.fetch_window(
+        "t",
+        office="NWDM",
+        begin=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        end=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        unit="EN",
+    )
+    assert out["truncated"] is False
+    assert out["next_begin"] is None
