@@ -89,7 +89,8 @@ def register_place_tools(mcp: FastMCP) -> None:
             "Cap on the number of results (default 50). Broad queries like "
             "'Temp String' can match hundreds of rows; the cap keeps response "
             "size predictable. Pass 0 for no cap. When the cap kicks in the "
-            "response carries `truncated: true` and `total_count`.",
+            "response carries `truncated: true` and `total_count`. When the cap is hit, "
+            "the response sets has_more:true and returns next_cursor for the next page.",
         ] = places.DEFAULT_SEARCH_LIMIT,
         cursor: Annotated[
             str | None,
@@ -218,7 +219,9 @@ def register_place_tools(mcp: FastMCP) -> None:
             "large office can return thousands of rows; the cap keeps the response "
             "bounded. Pass 0 for no cap. When the cap kicks in the response carries "
             "`truncated: true`, `total_count`, and `truncation_hint`. Data-bearing "
-            "rows sort ahead of ghosts so a capped browse keeps the useful records.",
+            "rows sort ahead of ghosts so a capped browse keeps the useful records. "
+            "When the cap is hit, the response sets has_more:true and returns "
+            "next_cursor for the next page.",
         ] = places.DEFAULT_BROWSE_LIMIT,
         cursor: Annotated[
             str | None,

@@ -30,11 +30,12 @@ latency metadata, and CLI contract folded into the capability fingerprint.
   structurally invalid or expired cursor returns `error.code = "invalid_cursor"`
   before any network call is made.
 - **`openWorldHint` and `idempotentHint` annotations** on all eight MCP tools.
-  Read-only tools declare `openWorldHint: false` and `idempotentHint: true`
-  so clients can safely retry without side-effect concern.
+  The seven live-CDA tools declare `openWorldHint: true` and `idempotentHint: true`;
+  the bundled local-content tool (`cwms_get_overview_section`) declares `openWorldHint: false`
+  so clients know which tools reach external services.
 - **Per-tool latency metadata in `cwms://capabilities`** (`tool_latency`).
-  Each tool entry lists its expected latency class (`fast`, `medium`, `slow`,
-  `variable`) so agents can budget timeouts before calling.
+  Each tool entry lists its expected latency class (`local`, `cached`, `network`,
+  `slow`) so agents can budget timeouts before calling.
 - **Structured CLI `schema` output.** Each command entry now includes an
   `args` list (positional arguments with types, descriptions, and required
   flags), a `flags` dict (with types, defaults, enums, and descriptions), a
