@@ -856,3 +856,47 @@ def test_search_places_rejects_mismatched_cursor(monkeypatch):
     with pytest.raises(CwmsToolsError) as exc:
         places.search_places("DIFFERENT", office="NWDM", limit=2, cursor=page1["next_cursor"])
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_browse_region_paginates_with_cursor(monkeypatch):
+    rows = [
+        {
+            "office_id": "SWT",
+            "name": f"B{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    monkeypatch.setattr(
+        places.catalog, "enrich_locations", lambda office, use_cache=True: list(rows)
+    )
+    p1 = places.browse_region(office="SWT", limit=2)
+    assert p1["has_more"] is True and p1["total_count"] == 5 and p1["next_cursor"]
+    p2 = places.browse_region(office="SWT", limit=2, cursor=p1["next_cursor"])
+    assert [r["name"] for r in p2["results"]] == ["B2", "B3"]
+    assert p2["has_more"] is True
+
+
+def test_browse_region_cursor_rejects_mismatch(monkeypatch):
+    rows = [
+        {
+            "office_id": "SWT",
+            "name": f"B{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(5)
+    ]
+    monkeypatch.setattr(
+        places.catalog, "enrich_locations", lambda office, use_cache=True: list(rows)
+    )
+    p1 = places.browse_region(office="SWT", limit=2)
+    # changing the state filter invalidates the cursor (req hash differs)
+    with pytest.raises(CwmsToolsError) as exc:
+        places.browse_region(office="SWT", state="OK", limit=2, cursor=p1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
