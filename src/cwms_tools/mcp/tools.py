@@ -86,6 +86,13 @@ def register_place_tools(mcp: FastMCP) -> None:
             "size predictable. Pass 0 for no cap. When the cap kicks in the "
             "response carries `truncated: true` and `total_count`.",
         ] = places.DEFAULT_SEARCH_LIMIT,
+        cursor: Annotated[
+            str | None,
+            "Opaque pagination cursor from a prior call's `next_cursor`. Pass it "
+            "back verbatim to fetch the next page; omit it for the first page. "
+            "On a stale cursor (changed query/filters or a shifted catalog) the "
+            "tool returns the `invalid_cursor` error — restart without `cursor`.",
+        ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> SearchPlacesResponse | ErrorRef:
         """Resolve a CWMS place name to ranked location matches.
@@ -117,6 +124,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             office=office,
             parameter=parameter,
             limit=effective_limit,
+            cursor=cursor,
         )
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
@@ -192,6 +200,13 @@ def register_place_tools(mcp: FastMCP) -> None:
             "`truncated: true`, `total_count`, and `truncation_hint`. Data-bearing "
             "rows sort ahead of ghosts so a capped browse keeps the useful records.",
         ] = places.DEFAULT_BROWSE_LIMIT,
+        cursor: Annotated[
+            str | None,
+            "Opaque pagination cursor from a prior call's `next_cursor`. Pass it "
+            "back verbatim to fetch the next page; omit it for the first page. "
+            "On a stale cursor (changed query/filters or a shifted catalog) the "
+            "tool returns the `invalid_cursor` error — restart without `cursor`.",
+        ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> BrowseRegionResponse | ErrorRef:
         """Browse the locations published by one office, optionally filtered.
@@ -225,7 +240,12 @@ def register_place_tools(mcp: FastMCP) -> None:
             return ErrorRef.from_error(_negative_limit_error(limit))
         effective_limit = None if limit == 0 else limit
         raw = await _safe(
-            places.browse_region, office=office, bbox=bbox, state=state, limit=effective_limit
+            places.browse_region,
+            office=office,
+            bbox=bbox,
+            state=state,
+            limit=effective_limit,
+            cursor=cursor,
         )
         if raw.get("ok") is False:
             return ErrorRef.model_validate(raw)
