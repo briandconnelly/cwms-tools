@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- MCPB bundle packaging: `manifest.json` generated from `pyproject.toml` and the
+  live server by `scripts/gen_manifest.py`, packed into an installable `.mcpb`
+  on release (`.github/workflows/mcpb.yml`). Manifest staleness is guarded by a
+  prek hook, the CI `verify` job, and `tests/test_manifest.py`. See
+  `docs/mcpb-packaging.md`.
+- CI now also tests on Python 3.14, with the macOS/Windows checks bumped to 3.14.
+
+### Changed
+
+- Release pipeline hardening: a tag-gated `verify` job fails unless the git tag,
+  `pyproject` version, and latest CHANGELOG heading agree; PyPI publish uses
+  `skip-existing` for safe reruns; least-privilege top-level `permissions`; and
+  the dist upload fails fast on no files.
+
 ## [0.3.0] - 2026-06-06
 
 Agent-friendliness remediation (M-1, M-2, C-1, m-4–m-7): opaque cursor

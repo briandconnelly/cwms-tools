@@ -1,0 +1,110 @@
+{
+  "manifest_version": "0.4",
+  "name": "cwms-tools",
+  "display_name": "CWMS Tools",
+  "version": "0.3.0",
+  "description": "Agent-friendly tools (MCP server and CLI) for the USACE Corps Water Management System (CWMS) Data API.",
+  "author": {
+    "name": "Brian Connelly",
+    "email": "bdc@bconnelly.net"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/briandconnelly/cwms-tools"
+  },
+  "homepage": "https://github.com/briandconnelly/cwms-tools",
+  "documentation": "https://github.com/briandconnelly/cwms-tools#readme",
+  "support": "https://github.com/briandconnelly/cwms-tools/issues",
+  "license": "MIT",
+  "keywords": [
+    "cwms",
+    "usace",
+    "mcp",
+    "cli",
+    "water",
+    "hydrology",
+    "agent"
+  ],
+  "server": {
+    "type": "uv",
+    "entry_point": "src/cwms_tools/cli/commands/mcp.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "--frozen",
+        "--no-dev",
+        "cwms-tools",
+        "mcp",
+        "serve",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "CWMS_TOOLS_API_ROOT": "${user_config.api_root}",
+        "CWMS_TOOLS_OPERATOR_EMAIL": "${user_config.operator_email}"
+      }
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ],
+    "runtimes": {
+      "python": ">=3.10"
+    }
+  },
+  "user_config": {
+    "api_root": {
+      "type": "string",
+      "title": "CWMS Data API root URL",
+      "description": "Base URL for the USACE CWMS Data API. Override only to target a mirror or test endpoint.",
+      "default": "https://cwms-data.usace.army.mil/cwms-data/",
+      "required": false
+    },
+    "operator_email": {
+      "type": "string",
+      "title": "Operator contact email",
+      "description": "Optional contact address advertised in the API User-Agent so the data provider can reach you. Leave blank to omit.",
+      "required": false
+    }
+  },
+  "tools": [
+    {
+      "name": "cwms_get_overview_section",
+      "description": "Read one section of the bundled CWMS orientation document."
+    },
+    {
+      "name": "cwms_search_places",
+      "description": "Resolve a CWMS place name to ranked location matches."
+    },
+    {
+      "name": "cwms_describe_place",
+      "description": "Read everything about one place in a single call."
+    },
+    {
+      "name": "cwms_list_parameters",
+      "description": "List the parameters published at a location, grouped by publisher."
+    },
+    {
+      "name": "cwms_browse_region",
+      "description": "Browse the locations published by one office, optionally filtered."
+    },
+    {
+      "name": "cwms_get_value",
+      "description": "Latest observation for a parameter at a place."
+    },
+    {
+      "name": "cwms_get_history",
+      "description": "Read raw observations across a bounded time window."
+    },
+    {
+      "name": "cwms_publishers_for_parameter",
+      "description": "List the publishers reporting a parameter, with explicit coverage."
+    }
+  ]
+}

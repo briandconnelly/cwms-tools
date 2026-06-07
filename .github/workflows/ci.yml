@@ -125,6 +125,9 @@ jobs:
           print(f"OK: tag, pyproject, and CHANGELOG all agree on {tag}")
           PY
 
+      - name: Manifest is in sync with pyproject and the live server
+        run: uv run python scripts/gen_manifest.py --check
+
   publish:
     name: Publish to PyPI (on tag)
     runs-on: ubuntu-latest
@@ -177,3 +180,13 @@ jobs:
           name: ${{ github.ref_name }}
           draft: false
           prerelease: false
+
+  bundle:
+    name: Build & attach MCPB bundle (on tag)
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write # mcpb.yml uploads the .mcpb asset to the release
+    uses: ./.github/workflows/mcpb.yml
+    with:
+      tag: ${{ github.ref_name }}

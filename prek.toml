@@ -57,6 +57,15 @@ pass_filenames = false
 files = "\\.py$"
 
 [[repos.hooks]]
+id = "gen-manifest"
+name = "MCPB manifest in sync (gen_manifest --check)"
+language = "system"
+entry = "uv run python scripts/gen_manifest.py --check"
+pass_filenames = false
+# Regenerate when the version, the server's tools, or the generator change.
+files = "^(pyproject\\.toml|manifest\\.json|scripts/gen_manifest\\.py|src/cwms_tools/mcp/.*\\.py)$"
+
+[[repos.hooks]]
 id = "pytest-fast"
 name = "pytest (fast subset)"
 language = "system"
