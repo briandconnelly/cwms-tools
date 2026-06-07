@@ -67,10 +67,7 @@ package = true
 # --------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
-# Kept at py310 deliberately: raising this to py311 triggers a codebase-wide
-# syntax modernization (UP017 datetime.UTC, UP042 StrEnum) that belongs in its
-# own focused PR, separate from dropping 3.10 support.
-target-version = "py310"
+target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]

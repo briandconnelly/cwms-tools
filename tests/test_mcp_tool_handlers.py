@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import cwms
 import pytest
@@ -218,7 +218,7 @@ def test_search_places_handler_rejects_negative_limit(configured) -> None:
 
 def test_get_value_handler(configured) -> None:
     server = build_server()
-    ts = datetime(2026, 5, 17, 18, tzinfo=timezone.utc)
+    ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_value(mocked, value=1648.21, ts=ts)
         result = _call(
@@ -303,7 +303,7 @@ def test_get_history_handler_rejects_bad_end_iso(configured) -> None:
 
 def test_get_history_handler_returns_values(configured) -> None:
     server = build_server()
-    ts = datetime(2026, 5, 17, 18, tzinfo=timezone.utc)
+    ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_value(mocked, value=1648.21, ts=ts)
         result = _call(

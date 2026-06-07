@@ -13,7 +13,7 @@ Two model tiers:
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,14 +26,14 @@ if TYPE_CHECKING:
 # --------------------------------------------------------------------------
 
 
-class Detail(str, Enum):
+class Detail(StrEnum):
     """Response density: 'summary' is the compact default; 'full' includes verbose upstream fields and per-point quality codes where applicable."""  # noqa: E501
 
     SUMMARY = "summary"
     FULL = "full"
 
 
-class Unit(str, Enum):
+class Unit(StrEnum):
     """Unit system. 'EN' is English (ft, cfs); 'SI' is metric (m, cms)."""
 
     EN = "EN"
@@ -360,7 +360,7 @@ class BrowseRegionResponse(BaseModel):
     source: SourceMeta
 
 
-class StatusClass(str, Enum):
+class StatusClass(StrEnum):
     """Inline status classification on `cwms_get_value` responses."""
 
     NOMINAL = "nominal"

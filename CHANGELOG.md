@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Modernized for the Python 3.11 floor: ruff `target-version` raised to `py311`;
+  the str-mixin enums (`ErrorCode`, `Detail`, `Unit`, `StatusClass`) converted to
+  `enum.StrEnum`; and `datetime.timezone.utc` replaced with `datetime.UTC`. No
+  agent-visible output or capability-fingerprint changes.
 - Release pipeline hardening: a tag-gated `verify` job fails unless the git tag,
   `pyproject` version, and latest CHANGELOG heading agree; PyPI publish uses
   `skip-existing` for safe reruns; least-privilege top-level `permissions`; and

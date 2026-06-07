@@ -10,7 +10,7 @@ chosen `effective_date` so the agent sees which level revision was used.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import cwms
 import pytest
@@ -76,7 +76,7 @@ def test_seasonal_level_routes_around_wrapper_via_direct_cda(configured) -> None
         result = levels.fetch_level_value(
             "FOSS.Elev.Inst.0.Rule Curve",
             office="SWT",
-            effective_date=datetime(2026, 5, 17, tzinfo=timezone.utc),
+            effective_date=datetime(2026, 5, 17, tzinfo=UTC),
             unit="EN",
         )
 
@@ -106,7 +106,7 @@ def test_constant_level_does_not_trigger_workaround(configured) -> None:
         result = levels.fetch_level_value(
             "FOSS.Elev.Inst.0.Spillway Crest",
             office="SWT",
-            effective_date=datetime(2026, 5, 17, tzinfo=timezone.utc),
+            effective_date=datetime(2026, 5, 17, tzinfo=UTC),
         )
 
     assert result["variety"] == "constant"

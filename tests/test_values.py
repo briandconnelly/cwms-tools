@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import cwms
 import pytest
@@ -78,7 +78,7 @@ def test_get_value_returns_latest_value_without_classification_by_default(
             re.compile(rf"{re.escape(_ts_url())}\?.*"),
             json=_ts_payload(
                 ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
-                points=[(datetime(2026, 5, 17, 18, tzinfo=timezone.utc), 1648.21)],
+                points=[(datetime(2026, 5, 17, 18, tzinfo=UTC), 1648.21)],
             ),
             status=200,
         )
@@ -106,7 +106,7 @@ def test_get_value_classifies_nominal_when_with_status_enabled(configured) -> No
             re.compile(rf"{re.escape(_ts_url())}\?.*"),
             json=_ts_payload(
                 ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
-                points=[(datetime(2026, 5, 17, 18, tzinfo=timezone.utc), 1648.21)],
+                points=[(datetime(2026, 5, 17, 18, tzinfo=UTC), 1648.21)],
             ),
             status=200,
         )
@@ -153,7 +153,7 @@ def test_get_value_classifies_flood_when_above_flood_stage(configured) -> None:
             re.compile(rf"{re.escape(_ts_url())}\?.*"),
             json=_ts_payload(
                 ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
-                points=[(datetime(2026, 5, 17, 18, tzinfo=timezone.utc), 1650.0)],
+                points=[(datetime(2026, 5, 17, 18, tzinfo=UTC), 1650.0)],
             ),
             status=200,
         )
@@ -182,9 +182,9 @@ def test_get_value_classifies_flood_when_above_flood_stage(configured) -> None:
 
 def test_get_history_returns_windowed_values(configured) -> None:
     pts = [
-        (datetime(2026, 5, 17, 18, 0, tzinfo=timezone.utc), 1648.0),
-        (datetime(2026, 5, 17, 18, 15, tzinfo=timezone.utc), 1648.2),
-        (datetime(2026, 5, 17, 18, 30, tzinfo=timezone.utc), 1648.5),
+        (datetime(2026, 5, 17, 18, 0, tzinfo=UTC), 1648.0),
+        (datetime(2026, 5, 17, 18, 15, tzinfo=UTC), 1648.2),
+        (datetime(2026, 5, 17, 18, 30, tzinfo=UTC), 1648.5),
     ]
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
@@ -198,8 +198,8 @@ def test_get_history_returns_windowed_values(configured) -> None:
             "SWT",
             "FOSS",
             "Elev",
-            begin=datetime(2026, 5, 17, 17, tzinfo=timezone.utc),
-            end=datetime(2026, 5, 17, 19, tzinfo=timezone.utc),
+            begin=datetime(2026, 5, 17, 17, tzinfo=UTC),
+            end=datetime(2026, 5, 17, 19, tzinfo=UTC),
         )
 
     assert payload["ts_id"] == "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"
@@ -229,12 +229,12 @@ def test_fetch_window_emits_next_begin_when_truncated(monkeypatch):
     out = timeseries.fetch_window(
         "t",
         office="NWDM",
-        begin=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        end=datetime(2099, 1, 1, tzinfo=timezone.utc),  # far future forces truncation
+        begin=datetime(2026, 1, 1, tzinfo=UTC),
+        end=datetime(2099, 1, 1, tzinfo=UTC),  # far future forces truncation
         unit="EN",
     )
     assert out["truncated"] is True
-    expected = datetime.fromtimestamp((last_ms + 1) / 1000, tz=timezone.utc)
+    expected = datetime.fromtimestamp((last_ms + 1) / 1000, tz=UTC)
     assert out["next_begin"] == expected.isoformat().replace("+00:00", "Z")
 
 
@@ -250,8 +250,8 @@ def test_fetch_window_next_begin_none_when_not_truncated(monkeypatch):
     out = timeseries.fetch_window(
         "t",
         office="NWDM",
-        begin=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        end=datetime(2026, 1, 2, tzinfo=timezone.utc),
+        begin=datetime(2026, 1, 1, tzinfo=UTC),
+        end=datetime(2026, 1, 2, tzinfo=UTC),
         unit="EN",
     )
     assert out["truncated"] is False

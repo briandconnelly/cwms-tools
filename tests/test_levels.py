@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import cwms
 import pytest
@@ -87,7 +87,7 @@ def test_resolve_applicable_level_picks_latest_levelDate(configured) -> None:
             "SWT",
             location="FOSS",
             parameter="Elev",
-            at=datetime(2026, 5, 17, tzinfo=timezone.utc),
+            at=datetime(2026, 5, 17, tzinfo=UTC),
         )
     assert row is not None
     assert row["level-date"] == "2026-01-01T00:00:00Z"
@@ -110,7 +110,7 @@ def test_resolve_applicable_level_honors_expirationDate(configured) -> None:
             "SWT",
             location="FOSS",
             parameter="Elev",
-            at=datetime(2026, 5, 17, tzinfo=timezone.utc),
+            at=datetime(2026, 5, 17, tzinfo=UTC),
         )
     # Expiration was before our `at`, so no applicable row.
     assert row is None
@@ -128,7 +128,7 @@ def test_fetch_level_value_constant_short_circuits(configured) -> None:
         result = levels.fetch_level_value(
             "FOSS.Elev.Inst.0.Spillway Crest",
             office="SWT",
-            effective_date=datetime(2026, 5, 17, tzinfo=timezone.utc),
+            effective_date=datetime(2026, 5, 17, tzinfo=UTC),
         )
     assert result["variety"] == "constant"
     assert result["value"] == 1675.0
