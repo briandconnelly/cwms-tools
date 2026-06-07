@@ -250,8 +250,10 @@ The test suite uses unit tests and mocked CDA responses. Live CDA integration
 tests are marked `integration` and are skipped unless explicitly selected.
 
 Before opening a substantial PR, please open an issue to discuss the intended
-change. The package is still pre-release, and the CLI/MCP schema contract is
-the main compatibility surface.
+change. The package is published on PyPI but still pre-1.0, so the CLI/MCP
+schema contract may change between minor releases — it is the main
+compatibility surface, and the capability fingerprint
+(`cwms-tools fingerprint`) moves whenever it changes.
 
 ## License
 
