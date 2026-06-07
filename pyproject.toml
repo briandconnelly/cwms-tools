@@ -3,7 +3,7 @@ name = "cwms-tools"
 version = "0.3.0"
 description = "Agent-friendly tools (MCP server and CLI) for the USACE Corps Water Management System (CWMS) Data API."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
@@ -16,10 +16,10 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Hydrology",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -67,6 +67,9 @@ package = true
 # --------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
+# Kept at py310 deliberately: raising this to py311 triggers a codebase-wide
+# syntax modernization (UP017 datetime.UTC, UP042 StrEnum) that belongs in its
+# own focused PR, separate from dropping 3.10 support.
 target-version = "py310"
 src = ["src", "tests"]
 
