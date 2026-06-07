@@ -9,11 +9,14 @@ A stable SHA-256 over the inputs documented in the plan's §Discovery contract:
 5. The error-code enum
 6. The bundled cwms-overview.md SHA-256
 7. The configured CDA API root
+8. The CLI command/flag/exit-code contract
 
 Exposed as `fingerprint` (hex) and `fingerprint_scope: "schema-contract"`.
 
 Tool and resource registries are injected at call time so this module doesn't
-need to import the FastMCP server.
+need to import the FastMCP server.  The CLI contract is likewise injected by
+the caller (``mcp.contract.canonical_fingerprint``) so this module stays a
+pure hash over whatever surfaces it is handed — no CLI or MCP imports here.
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ def compute(
     *,
     tools: dict[str, dict[str, Any]] | None = None,
     resources: list[dict[str, Any]] | None = None,
+    cli_contract: dict[str, Any] | None = None,
 ) -> str:
     """Compute the capability fingerprint over the current server surface.
 
@@ -58,12 +62,16 @@ def compute(
             (useful for tests that just want the non-surface inputs).
         resources: List of resource records (URI pattern, mime, metadata). When
             omitted, an empty surface is fingerprinted.
+        cli_contract: Structured CLI contract (commands, flags, exit codes) as
+            returned by ``cli_contract_payload()``.  When omitted, an empty dict
+            is used so tests that only care about other inputs are not affected.
     """
     payload = {
         "cwms_tools": _cwms_tools_version(),
         "cwms_python": _cwms_python_version(),
         "tools": _sorted_tools(tools or {}),
         "resources": _sorted_resources(resources or []),
+        "cli_contract": cli_contract or {},
         "error_codes": sorted(c.value for c in ErrorCode),
         "overview_sha256": overview.document_sha256(),
         "session": session_fingerprint(),
