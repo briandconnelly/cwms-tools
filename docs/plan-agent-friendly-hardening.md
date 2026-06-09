@@ -9,9 +9,9 @@ Two change classes:
 
 ## Sequencing (matters)
 1. Commit file changes on branch → open PR → merge to `main` (solo: green PR self-merged).
-   - Includes the new `ci-success` aggregate job so a stable required-check context exists on `main`.
-2. Verify `ci-success` check appears on a `main` run.
-3. Create F1 ruleset requiring `ci-success` (creating it earlier would require a context that doesn't exist yet → permanent pending).
+   - Includes the new `ci-success` aggregate job (check-run name **`CI success`**) so a stable required-check context exists on `main`.
+2. Verify the **`CI success`** check (produced by the `ci-success` job) appears on a `main` run.
+3. Create F1 ruleset requiring the **`CI success`** context — the job's check-run `name:`, NOT the job id `ci-success` (required checks match the check-run name; using the job id would require a context that never reports → permanent pending).
 4. Apply F3 enablement, F6 CodeQL, F12 labels (order-independent).
 
 ---
@@ -23,7 +23,7 @@ Create via `POST /repos/briandconnelly/cwms-tools/rulesets`:
 - `bypass_actors: []` (empty — interim; maintainer merges green PRs with reviews 0, no bypass needed).
 - Rules:
   - `pull_request` with `required_approving_review_count: 0`, `dismiss_stale_reviews_on_push: true`, `require_code_owner_review: false`, `require_last_push_approval: false`, `required_review_thread_resolution: false` (Codex: rulesets API marks this required within `pull_request` params — include it explicitly).
-  - `required_status_checks`: strict (`strict_required_status_checks_policy: true`), required check = **`ci-success`** (single aggregate context; integration_id omitted/GitHub Actions).
+  - `required_status_checks`: strict (`strict_required_status_checks_policy: true`), required context = **`CI success`** (the `ci-success` job's check-run `name:`, NOT the job id; single aggregate context; integration_id omitted/GitHub Actions).
   - `required_linear_history`.
   - `non_fast_forward` (block force-push).
   - `deletion` (block branch deletion).
@@ -74,7 +74,7 @@ Resolve SHAs via `gh api repos/<owner>/<repo>/commits/<tag>` (or the tags/refs A
   - Commit format: conventional commits (matches history).
   - PR/review expectations; CHANGELOG entry required; tag↔pyproject↔CHANGELOG must agree (already CI-enforced).
   - Release flow: tag on merge to main → CI publishes.
-  - Keep the `@cwms-overview.md` doc pointer.
+  - Keep the CWMS overview pointer, corrected to its real path: `@src/cwms_tools/data/cwms-overview.md`.
 - Replace `CLAUDE.md` body with a single line: `@AGENTS.md`.
 - Mirror question for Codex: `.agents/` tree also exists — confirm we don't need a parallel pointer there (it holds skills, not instructions).
 
