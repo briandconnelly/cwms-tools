@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agent-friendly GitHub hardening (no runtime changes):
+  - `AGENTS.md` is now the canonical instructions file; `CLAUDE.md` is a thin
+    `@AGENTS.md` pointer.
+  - `.github/dependabot.yml` for `uv` and `github-actions` weekly updates.
+  - `.gitattributes` normalizes line endings (`* text=auto eol=lf`).
+  - CI gains a `ci-success` aggregate gate (the single required status check) and a
+    PR-only `dependency-review` job.
+  - All third-party GitHub Actions are pinned to full commit SHAs.
 - MCPB bundle packaging: `manifest.json` generated from `pyproject.toml` and the
   live server by `scripts/gen_manifest.py`, packed into an installable `.mcpb`
   on release (`.github/workflows/mcpb.yml`). Manifest staleness is guarded by a

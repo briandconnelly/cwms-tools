@@ -27,17 +27,17 @@ jobs:
     permissions:
       contents: write # upload the .mcpb asset to the release
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ inputs.tag }} # build the bundle from the tagged commit
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: "22"
 
@@ -80,7 +80,7 @@ jobs:
         run: gh release upload "$TAG" "$BUNDLE" --clobber
 
       - name: Upload bundle as workflow artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: cwms-tools-mcpb
           path: ${{ env.BUNDLE }}
