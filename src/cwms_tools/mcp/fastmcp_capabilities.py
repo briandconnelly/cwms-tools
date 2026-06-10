@@ -3,9 +3,10 @@
 The plan committed to a set of FastMCP 3 capabilities (outputSchema,
 readOnlyHint, instructions, URI template query params, dual transports). This
 module records which assumptions held and which need a fallback. Findings are
-also included in the capability fingerprint so changes are observable.
+folded into the capability fingerprint via canonical_fingerprint's
+runtime_baseline input so changes are observable.
 
-Verified against fastmcp == 3.3.1 on 2026-05-17.
+Verified against fastmcp == 3.4.2 on 2026-06-10.
 """
 
 from __future__ import annotations
@@ -28,11 +29,22 @@ VERIFIED: Final[dict[str, str]] = {
     "transport_streamable_http": "transport='streamable-http' is supported.",
 }
 
-#: Capabilities that needed a documented fallback. Empty in v0.1.0.
-FALLBACKS: Final[dict[str, str]] = {}
+#: Capabilities that needed a documented fallback.
+FALLBACKS: Final[dict[str, str]] = {
+    "tool_error_iserror": (
+        "raise ToolError(...) makes FastMCP's Python call_tool() raise rather "
+        "than return a result; on the wire the lowlevel layer converts it to "
+        "isError:true with a plain text message only — no structuredContent can "
+        "ride along. Returning ToolResult(is_error=True, content=..., "
+        "structured_content=...) does produce protocol isError:true with "
+        "structuredContent (new in 3.4.x). Migration off the in-band {ok:false} "
+        "envelope is tracked in issue #19; the in-band envelope is retained "
+        "for now."
+    ),
+}
 
 #: Pinned version against which VERIFIED/FALLBACKS were measured.
-VERIFIED_AGAINST: Final[str] = "3.3.1"
+VERIFIED_AGAINST: Final[str] = "3.4.2"
 
 
 def installed_fastmcp_version() -> str:

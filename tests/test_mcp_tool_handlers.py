@@ -185,6 +185,7 @@ def test_browse_region_handler_rejects_partial_bbox(configured) -> None:
     assert err["hint"] == "Pass all four bbox edges or omit bbox entirely."
     assert err["request_id"]
     assert "source" in err
+    assert "protocol_request_id" not in err  # absent outside a real client session
 
 
 def test_browse_region_handler_returns_ghost_office_for_nwo(configured) -> None:
@@ -319,9 +320,8 @@ def test_get_history_handler_returns_values(configured) -> None:
         )
     payload = _branch(result.structured_content)
     assert payload["value_count"] == 1
-    # In summary mode quality codes are surfaced as null; the field stays in
-    # the schema so a single parser handles both detail levels.
-    assert payload["values"][0]["quality"] is None
+    # In summary mode quality codes are None and are stripped by CompactDumpMixin.
+    assert "quality" not in payload["values"][0]
 
 
 def test_publishers_for_parameter_handler(configured) -> None:
@@ -394,3 +394,53 @@ def test_error_responses_carry_source_fingerprint(configured, tool, args) -> Non
     assert payload["ok"] is False
     assert payload["error"]["source"]["fingerprint"] is not None
     assert len(payload["error"]["source"]["fingerprint"]) == 64
+
+
+def test_error_envelope_carries_protocol_request_id(configured) -> None:
+    """protocol_request_id is set when the tool runs inside a real FastMCP request context.
+
+    Direct server.call_tool() has no active context, so we drive the call through
+    an in-memory fastmcp.Client to establish a real JSON-RPC session.  The Client
+    supplies the JSON-RPC request id (a string like "1") that the server echoes back.
+    """
+    from fastmcp import Client
+
+    server = build_server()
+
+    async def _go():
+        async with Client(server) as client:
+            return await client.call_tool(
+                "cwms_get_overview_section", {"section_id": "no-such-section"}
+            )
+
+    result = asyncio.run(_go())
+    # Client returns a CallToolResult; extract structured_content directly.
+    payload = result.structured_content or {}
+    payload = payload.get("result", payload)
+    assert payload["ok"] is False
+    # Additive field: present because the in-memory Client establishes a real
+    # request context so get_context().request_id is available.
+    assert payload["error"].get("protocol_request_id")
+
+
+def test_semantic_nulls_survive_fastmcp_wire_serialization() -> None:
+    import pydantic_core
+
+    from cwms_tools.core.models import SourceMeta, StatusClass, ValueWithContextResponse
+
+    resp = ValueWithContextResponse(
+        ts_id="X.Elev.Inst.1Hour.0.Best",
+        office_id="SWT",
+        location="X",
+        parameter="Elev",
+        publisher=None,
+        value=None,
+        unit="ft",
+        timestamp=None,
+        status_class=StatusClass.UNKNOWN,
+        thresholds_active=[],
+        source=SourceMeta(fingerprint="f" * 64),
+    )
+    wire = pydantic_core.to_jsonable_python(resp)
+    assert wire["value"] is None and wire["timestamp"] is None
+    assert "publisher" not in wire

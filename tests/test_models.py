@@ -193,3 +193,73 @@ def test_error_ref_from_error_copies_the_envelope() -> None:
     assert ref.error is not err.envelope
     ref.error.source.fingerprint = "f" * 64
     assert err.envelope.source.fingerprint is None
+
+
+def test_search_response_drops_null_fields_on_dump() -> None:
+    from cwms_tools.core.models import SearchPlacesResponse, SourceMeta
+
+    resp = SearchPlacesResponse(
+        query="x",
+        results=[],
+        source=SourceMeta(fingerprint="f" * 64),
+    )
+    dumped = resp.model_dump(mode="json")
+    assert "parameter" not in dumped
+    assert "nearby_non_matching_count" not in dumped
+    assert "next_cursor" not in dumped
+    assert dumped["query"] == "x"  # non-null fields stay
+
+
+def test_value_response_keeps_semantic_nulls() -> None:
+    from cwms_tools.core.models import SourceMeta, StatusClass, ValueWithContextResponse
+
+    resp = ValueWithContextResponse(
+        ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+        office_id="SWT",
+        location="FOSS",
+        parameter="Elev",
+        publisher=None,
+        value=None,
+        unit="ft",
+        timestamp=None,
+        status_class=StatusClass.UNKNOWN,
+        thresholds_active=[],
+        source=SourceMeta(fingerprint="f" * 64),
+    )
+    dumped = resp.model_dump(mode="json")
+    assert "value" in dumped and dumped["value"] is None  # null means "no observation"
+    assert "timestamp" in dumped and dumped["timestamp"] is None
+    assert "publisher" not in dumped  # non-semantic null is stripped
+
+
+def test_serialization_mode_schema_keeps_fields() -> None:
+    """Guard the __get_pydantic_json_schema__ override in core/_compact.py: a
+    pydantic upgrade that bypasses it collapses every tool outputSchema to
+    {additionalProperties: true} with no properties."""
+    from pydantic import TypeAdapter
+
+    from cwms_tools.core.models import SearchPlacesResponse
+
+    schema = TypeAdapter(SearchPlacesResponse).json_schema(mode="serialization")
+    assert "query" in schema["properties"]
+    assert "results" in schema["properties"]
+
+
+def test_compact_models_round_trip() -> None:
+    from cwms_tools.core.models import DescribePlaceResponse, SourceMeta
+
+    resp = DescribePlaceResponse(
+        office_id="SWT",
+        name="FOSS",
+        location={},
+        project=None,
+        partial=False,
+        partial_reasons=[],
+        parameters=[],
+        parameter_count=0,
+        publishers=[],
+        ts_ids=[],
+        last_data_timestamp=None,
+        source=SourceMeta(fingerprint="f" * 64),
+    )
+    assert DescribePlaceResponse.model_validate(resp.model_dump(mode="json"))

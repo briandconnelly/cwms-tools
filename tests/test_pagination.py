@@ -99,8 +99,49 @@ def test_validate_continuation_rejects_bool_offset_and_accepts_zero():
     )
 
 
+def test_decode_cursor_echoes_offending_token() -> None:
+    from cwms_tools.core.errors import CwmsToolsError
+    from cwms_tools.core.pagination import decode_cursor
+
+    with pytest.raises(CwmsToolsError) as exc_info:
+        decode_cursor("garbage-cursor")
+    env = exc_info.value.envelope
+    assert env.field == "cursor"
+    assert env.offending_value == "garbage-cursor"
+
+
+def test_validation_failures_echo_decoded_context() -> None:
+    from cwms_tools.core.errors import CwmsToolsError
+    from cwms_tools.core.pagination import validate_continuation
+
+    with pytest.raises(CwmsToolsError) as exc_info:
+        validate_continuation({"kind": "browse_region", "req": "x"}, kind="search_places", req="x")
+    assert exc_info.value.envelope.offending_value == "browse_region"
+
+
 def test_coerce_offices_rejects_overlong_office_strings():
     bad = {"offices": ["A" * (pagination.MAX_CURSOR_OFFICE_LEN + 1)]}
     with pytest.raises(CwmsToolsError) as exc:
         pagination.coerce_offices(bad)
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_invalid_cursor_echo_is_truncated() -> None:
+    from cwms_tools.core.errors import CwmsToolsError
+    from cwms_tools.core.pagination import (
+        CURSOR_ECHO_MAX,
+        decode_cursor,
+        encode_cursor,
+        validate_continuation,
+    )
+
+    with pytest.raises(CwmsToolsError) as exc_info:
+        decode_cursor("x" * 500)
+    ov1 = exc_info.value.envelope.offending_value
+    assert isinstance(ov1, str) and len(ov1) <= CURSOR_ECHO_MAX
+
+    forged = {"v": 1, "kind": "A" * 5000, "req": "x", "off": 0}
+    with pytest.raises(CwmsToolsError) as exc_info:
+        validate_continuation(decode_cursor(encode_cursor(forged)), kind="search_places", req="x")
+    ov2 = exc_info.value.envelope.offending_value
+    assert isinstance(ov2, str) and len(ov2) <= CURSOR_ECHO_MAX

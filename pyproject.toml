@@ -25,7 +25,7 @@ classifiers = [
 ]
 dependencies = [
     "cwms-python>=1.0.7",
-    "fastmcp>=3",
+    "fastmcp>=3.4.2",
     "typer>=0.15",
     "pydantic>=2",
     "platformdirs>=4",

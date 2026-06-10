@@ -16,9 +16,15 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cwms_tools.core._compact import CompactDumpMixin
+
 
 class ErrorCode(StrEnum):
-    """All error codes the server can emit. Part of the capability fingerprint."""
+    """All error codes the server can emit. Part of the capability fingerprint.
+
+    Codes not yet wired to an emission path are advertised as reserved — see
+    RESERVED_ERROR_CODES in cwms_tools.mcp.resources.
+    """
 
     GHOST_LOCATION = "ghost_location"
     GHOST_OFFICE = "ghost_office"
@@ -29,8 +35,6 @@ class ErrorCode(StrEnum):
     RATE_LIMITED = "rate_limited"
     UPSTREAM_ERROR = "upstream_error"
     WRAPPER_BUG = "wrapper_bug"
-    SESSION_UNCONFIGURED = "session_unconfigured"
-    TRUNCATED = "truncated"
     USAGE_ERROR = "usage_error"
 
 
@@ -45,9 +49,7 @@ _EXIT_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.INVALID_FIELD: 2,
     ErrorCode.RATE_LIMITED: 6,
     ErrorCode.UPSTREAM_ERROR: 9,
-    ErrorCode.WRAPPER_BUG: 11,
-    ErrorCode.SESSION_UNCONFIGURED: 4,
-    ErrorCode.TRUNCATED: 1,
+    ErrorCode.WRAPPER_BUG: 11,  # reserved (RESERVED_ERROR_CODES); keeps exit-code contract stable
 }
 
 
@@ -68,7 +70,7 @@ class RepairHint(BaseModel):
     )
 
 
-class SourceInfo(BaseModel):
+class SourceInfo(CompactDumpMixin, BaseModel):
     """Provenance: which endpoint(s) were called, fingerprint, any active workaround."""
 
     model_config = ConfigDict(extra="forbid")
@@ -78,7 +80,7 @@ class SourceInfo(BaseModel):
     workaround: str | None = None
 
 
-class ErrorEnvelope(BaseModel):
+class ErrorEnvelope(CompactDumpMixin, BaseModel):
     """The structured error payload returned by every tool and CLI command on failure.
 
     Wire shape matches the plan's §"Discovery & error contracts" exactly so a single
@@ -96,6 +98,14 @@ class ErrorEnvelope(BaseModel):
     retryable: bool = False
     retry_after_ms: int | None = None
     request_id: str = Field(default_factory=lambda: uuid4().hex)
+    protocol_request_id: str | None = Field(
+        default=None,
+        description=(
+            "The JSON-RPC request id of the tools/call that produced this error, "
+            "when the server runtime exposes it. Use to correlate with client-side "
+            "logs; `request_id` remains the server-generated correlation id."
+        ),
+    )
     endpoints_called: list[str] = Field(default_factory=list)
     source: SourceInfo = Field(default_factory=SourceInfo)
 

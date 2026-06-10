@@ -10,6 +10,7 @@ A stable SHA-256 over the inputs documented in the plan's §Discovery contract:
 6. The bundled cwms-overview.md SHA-256
 7. The configured CDA API root
 8. The CLI command/flag/exit-code contract
+9. The FastMCP runtime baseline (verified_against version, VERIFIED/FALLBACKS keys)
 
 Exposed as `fingerprint` (hex) and `fingerprint_scope: "schema-contract"`.
 
@@ -53,6 +54,7 @@ def compute(
     tools: dict[str, dict[str, Any]] | None = None,
     resources: list[dict[str, Any]] | None = None,
     cli_contract: dict[str, Any] | None = None,
+    runtime_baseline: dict[str, Any] | None = None,
 ) -> str:
     """Compute the capability fingerprint over the current server surface.
 
@@ -65,6 +67,10 @@ def compute(
         cli_contract: Structured CLI contract (commands, flags, exit codes) as
             returned by ``cli_contract_payload()``.  When omitted, an empty dict
             is used so tests that only care about other inputs are not affected.
+        runtime_baseline: FastMCP capability baseline (verified_against version,
+            sorted VERIFIED/FALLBACKS keys). When omitted, an empty dict is used.
+            Core never imports FastMCP — the caller (mcp.contract) injects this
+            as a plain dict.
     """
     payload = {
         "cwms_tools": _cwms_tools_version(),
@@ -72,6 +78,7 @@ def compute(
         "tools": _sorted_tools(tools or {}),
         "resources": _sorted_resources(resources or []),
         "cli_contract": cli_contract or {},
+        "runtime_baseline": runtime_baseline or {},
         "error_codes": sorted(c.value for c in ErrorCode),
         "overview_sha256": overview.document_sha256(),
         "session": session_fingerprint(),

@@ -27,6 +27,17 @@ MAX_CURSOR_OFFICES = 200
 #: practice; this bounds a forged cursor's embedded strings.
 MAX_CURSOR_OFFICE_LEN = 32
 
+#: Echo at most this many characters of a bad cursor back to the agent.
+CURSOR_ECHO_MAX = 64
+
+
+def _echo(value: Any) -> str:
+    """Truncate any cursor-derived value for safe echo in an error payload.
+
+    Forged tokens can pass the version/dict check yet embed huge strings in
+    any decoded field, so every echo is stringified and capped."""
+    return str(value)[:CURSOR_ECHO_MAX]
+
 
 def request_hash(parts: dict[str, Any]) -> str:
     """Stable, order-independent short hash of the normalized request."""
@@ -46,17 +57,29 @@ def decode_cursor(token: str) -> dict[str, Any]:
         raw = base64.urlsafe_b64decode(token + pad)
         data = json.loads(raw)
     except (ValueError, TypeError) as exc:
-        raise invalid_cursor(f"cursor is not a valid token: {exc}") from exc
+        raise invalid_cursor(
+            f"cursor is not a valid token: {exc}",
+            offending_value=token[:CURSOR_ECHO_MAX],
+        ) from exc
     if not isinstance(data, dict) or data.get("v") != CURSOR_VERSION:
-        raise invalid_cursor("cursor version is unsupported; restart without a cursor")
+        raise invalid_cursor(
+            "cursor version is unsupported; restart without a cursor",
+            offending_value=token[:CURSOR_ECHO_MAX],
+        )
     return data
 
 
-def invalid_cursor(message: str, *, repair: RepairHint | None = None) -> CwmsToolsError:
+def invalid_cursor(
+    message: str,
+    *,
+    offending_value: Any | None = None,
+    repair: RepairHint | None = None,
+) -> CwmsToolsError:
     return CwmsToolsError.of(
         ErrorCode.INVALID_CURSOR,
         message,
         field="cursor",
+        offending_value=offending_value,
         hint="Re-issue the original call without `cursor` to restart pagination.",
         repair=repair,
     )
@@ -70,19 +93,31 @@ def validate_continuation(cursor: dict[str, Any], *, kind: str, req: str) -> int
     cursor fail before any upstream fan-out.
     """
     if cursor.get("kind") != kind:
-        raise invalid_cursor("cursor was issued for a different operation")
+        raise invalid_cursor(
+            "cursor was issued for a different operation",
+            offending_value=_echo(cursor.get("kind")),
+        )
     if cursor.get("req") != req:
-        raise invalid_cursor("cursor does not match the current query/filters")
+        raise invalid_cursor(
+            "cursor does not match the current query/filters",
+            offending_value=_echo(cursor.get("req")),
+        )
     offset = cursor.get("off")
     if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
-        raise invalid_cursor("cursor offset is malformed")
+        raise invalid_cursor(
+            "cursor offset is malformed",
+            offending_value=_echo(cursor.get("off")),
+        )
     return offset
 
 
 def ensure_total(cursor: dict[str, Any], *, total: int) -> None:
     """Post-assembly check: the full result set must match the cursor's snapshot."""
     if cursor.get("total") != total:
-        raise invalid_cursor("result set changed since the cursor was issued (catalog shifted)")
+        raise invalid_cursor(
+            "result set changed since the cursor was issued (catalog shifted)",
+            offending_value=_echo(cursor.get("total")),
+        )
 
 
 def coerce_offices(cursor: dict[str, Any]) -> list[str]:
@@ -97,11 +132,15 @@ def coerce_offices(cursor: dict[str, Any]) -> list[str]:
         or len(offices) > MAX_CURSOR_OFFICES
         or not all(isinstance(o, str) and len(o) <= MAX_CURSOR_OFFICE_LEN for o in offices)
     ):
-        raise invalid_cursor("cursor office set is malformed")
+        raise invalid_cursor(
+            "cursor office set is malformed",
+            offending_value="<malformed offices payload>",
+        )
     return cast("list[str]", list(offices))
 
 
 __all__ = [
+    "CURSOR_ECHO_MAX",
     "CURSOR_VERSION",
     "MAX_CURSOR_OFFICES",
     "MAX_CURSOR_OFFICE_LEN",

@@ -14,10 +14,11 @@ Two model tiers:
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cwms_tools.core._compact import CompactDumpMixin
 from cwms_tools.core.errors import (
     ErrorEnvelope,  # noqa: TC001 — runtime import: Pydantic resolves ErrorRef.error annotation at class-build time
 )
@@ -44,7 +45,7 @@ class Unit(StrEnum):
     SI = "SI"
 
 
-class SourceMeta(BaseModel):
+class SourceMeta(CompactDumpMixin, BaseModel):
     """Provenance attached to every successful tool response."""
 
     model_config = ConfigDict(extra="forbid")
@@ -65,7 +66,7 @@ class SourceMeta(BaseModel):
             "Upstream HTTP status code from a recovered partial-success path. "
             "Set on responses where a sub-call returned a non-2xx that we "
             "handled into a partial response (e.g. project lookup 404 for a "
-            "non-project location). Null on normal success paths."
+            "non-project location). Omitted on normal success paths."
         ),
     )
 
@@ -167,7 +168,7 @@ class TsIdParts(BaseModel):
 # --------------------------------------------------------------------------
 
 
-class PlaceSummary(BaseModel):
+class PlaceSummary(CompactDumpMixin, BaseModel):
     """One result from `cwms_search_places` / `cwms_browse_region`."""
 
     model_config = ConfigDict(extra="allow")
@@ -200,7 +201,7 @@ class PlaceSummary(BaseModel):
     )
 
 
-class SearchPlacesResponse(BaseModel):
+class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_search_places`."""
 
     model_config = ConfigDict(extra="allow")
@@ -221,7 +222,7 @@ class SearchPlacesResponse(BaseModel):
         default=None,
         description=(
             "When `parameter` is set, the number of data-bearing rows dropped "
-            "because they don't publish that parameter. Null otherwise."
+            "because they don't publish that parameter. Omitted otherwise."
         ),
     )
     partial: bool = False
@@ -246,13 +247,14 @@ class SearchPlacesResponse(BaseModel):
     next_cursor: str | None = Field(
         default=None,
         description=(
-            "Opaque cursor for the next page. Pass back as `cursor`. Null when has_more is false."
+            "Opaque cursor for the next page. Pass back as `cursor`. "
+            "Omitted when has_more is false."
         ),
     )
     source: SourceMeta
 
 
-class PublisherFingerprint(BaseModel):
+class PublisherFingerprint(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="allow")
 
     publisher: str
@@ -261,7 +263,7 @@ class PublisherFingerprint(BaseModel):
     parameters: list[str]
 
 
-class DescribePlaceResponse(BaseModel):
+class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_describe_place`."""
 
     model_config = ConfigDict(extra="allow")
@@ -270,18 +272,18 @@ class DescribePlaceResponse(BaseModel):
     office_id: str
     name: str
     location: dict[str, Any]
-    project: dict[str, Any] | None
+    project: dict[str, Any] | None = None
     partial: bool
     partial_reasons: list[str]
     parameters: list[str]
     parameter_count: int
     publishers: list[PublisherFingerprint]
     ts_ids: list[str]
-    last_data_timestamp: str | None
+    last_data_timestamp: str | None = None
     source: SourceMeta
 
 
-class PublisherAtPlace(BaseModel):
+class PublisherAtPlace(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="allow")
 
     publisher: str
@@ -290,7 +292,7 @@ class PublisherAtPlace(BaseModel):
     ts_count: int
 
 
-class ListParametersResponse(BaseModel):
+class ListParametersResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_list_parameters`."""
 
     model_config = ConfigDict(extra="allow")
@@ -301,27 +303,27 @@ class ListParametersResponse(BaseModel):
     ts_count: int
     by_publisher: list[PublisherAtPlace]
     all_parameters: list[str]
-    last_data_timestamp: str | None
+    last_data_timestamp: str | None = None
     data_at: list[str] | None = Field(
         default=None,
         description=(
             "Repair hint. Names of co-located siblings that publish data when "
-            "this location is barren (ts_count == 0). Null when the location is "
+            "this location is barren (ts_count == 0). Omitted when the location is "
             "data-bearing (no repair needed)."
         ),
     )
     source: SourceMeta
 
 
-class BrowseRegionResponse(BaseModel):
+class BrowseRegionResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_browse_region`."""
 
     model_config = ConfigDict(extra="allow")
 
     ok: Literal[True] = True
     office: str
-    bbox: dict[str, float] | None
-    state: str | None
+    bbox: dict[str, float] | None = None
+    state: str | None = None
     result_count: int = Field(
         default=0,
         description="Number of rows actually returned in `results` (after the `limit` cap).",
@@ -358,7 +360,8 @@ class BrowseRegionResponse(BaseModel):
     next_cursor: str | None = Field(
         default=None,
         description=(
-            "Opaque cursor for the next page. Pass back as `cursor`. Null when has_more is false."
+            "Opaque cursor for the next page. Pass back as `cursor`. "
+            "Omitted when has_more is false."
         ),
     )
     results: list[PlaceSummary]
@@ -375,7 +378,7 @@ class StatusClass(StrEnum):
     UNKNOWN = "unknown"
 
 
-class ActiveThreshold(BaseModel):
+class ActiveThreshold(CompactDumpMixin, BaseModel):
     """One applicable threshold and the relation of the current value to it."""
 
     model_config = ConfigDict(extra="allow")
@@ -387,9 +390,10 @@ class ActiveThreshold(BaseModel):
     delta: float | None = None
 
 
-class ValueWithContextResponse(BaseModel):
+class ValueWithContextResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_get_value`."""
 
+    _keep_null: ClassVar[frozenset[str]] = frozenset({"value", "timestamp"})
     model_config = ConfigDict(extra="allow")
 
     ok: Literal[True] = True
@@ -397,10 +401,10 @@ class ValueWithContextResponse(BaseModel):
     office_id: str
     location: str
     parameter: str
-    publisher: str | None
-    value: float | None
+    publisher: str | None = None
+    value: float | None = None
     unit: str
-    timestamp: str | None
+    timestamp: str | None = None
     status_class: StatusClass
     thresholds_active: list[ActiveThreshold]
     truncated: bool = False
@@ -408,15 +412,16 @@ class ValueWithContextResponse(BaseModel):
     source: SourceMeta
 
 
-class HistoryPoint(BaseModel):
+class HistoryPoint(CompactDumpMixin, BaseModel):
+    _keep_null: ClassVar[frozenset[str]] = frozenset({"value", "timestamp"})
     model_config = ConfigDict(extra="allow")
 
-    timestamp: str | None
-    value: float | None
+    timestamp: str | None = None
+    value: float | None = None
     quality: int | None = None
 
 
-class HistoryResponse(BaseModel):
+class HistoryResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_get_history`."""
 
     model_config = ConfigDict(extra="allow")
@@ -426,7 +431,7 @@ class HistoryResponse(BaseModel):
     office_id: str
     location: str
     parameter: str
-    publisher: str | None
+    publisher: str | None = None
     unit: str
     begin: str
     end: str
@@ -438,13 +443,14 @@ class HistoryResponse(BaseModel):
         default=None,
         description=(
             "When `truncated` is true, the RFC3339 timestamp to use as `begin` on the "
-            "next request to continue the window with no duplicate/skipped point. Null otherwise."
+            "next request to continue the window with no duplicate/skipped point. "
+            "Omitted otherwise."
         ),
     )
     source: SourceMeta
 
 
-class PublisherCoverage(BaseModel):
+class PublisherCoverage(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="allow")
 
     publisher: str
@@ -453,7 +459,7 @@ class PublisherCoverage(BaseModel):
     freshness: str | None = None
 
 
-class PublishersCoverage(BaseModel):
+class PublishersCoverage(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="allow")
 
     offices_requested: list[str]
@@ -476,7 +482,7 @@ class PublishersCoverage(BaseModel):
     complete: bool
 
 
-class PublishersForParameterResponse(BaseModel):
+class PublishersForParameterResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_publishers_for_parameter`."""
 
     model_config = ConfigDict(extra="allow")

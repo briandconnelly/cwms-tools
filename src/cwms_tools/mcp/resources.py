@@ -17,6 +17,8 @@ from cwms_tools.core.session import current_config
 from cwms_tools.mcp.fastmcp_capabilities import (
     FALLBACKS,
     VERIFIED,
+    VERIFIED_AGAINST,
+    fastmcp_drift,
     installed_fastmcp_version,
 )
 
@@ -36,6 +38,14 @@ TOOL_INVENTORY: list[str] = [
     "cwms_publishers_for_parameter",
     "cwms_get_overview_section",
 ]
+
+#: Codes that exist in the enum as planned contract but have no emission path
+#: yet. Advertised separately so agents don't write dead branches. Moving a
+#: code from reserved to live is additive; it lands in a tool's
+#: TOOL_ERROR_CODES entry when wired.
+# wrapper_bug is raised in core/levels.py but absorbed into level_lookup_status
+# before any agent-facing surface; it returns to the live list when that path is re-wired.
+RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable", "wrapper_bug"]
 
 #: Per-tool error catalog. The codes each tool can return as `error.code`, so an
 #: agent can branch per tool instead of against the global enum. Curated from the
@@ -144,32 +154,56 @@ def capabilities_payload() -> dict[str, Any]:
         "tool_error_codes": TOOL_ERROR_CODES,
         "tool_latency": TOOL_LATENCY,
         "resources": RESOURCE_INVENTORY,
-        "error_codes": sorted(c.value for c in ErrorCode),
+        "error_codes": sorted(c.value for c in ErrorCode if c.value not in RESERVED_ERROR_CODES),
+        "error_codes_reserved": list(RESERVED_ERROR_CODES),
         "error_handling": {
             "tools": (
                 "Tool failures return the in-band envelope {ok: false, error: {...}} "
-                "in structuredContent (FastMCP cannot set the protocol isError flag "
-                "alongside structured content). Discriminate on the `ok` field, not "
-                "isError. The error object carries code, message, field, hint, repair, "
-                "retryable, and retry_after_ms."
+                "in structuredContent — the stable contract; migration to protocol isError "
+                "is tracked in GitHub issue #19. Discriminate on the `ok` field, not "
+                "isError. The error object's full field set is documented in each tool's "
+                "outputSchema ($defs/ErrorEnvelope); key repair fields: code, message, "
+                "field, offending_value, hint, repair, retryable, retry_after_ms, "
+                "request_id, protocol_request_id, source."
             ),
             "resources": (
                 "resources/read failures surface as JSON-RPC errors; the repair "
                 "contract (machine_code, human_message, repair, recoverable) rides in "
                 "error.data."
             ),
+            "code_lists": (
+                "error_codes lists codes emittable today; error_codes_reserved are "
+                "planned codes with no emission path yet; tool_error_codes maps each "
+                "tool to the subset it can return."
+            ),
         },
+        "response_shape": (
+            "Optional fields are omitted from responses instead of being sent "
+            "as null; treat a missing key as null. Exception: `value` and "
+            "`timestamp` on observations are sent as explicit nulls because "
+            "null there means 'no observation in the window'."
+        ),
+        "deprecations": [],
+        "deprecation_policy": (
+            "Deprecated tools, resources, and error codes remain discoverable "
+            "for at least one release at the same major version with an entry "
+            "here naming the replacement and the removal version. Removal "
+            "bumps the fingerprint. Entry shape: "
+            "{name, kind, replacement, removed_in}."
+        ),
         "active_workarounds": active_workarounds(),
         "completions": {
             "supported": False,
             "reason": (
-                "FastMCP 3.3.1 exposes no completion handler; the overview index "
+                "The installed FastMCP exposes no completion handler; the overview index "
                 "is the discovery path for resource-template variables."
             ),
             "discover_section_ids_via": "cwms://overview",
         },
         "fastmcp": {
             "installed_version": installed_fastmcp_version(),
+            "verified_against": VERIFIED_AGAINST,
+            "drift": fastmcp_drift(),
             "verified": list(VERIFIED.keys()),
             "fallbacks": list(FALLBACKS.keys()),
         },
@@ -262,6 +296,7 @@ def overview_chunk_payload(section_id: str, chunk_id: str) -> dict[str, Any] | N
 
 
 __all__ = [
+    "RESERVED_ERROR_CODES",
     "RESOURCE_INVENTORY",
     "SERVER_NAME",
     "SERVER_TITLE",

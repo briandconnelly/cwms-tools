@@ -46,6 +46,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tool `outputSchema`s now document the full error envelope (`code`, `field`,
   `repair`, `retryable`, `retry_after_ms`, `request_id`) instead of an opaque
   `error` object. Wire shape is unchanged.
+- Removed dead error codes `session_unconfigured` and `truncated` from the
+  error contract; `ghost_location`, `publisher_unavailable`, and `wrapper_bug`
+  are now advertised as reserved (planned, not yet emitted) in
+  `cwms://capabilities`, which also documents the live/reserved/per-tool
+  code-list relationship.
+- Responses now omit null-valued fields instead of serializing them; `value`
+  and `timestamp` on observations keep explicit nulls (null = no observation).
+  The convention is documented in `cwms://capabilities` under `response_shape`.
+- `invalid_cursor` errors now echo the offending cursor/context in
+  `offending_value`, bounded to 64 characters against forged-token payloads.
+- The capability summary now reports the FastMCP verification baseline
+  (`verified_against`, `drift`) and declares the deprecation policy; the
+  baseline is folded into the capability fingerprint.
+- MCP resources have explicit agent-facing names and titles (`capabilities`,
+  `overview-index`, `overview-section`, `overview-chunk`) instead of leaked
+  Python identifiers.
+- Error envelopes carry `protocol_request_id` (the JSON-RPC request id) when
+  the runtime exposes it, alongside the server-generated `request_id`.
+- The fastmcp dependency floor moved from `>=3` to `>=3.4.2`; the capability
+  baseline was re-verified against 3.4.2 (protocol `isError: true` with
+  structured content is now possible — migration tracked in issue #19).
 
 ### Removed
 
