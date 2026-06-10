@@ -6,7 +6,7 @@ module records which assumptions held and which need a fallback. Findings are
 folded into the capability fingerprint via canonical_fingerprint's
 runtime_baseline input so changes are observable.
 
-Verified against fastmcp == 3.4.2 on 2026-06-09.
+Verified against fastmcp == 3.4.2 on 2026-06-10.
 """
 
 from __future__ import annotations
@@ -32,13 +32,14 @@ VERIFIED: Final[dict[str, str]] = {
 #: Capabilities that needed a documented fallback.
 FALLBACKS: Final[dict[str, str]] = {
     "tool_error_iserror": (
-        "raise ToolError(...) from a handler causes call_tool() to RAISE; it does not "
-        "return a ToolResult with is_error=True. The ToolError exception path cannot "
-        "carry structuredContent. However, returning ToolResult(is_error=True, "
-        "structured_content={...}) DOES produce protocol-level isError:true alongside "
-        "structuredContent (new in 3.4.x). Migration to ToolResult(is_error=True) is a "
-        "breaking agent-contract change deferred to a follow-up PR; the in-band "
-        "{ok:false} envelope is retained for now."
+        "raise ToolError(...) makes FastMCP's Python call_tool() raise rather "
+        "than return a result; on the wire the lowlevel layer converts it to "
+        "isError:true with a plain text message only — no structuredContent can "
+        "ride along. Returning ToolResult(is_error=True, content=..., "
+        "structured_content=...) does produce protocol isError:true with "
+        "structuredContent (new in 3.4.x). Migration off the in-band {ok:false} "
+        "envelope is tracked in issue #19; the in-band envelope is retained "
+        "for now."
     ),
 }
 
