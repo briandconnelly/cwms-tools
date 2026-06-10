@@ -176,8 +176,20 @@ def test_error_ref_error_field_is_typed_envelope() -> None:
     schema = ErrorRef.model_json_schema()
     # The error property must reference the envelope definition, not be a bare object.
     error_prop = schema["properties"]["error"]
-    assert "$ref" in error_prop or error_prop.get("type") != "object" or "properties" in error_prop
+    assert error_prop == {"$ref": "#/$defs/ErrorEnvelope"}
 
     ref = ErrorRef.model_validate({"ok": False, "error": {"code": "not_found", "message": "nope"}})
     assert isinstance(ref.error, ErrorEnvelope)
     assert ref.error.code.value == "not_found"
+
+
+def test_error_ref_from_error_copies_the_envelope() -> None:
+    """from_error deep-copies so mutating ref.error never aliases the exception."""
+    from cwms_tools.core.errors import CwmsToolsError, ErrorCode
+    from cwms_tools.core.models import ErrorRef
+
+    err = CwmsToolsError.of(ErrorCode.NOT_FOUND, "nope")
+    ref = ErrorRef.from_error(err)
+    assert ref.error is not err.envelope
+    ref.error.source.fingerprint = "f" * 64
+    assert err.envelope.source.fingerprint is None

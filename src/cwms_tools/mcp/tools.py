@@ -561,6 +561,7 @@ async def _safe(fn, *args, **kwargs) -> dict[str, Any]:
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
+        # Dict here; handlers re-validate via ErrorRef.model_validate (coerces to ErrorEnvelope).
         return {"ok": False, "error": err.envelope.model_dump(mode="json")}
 
 

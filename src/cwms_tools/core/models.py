@@ -87,8 +87,10 @@ class ErrorRef(BaseModel):
     def from_error(cls, err: CwmsToolsError) -> ErrorRef:
         """Build the in-band error shape from a `CwmsToolsError`. The single
         source of this conversion for every MCP tool, so all tool errors look
-        identical."""
-        return cls(error=err.envelope)
+        identical. The envelope is deep-copied so callers may mutate `ref.error`
+        (e.g. stamping the capability fingerprint) without aliasing the
+        exception's envelope."""
+        return cls(error=err.envelope.model_copy(deep=True))
 
 
 # --------------------------------------------------------------------------
