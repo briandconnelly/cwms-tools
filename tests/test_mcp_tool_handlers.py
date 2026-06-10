@@ -356,20 +356,40 @@ def test_search_places_tool_exposes_cursor_in_schema():
     assert "cursor" in tools["cwms_browse_region"].to_mcp_tool().inputSchema["properties"]
 
 
-def test_error_responses_carry_source_fingerprint(configured) -> None:
-    """M9 envelope rule applies to errors too: source.fingerprint on every response."""
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        (
+            "cwms_get_history",
+            {
+                "office": "SWT",
+                "name": "FOSS",
+                "parameter": "Elev",
+                "begin_iso": "not-a-date",
+                "end_iso": "2026-06-01T00:00:00Z",
+            },
+        ),
+        (
+            "cwms_get_history",
+            {
+                "office": "SWT",
+                "name": "FOSS",
+                "parameter": "Elev",
+                "begin_iso": "2026-05-17T00:00:00Z",
+                "end_iso": "not-a-date",
+            },
+        ),
+        ("cwms_browse_region", {"office": "SWT", "south": 1.0}),
+        ("cwms_browse_region", {"office": "SWT", "limit": -1}),
+        ("cwms_search_places", {"query": "x", "office": "SWT", "limit": -1}),
+        ("cwms_search_places", {"query": "x", "office": "NWO"}),
+    ],
+)
+def test_error_responses_carry_source_fingerprint(configured, tool, args) -> None:
+    """M9 envelope rule applies to errors too: source.fingerprint on every response,
+    including the pre-_safe guard paths (bad RFC3339, partial bbox, negative limit)."""
     server = build_server()
-    result = _call(
-        server,
-        "cwms_get_history",
-        {
-            "office": "SWT",
-            "name": "FOSS",
-            "parameter": "Elev",
-            "begin_iso": "not-a-date",
-            "end_iso": "2026-06-01T00:00:00Z",
-        },
-    )
+    result = _call(server, tool, args)
     payload = _branch(result.structured_content)
     assert payload["ok"] is False
     assert payload["error"]["source"]["fingerprint"] is not None

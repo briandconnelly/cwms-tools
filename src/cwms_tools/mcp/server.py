@@ -30,7 +30,7 @@ from cwms_tools.mcp.resources import (
     overview_section_payload,
 )
 from cwms_tools.mcp.tools import (
-    _error_ref,
+    error_ref,
     register_place_tools,
     register_publisher_tools,
     register_value_tools,
@@ -232,7 +232,7 @@ def build_server() -> FastMCP:
         if chunk_id is not None:
             chunk = overview_chunk_payload(section_id, chunk_id)
             if chunk is None:
-                return _error_ref(
+                return error_ref(
                     CwmsToolsError.of(
                         ErrorCode.NOT_FOUND,
                         f"No chunk {chunk_id!r} in section {section_id!r}.",
@@ -264,7 +264,7 @@ def build_server() -> FastMCP:
 
         payload = overview_section_payload(section_id, detail=detail.value)
         if payload is None:
-            return _error_ref(
+            return error_ref(
                 CwmsToolsError.of(
                     ErrorCode.NOT_FOUND,
                     f"No overview section {section_id!r}; read cwms://overview for slugs.",

@@ -53,7 +53,7 @@ def _source(
     )
 
 
-def _error_ref(err: CwmsToolsError) -> ErrorRef:
+def error_ref(err: CwmsToolsError) -> ErrorRef:
     """Build the in-band error envelope with the capability fingerprint stamped.
 
     Mirrors `_source()` on the success path: every response — success or
@@ -134,7 +134,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         first; ghosts are kept at the bottom of the list.
         """
         if limit < 0:
-            return _error_ref(_negative_limit_error(limit))
+            return error_ref(_negative_limit_error(limit))
         effective_limit = None if limit == 0 else limit
         raw = await _safe(
             places.search_places,
@@ -254,7 +254,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         bbox: BBox | None = None
         provided = [v for v in (south, west, north, east) if v is not None]
         if len(provided) not in {0, 4}:
-            return _error_ref(
+            return error_ref(
                 CwmsToolsError.of(
                     ErrorCode.USAGE_ERROR,
                     "When specifying a bounding box, all four of south, west, "
@@ -272,7 +272,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         if south is not None and west is not None and north is not None and east is not None:
             bbox = BBox(south=south, west=west, north=north, east=east)
         if limit < 0:
-            return _error_ref(_negative_limit_error(limit))
+            return error_ref(_negative_limit_error(limit))
         effective_limit = None if limit == 0 else limit
         raw = await _safe(
             places.browse_region,
@@ -402,7 +402,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
         except ValueError as exc:
-            return _error_ref(
+            return error_ref(
                 CwmsToolsError.of(
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse begin_iso as RFC3339: {exc}",
@@ -414,7 +414,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         try:
             end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         except ValueError as exc:
-            return _error_ref(
+            return error_ref(
                 CwmsToolsError.of(
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse end_iso as RFC3339: {exc}",
@@ -573,10 +573,11 @@ async def _safe(fn, *args, **kwargs) -> dict[str, Any] | ErrorRef:
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
-        return _error_ref(err)
+        return error_ref(err)
 
 
 __all__ = [
+    "error_ref",
     "register_place_tools",
     "register_publisher_tools",
     "register_value_tools",
