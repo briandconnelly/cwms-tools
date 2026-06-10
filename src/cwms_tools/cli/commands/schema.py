@@ -171,7 +171,12 @@ def _commands() -> list[dict[str, Any]]:
             "latency_class": "network",
             "arguments": [_arg("query", "string", help="Name fragment, case-insensitive.")],
             "options": [
-                _opt("--office", "string", repeatable=True, help="Office code; repeat to fan out."),
+                _opt(
+                    "--office",
+                    "string",
+                    repeatable=True,
+                    help="Office code; repeat to fan out. List codes with `cwms-tools offices`.",
+                ),
                 _opt("--parameter", "string", help="Filter to a published parameter."),
                 _opt("--limit", "integer", default=50, help="Result cap; 0 = no cap."),
                 _opt("--cursor", "string", help="Pagination cursor from prior next_cursor."),
@@ -216,7 +221,12 @@ def _commands() -> list[dict[str, Any]]:
             "latency_class": "network",
             "arguments": [],
             "options": [
-                _opt("--office", "string", required=True, help="Office code (required)."),
+                _opt(
+                    "--office",
+                    "string",
+                    required=True,
+                    help="Office code (required). List codes with `cwms-tools offices`.",
+                ),
                 _opt("--south", "number"),
                 _opt("--west", "number"),
                 _opt("--north", "number"),
@@ -299,7 +309,14 @@ def _commands() -> list[dict[str, Any]]:
             "reads_stdin": False,
             "latency_class": "network",
             "arguments": [_arg("parameter", "string", help="Parameter code, e.g. Elev.")],
-            "options": [_opt("--office", "string", repeatable=True, help="Office code; repeat.")],
+            "options": [
+                _opt(
+                    "--office",
+                    "string",
+                    repeatable=True,
+                    help="Office code; repeat. List codes with `cwms-tools offices`.",
+                )
+            ],
             "error_codes": _errs("rate_limited", "upstream_error"),
         },
         # MCP server (M7).

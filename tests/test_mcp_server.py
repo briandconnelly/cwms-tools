@@ -280,7 +280,10 @@ def test_overview_section_tool_returns_section_for_good_slug(server) -> None:
     assert "body" in branch
 
 
-def test_resource_names_are_not_python_identifiers() -> None:
+def test_resource_names_are_explicit_not_handler_function_names() -> None:
+    """Resources/templates must register under their explicit human names, not
+    the underscore-prefixed handler-function identifiers FastMCP would otherwise
+    derive (e.g. `_capabilities`)."""
     import asyncio
 
     from cwms_tools.mcp.server import build_server
