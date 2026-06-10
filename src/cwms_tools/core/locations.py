@@ -47,7 +47,7 @@ def _ghost_office_error(office_id: str) -> CwmsToolsError:
             "NW Division districts (NWO, NWK, NWS, NWP, NWW) are catalog stubs. "
             "Use NWDM (Missouri) or NWDP (Pacific NW) instead."
         ),
-        repair=RepairHint(tool="cwms_search_places", args={"query": "", "office": target}),
+        repair=RepairHint(tool="cwms_browse_region", args={"office": target}),
     )
 
 

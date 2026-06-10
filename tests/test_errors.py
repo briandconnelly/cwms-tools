@@ -56,15 +56,15 @@ def test_envelope_round_trips_through_json() -> None:
         offending_value="NWO",
         hint="Use NWDM or NWDP.",
         repair=RepairHint(
-            tool="cwms_search_places",
-            args={"query": "BECR", "office": "NWDM"},
+            tool="cwms_browse_region",
+            args={"office": "NWDM"},
         ),
     )
     blob = envelope.model_dump(mode="json")
     parsed = ErrorEnvelope.model_validate(json.loads(json.dumps(blob)))
     assert parsed.code is ErrorCode.GHOST_OFFICE
     assert parsed.repair is not None
-    assert parsed.repair.tool == "cwms_search_places"
+    assert parsed.repair.tool == "cwms_browse_region"
     assert parsed.repair.args["office"] == "NWDM"
 
 
