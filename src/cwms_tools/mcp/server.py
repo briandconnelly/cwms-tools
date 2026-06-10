@@ -120,13 +120,23 @@ def build_server() -> FastMCP:
     # Resources
     # ----------------------------------------------------------------------
 
-    @mcp.resource("cwms://capabilities", mime_type="application/json")
+    @mcp.resource(
+        "cwms://capabilities",
+        name="capabilities",
+        title="Server capability summary",
+        mime_type="application/json",
+    )
     async def _capabilities() -> dict[str, Any]:
         """Structured server summary: name, version, fingerprint, tools, resources,
         error codes, negative scope, and active wrapper-bug workarounds."""
         return capabilities_payload()
 
-    @mcp.resource("cwms://overview", mime_type="application/json")
+    @mcp.resource(
+        "cwms://overview",
+        name="overview-index",
+        title="CWMS orientation document index",
+        mime_type="application/json",
+    )
     async def _overview_index() -> dict[str, Any]:
         """Index of the bundled CWMS orientation document.
 
@@ -137,6 +147,8 @@ def build_server() -> FastMCP:
 
     @mcp.resource(
         "cwms://overview/{section_id}{?detail}",
+        name="overview-section",
+        title="CWMS orientation document section",
         mime_type="application/json",
     )
     async def _overview_section(
@@ -165,6 +177,8 @@ def build_server() -> FastMCP:
 
     @mcp.resource(
         "cwms://overview/{section_id}/chunk/{chunk_id}",
+        name="overview-chunk",
+        title="CWMS orientation document section chunk",
         mime_type="application/json",
     )
     async def _overview_chunk(section_id: str, chunk_id: str) -> dict[str, Any]:

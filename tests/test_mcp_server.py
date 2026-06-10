@@ -266,6 +266,23 @@ def test_overview_section_tool_returns_section_for_good_slug(server) -> None:
     assert "body" in branch
 
 
+def test_resource_names_are_not_python_identifiers() -> None:
+    import asyncio
+
+    from cwms_tools.mcp.server import build_server
+
+    server = build_server()
+    resources = asyncio.run(server.list_resources())
+    names = {r.name for r in resources}
+    assert names == {"capabilities", "overview-index"}
+    assert not any(n.startswith("_") for n in names)
+
+    templates = asyncio.run(server.list_resource_templates())
+    template_names = {t.name for t in templates}
+    assert template_names == {"overview-section", "overview-chunk"}
+    assert not any(n.startswith("_") for n in template_names)
+
+
 def test_list_tools_declare_invalid_cursor():
     assert "invalid_cursor" in TOOL_ERROR_CODES["cwms_search_places"]
     assert "invalid_cursor" in TOOL_ERROR_CODES["cwms_browse_region"]
