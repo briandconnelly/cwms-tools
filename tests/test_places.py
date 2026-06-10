@@ -609,8 +609,8 @@ def test_search_places_single_ghost_office_raises_ghost_office(configured, mocke
     env = exc_info.value.envelope
     assert env.code is ErrorCode.GHOST_OFFICE
     assert env.repair is not None
-    # catalog._raise_ghost_office points at cwms_browse_region.
-    # TODO(Task 2): becomes cwms_browse_region consistently (already is from catalog path)
+    # Already browse_region via the catalog guard; Task 2 aligns
+    # locations.py's single-location guard.
     assert env.repair.tool == "cwms_browse_region"
 
 
@@ -948,3 +948,34 @@ def test_browse_region_rejects_cursor_with_unlimited_limit(monkeypatch):
     with pytest.raises(CwmsToolsError) as exc:
         places.browse_region(office="SWT", limit=0, cursor="anytoken")
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_search_places_multi_office_records_unexpected_error_as_partial(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-CwmsToolsError failure in a multi-office fan-out degrades to partial."""
+    real_search = locations.search
+
+    def flaky_search(office_id, query, *, use_cache=True):
+        if office_id == "SWT":
+            raise RuntimeError("boom")
+        return real_search(office_id, query, use_cache=use_cache)
+
+    monkeypatch.setattr(locations, "search", flaky_search)
+    # NWO short-circuits locally via the catalog ghost-office guard, so no HTTP
+    # mocks are needed for it; SWT fails before any request.
+    resp = places.search_places("FOSS", office=["SWT", "NWO"])
+    assert resp["partial"] is True
+    assert "SWT: internal_error (RuntimeError)" in resp["partial_reasons"]
+    assert "NWO: ghost_office" in resp["partial_reasons"]
+
+
+def test_search_places_single_office_reraises_unexpected_error(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(office_id, query, *, use_cache=True):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(locations, "search", boom)
+    with pytest.raises(RuntimeError):
+        places.search_places("FOSS", office="SWT")

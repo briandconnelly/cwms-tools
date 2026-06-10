@@ -240,22 +240,32 @@ def _gather_enriched(
     Returns `(rows, error_reasons)`. A failing office in a multi-office
     fan-out degrades to a `"<office>: <code>"` entry in `error_reasons`
     (surfaced as `partial_reasons` on the response) instead of failing the
-    whole call. When exactly ONE office was requested, its structured error
-    re-raises so the full envelope — including the ghost-office repair
-    hint — reaches the agent instead of an empty result.
+    whole call. `error_reasons` entries are free-text diagnostics of the
+    form ``"<office>: <token>"``; the token is either an ErrorCode value
+    (e.g. ``ghost_office``) or the literal string ``internal_error
+    (<ExcType>)`` for unexpected exceptions — ``internal_error`` is
+    deliberately *not* an ErrorCode value.
+
+    When the resolved office set has exactly one entry (``office_ids`` is
+    the resolved set — cached scope or cursor-locked — not necessarily the
+    caller's literal request), a structured CwmsToolsError re-raises so
+    the full envelope — including the ghost-office repair hint — reaches
+    the agent instead of an empty result. Unexpected exceptions also
+    re-raise when there is only one office.
     """
     merged: list[dict[str, Any]] = []
     reasons: list[str] = []
+    single = len(office_ids) == 1
     for office_id in office_ids:
         try:
             rows = locations.search(office_id, query, use_cache=use_cache)
         except CwmsToolsError as err:
-            if len(office_ids) == 1:
+            if single:
                 raise
             reasons.append(f"{office_id}: {err.envelope.code.value}")
             continue
         except Exception as exc:  # unexpected — keep the fan-out alive but visible
-            if len(office_ids) == 1:
+            if single:
                 raise
             reasons.append(f"{office_id}: internal_error ({type(exc).__name__})")
             continue
