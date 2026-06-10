@@ -1,9 +1,9 @@
 """Name resolution + co-located variant grouping over the locations catalog.
 
 Wraps `cwms.locations.physical_locations.get_location` and the enriched
-catalog browse in `core.catalog`. Surfaces NW-stub repair hints and the
-canonical PlaceSummary shape used by `cwms_search_places` /
-`cwms_describe_place`.
+catalog browse in `core.catalog`. Surfaces NW-stub repair hints via
+`cwms_browse_region` and the canonical PlaceSummary shape used by
+`cwms_search_places` / `cwms_describe_place`.
 """
 
 from __future__ import annotations
