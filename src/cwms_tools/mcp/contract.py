@@ -16,7 +16,9 @@ drift apart.
 Tool schemas are static for a given code version, so `tool_definitions()` is
 computed once and cached. The hash itself is recomputed on every
 `canonical_fingerprint()` call because some fingerprint inputs (resolved API
-root, installed package versions) are resolved at call time.
+root, installed package versions) are resolved at call time. If
+`cli_contract_payload()` ever grows beyond dict assembly, add an `lru_cache`
+parallel to `tool_definitions()`.
 """
 
 from __future__ import annotations

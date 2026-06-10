@@ -602,6 +602,37 @@ def test_search_places_with_office_list_searches_each(configured, mocked) -> Non
     assert "FBLW" in names
 
 
+def test_search_places_single_ghost_office_raises_ghost_office(configured, mocked) -> None:
+    """A single NW-stub office must surface the ghost_office envelope, not empty results."""
+    with pytest.raises(CwmsToolsError) as exc_info:
+        places.search_places("Bear Creek", office="NWO")
+    env = exc_info.value.envelope
+    assert env.code is ErrorCode.GHOST_OFFICE
+    assert env.repair is not None
+    # Already browse_region via the catalog guard; Task 2 aligns
+    # locations.py's single-location guard.
+    assert env.repair.tool == "cwms_browse_region"
+
+
+def test_search_places_multi_office_records_failed_office_as_partial(configured, mocked) -> None:
+    """In a multi-office fan-out, one failing office degrades to partial, not silence."""
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json={
+            "locations": [
+                {"office-id": "SWT", "name": "FOSS", "latitude": 35.55, "longitude": -98.97}
+            ]
+        },
+        status=200,
+    )
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    resp = places.search_places("FOSS", office=["SWT", "NWO"])
+    assert resp["partial"] is True
+    assert "NWO: ghost_office" in resp["partial_reasons"]
+    assert resp["offices_searched"] == ["SWT", "NWO"]
+
+
 def test_search_places_no_office_arg_uses_cached_scope_only(configured, mocked) -> None:
     """When `office` is omitted and nothing is cached, the fanout default
     is empty — the response should not silently expand to every office.
@@ -780,7 +811,7 @@ def test_search_places_paginates_with_cursor(monkeypatch):
         return (["NWDM"], [], [])
 
     monkeypatch.setattr(places, "_run_fanout", _counting_fanout)
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: list(rows))
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
 
     page1 = places.search_places("L", office="NWDM", limit=2)
     assert len(page1["results"]) == 2
@@ -829,7 +860,7 @@ def test_search_places_cursor_rejects_catalog_shift(monkeypatch):
 
     def _shifting_gather(offices, q, use_cache):
         calls["n"] += 1
-        return list(five if calls["n"] == 1 else six)  # catalog grows between calls
+        return (list(five if calls["n"] == 1 else six), [])  # catalog grows between calls
 
     monkeypatch.setattr(places, "_gather_enriched", _shifting_gather)
     page1 = places.search_places("L", office="NWDM", limit=2)
@@ -851,7 +882,7 @@ def test_search_places_rejects_mismatched_cursor(monkeypatch):
         for i in range(5)
     ]
     monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: list(rows))
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
     page1 = places.search_places("L", office="NWDM", limit=2)
     with pytest.raises(CwmsToolsError) as exc:
         places.search_places("DIFFERENT", office="NWDM", limit=2, cursor=page1["next_cursor"])
@@ -862,7 +893,7 @@ def test_search_places_rejects_cursor_with_unlimited_limit(monkeypatch):
     # A cursor combined with an unlimited limit (0 -> None) is contradictory and
     # must be rejected before any fan-out, not silently return a tail subset.
     monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: [])
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: ([], []))
     with pytest.raises(CwmsToolsError) as exc:
         places.search_places("L", office="NWDM", limit=0, cursor="anytoken")
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
@@ -917,3 +948,34 @@ def test_browse_region_rejects_cursor_with_unlimited_limit(monkeypatch):
     with pytest.raises(CwmsToolsError) as exc:
         places.browse_region(office="SWT", limit=0, cursor="anytoken")
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_search_places_multi_office_records_unexpected_error_as_partial(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-CwmsToolsError failure in a multi-office fan-out degrades to partial."""
+    real_search = locations.search
+
+    def flaky_search(office_id, query, *, use_cache=True):
+        if office_id == "SWT":
+            raise RuntimeError("boom")
+        return real_search(office_id, query, use_cache=use_cache)
+
+    monkeypatch.setattr(locations, "search", flaky_search)
+    # NWO short-circuits locally via the catalog ghost-office guard, so no HTTP
+    # mocks are needed for it; SWT fails before any request.
+    resp = places.search_places("FOSS", office=["SWT", "NWO"])
+    assert resp["partial"] is True
+    assert "SWT: internal_error (RuntimeError)" in resp["partial_reasons"]
+    assert "NWO: ghost_office" in resp["partial_reasons"]
+
+
+def test_search_places_single_office_reraises_unexpected_error(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(office_id, query, *, use_cache=True):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(locations, "search", boom)
+    with pytest.raises(RuntimeError):
+        places.search_places("FOSS", office="SWT")

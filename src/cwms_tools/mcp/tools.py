@@ -53,6 +53,18 @@ def _source(
     )
 
 
+def error_ref(err: CwmsToolsError) -> ErrorRef:
+    """Build the in-band error envelope with the capability fingerprint stamped.
+
+    Mirrors `_source()` on the success path: every response — success or
+    failure — carries `source.fingerprint` so agents can correlate against a
+    cached contract after a failure too.
+    """
+    ref = ErrorRef.from_error(err)
+    ref.error.source.fingerprint = canonical_fingerprint()
+    return ref
+
+
 def register_place_tools(mcp: FastMCP) -> None:
     """Register the place-related tools on the FastMCP server."""
 
@@ -122,7 +134,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         first; ghosts are kept at the bottom of the list.
         """
         if limit < 0:
-            return ErrorRef.from_error(_negative_limit_error(limit))
+            return error_ref(_negative_limit_error(limit))
         effective_limit = None if limit == 0 else limit
         raw = await _safe(
             places.search_places,
@@ -132,8 +144,8 @@ def register_place_tools(mcp: FastMCP) -> None:
             limit=effective_limit,
             cursor=cursor,
         )
-        if raw.get("ok") is False:
-            return ErrorRef.model_validate(raw)
+        if isinstance(raw, ErrorRef):
+            return raw
         shaped = _shape_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return SearchPlacesResponse.model_validate(shaped)
@@ -161,8 +173,8 @@ def register_place_tools(mcp: FastMCP) -> None:
         causes so the agent can decide whether to retry or proceed.
         """
         raw = await _safe(places.describe_place, office, name)
-        if raw.get("ok") is False:
-            return ErrorRef.model_validate(raw)
+        if isinstance(raw, ErrorRef):
+            return raw
         shaped = _shape_detail(raw, detail)
         workaround = shaped.get("source_workaround")
         upstream_status = shaped.get("upstream_status")
@@ -192,8 +204,8 @@ def register_place_tools(mcp: FastMCP) -> None:
         empty `by_publisher` list.
         """
         raw = await _safe(places.list_parameters, office, name)
-        if raw.get("ok") is False:
-            return ErrorRef.model_validate(raw)
+        if isinstance(raw, ErrorRef):
+            return raw
         shaped = _shape_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return ListParametersResponse.model_validate(shaped)
@@ -242,7 +254,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         bbox: BBox | None = None
         provided = [v for v in (south, west, north, east) if v is not None]
         if len(provided) not in {0, 4}:
-            return ErrorRef.from_error(
+            return error_ref(
                 CwmsToolsError.of(
                     ErrorCode.USAGE_ERROR,
                     "When specifying a bounding box, all four of south, west, "
@@ -260,7 +272,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         if south is not None and west is not None and north is not None and east is not None:
             bbox = BBox(south=south, west=west, north=north, east=east)
         if limit < 0:
-            return ErrorRef.from_error(_negative_limit_error(limit))
+            return error_ref(_negative_limit_error(limit))
         effective_limit = None if limit == 0 else limit
         raw = await _safe(
             places.browse_region,
@@ -270,8 +282,8 @@ def register_place_tools(mcp: FastMCP) -> None:
             limit=effective_limit,
             cursor=cursor,
         )
-        if raw.get("ok") is False:
-            return ErrorRef.model_validate(raw)
+        if isinstance(raw, ErrorRef):
+            return raw
         shaped = _shape_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return BrowseRegionResponse.model_validate(shaped)
@@ -341,8 +353,8 @@ def register_value_tools(mcp: FastMCP) -> None:
             unit=unit,
             classify_against_levels=with_status,
         )
-        if raw.get("ok") is False:
-            return ErrorRef.model_validate(raw)
+        if isinstance(raw, ErrorRef):
+            return raw
         shaped = _shape_value_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return ValueWithContextResponse.model_validate(shaped)
@@ -390,7 +402,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
         except ValueError as exc:
-            return ErrorRef.from_error(
+            return error_ref(
                 CwmsToolsError.of(
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse begin_iso as RFC3339: {exc}",
@@ -402,7 +414,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         try:
             end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         except ValueError as exc:
-            return ErrorRef.from_error(
+            return error_ref(
                 CwmsToolsError.of(
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse end_iso as RFC3339: {exc}",
@@ -420,8 +432,8 @@ def register_value_tools(mcp: FastMCP) -> None:
             end=end,
             unit=unit,
         )
-        if raw.get("ok") is False:
-            return ErrorRef.model_validate(raw)
+        if isinstance(raw, ErrorRef):
+            return raw
         shaped = _shape_history_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return HistoryResponse.model_validate(shaped)
@@ -463,8 +475,8 @@ def register_publisher_tools(mcp: FastMCP) -> None:
             parameter,
             offices=offices,
         )
-        if raw.get("ok") is False:
-            return ErrorRef.model_validate(raw)
+        if isinstance(raw, ErrorRef):
+            return raw
         shaped = _shape_publishers_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return PublishersForParameterResponse.model_validate(shaped)
@@ -551,20 +563,21 @@ def _negative_limit_error(limit: int) -> CwmsToolsError:
     )
 
 
-async def _safe(fn, *args, **kwargs) -> dict[str, Any]:
+async def _safe(fn, *args, **kwargs) -> dict[str, Any] | ErrorRef:
     """Run a sync core function on the bounded executor; surface known errors structured.
 
-    Pre-`_safe` validation branches (e.g. partial-bbox, bad RFC3339) build the same
-    shape via `ErrorRef.from_error(...)`, so manual validation errors land with the
-    full envelope (`request_id`, `offending_value`, `hint`, `repair`, source).
+    Returns the raw dict on success, or an `ErrorRef` (with fingerprint stamped)
+    on any `CwmsToolsError`. Handlers check `isinstance(raw, ErrorRef)` and
+    return it directly.
     """
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
-        return {"ok": False, "error": err.envelope.model_dump(mode="json")}
+        return error_ref(err)
 
 
 __all__ = [
+    "error_ref",
     "register_place_tools",
     "register_publisher_tools",
     "register_value_tools",
