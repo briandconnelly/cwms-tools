@@ -16,6 +16,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cwms_tools.core._compact import CompactDumpMixin
+
 
 class ErrorCode(StrEnum):
     """All error codes the server can emit. Part of the capability fingerprint.
@@ -68,7 +70,7 @@ class RepairHint(BaseModel):
     )
 
 
-class SourceInfo(BaseModel):
+class SourceInfo(CompactDumpMixin, BaseModel):
     """Provenance: which endpoint(s) were called, fingerprint, any active workaround."""
 
     model_config = ConfigDict(extra="forbid")
@@ -78,7 +80,7 @@ class SourceInfo(BaseModel):
     workaround: str | None = None
 
 
-class ErrorEnvelope(BaseModel):
+class ErrorEnvelope(CompactDumpMixin, BaseModel):
     """The structured error payload returned by every tool and CLI command on failure.
 
     Wire shape matches the plan's §"Discovery & error contracts" exactly so a single

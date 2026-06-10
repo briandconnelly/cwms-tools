@@ -319,9 +319,8 @@ def test_get_history_handler_returns_values(configured) -> None:
         )
     payload = _branch(result.structured_content)
     assert payload["value_count"] == 1
-    # In summary mode quality codes are surfaced as null; the field stays in
-    # the schema so a single parser handles both detail levels.
-    assert payload["values"][0]["quality"] is None
+    # In summary mode quality codes are None and are stripped by CompactDumpMixin.
+    assert "quality" not in payload["values"][0]
 
 
 def test_publishers_for_parameter_handler(configured) -> None:
