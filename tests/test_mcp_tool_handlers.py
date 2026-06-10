@@ -185,6 +185,7 @@ def test_browse_region_handler_rejects_partial_bbox(configured) -> None:
     assert err["hint"] == "Pass all four bbox edges or omit bbox entirely."
     assert err["request_id"]
     assert "source" in err
+    assert "protocol_request_id" not in err  # absent outside a real client session
 
 
 def test_browse_region_handler_returns_ghost_office_for_nwo(configured) -> None:
@@ -402,8 +403,6 @@ def test_error_envelope_carries_protocol_request_id(configured) -> None:
     an in-memory fastmcp.Client to establish a real JSON-RPC session.  The Client
     supplies the JSON-RPC request id (a string like "1") that the server echoes back.
     """
-    import asyncio
-
     from fastmcp import Client
 
     server = build_server()
@@ -421,7 +420,7 @@ def test_error_envelope_carries_protocol_request_id(configured) -> None:
     assert payload["ok"] is False
     # Additive field: present because the in-memory Client establishes a real
     # request context so get_context().request_id is available.
-    assert payload["error"].get("protocol_request_id") is not None
+    assert payload["error"].get("protocol_request_id")
 
 
 def test_semantic_nulls_survive_fastmcp_wire_serialization() -> None:
