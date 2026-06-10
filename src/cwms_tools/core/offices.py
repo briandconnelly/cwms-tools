@@ -1,14 +1,18 @@
 """Office discovery — primary source `cwms.api.get("offices")` with caching.
 
-Backs the optional-`office` mode of `cwms_search_places`: when an agent asks
-"what is the water temperature at Fremont Bridge?" without naming an office,
-the tool fans out across offices that are already cached this session.
-This module supplies the office list both upstream-fresh and as a degraded
-fallback for the "no offices cached, no upstream" cold start.
+Backs two surfaces:
 
-The fanout itself is in `core/places.py:search_places` and mirrors the
-budgeted pattern from `core/publishers_index.py` so we never expand to the
-full ~68-office surface implicitly.
+- the `cwms://offices` MCP resource (and its office-code discovery role),
+  via `list_offices()` which returns full office records; and
+- the optional-`office` mode of `cwms_search_places`: when an agent asks
+  "what is the water temperature at Fremont Bridge?" without naming an
+  office, the tool fans out across offices already cached this session.
+
+This module supplies the office list both upstream-fresh and as a degraded
+fallback for the "no offices cached, no upstream" cold start. The fanout
+itself is in `core/places.py:search_places` and mirrors the budgeted
+pattern from `core/publishers_index.py` so we never expand to the full
+~68-office surface implicitly.
 """
 
 from __future__ import annotations
@@ -46,33 +50,59 @@ _FALLBACK_OFFICES: tuple[str, ...] = (
     "LRP",
 )
 
+# CDA `/offices` `type` codes → human label. Unknown codes pass through as
+# themselves (see `_type_label`) so a new upstream code degrades gracefully
+# rather than vanishing. Codes verified live 2026-06-10; see cwms-overview.md §4.1.
+_TYPE_LABELS: dict[str, str] = {
+    "HQ": "corps headquarters",
+    "MSC": "division headquarters",
+    "MSCR": "division regional",
+    "DIS": "district",
+    "FOA": "field operating activity",
+    "UNK": "unknown",
+}
 
-def list_office_ids(*, use_cache: bool = True) -> tuple[list[str], bool]:
-    """Return `(office_ids, used_fallback)`.
 
-    Primary source is `cwms.api.get("offices")` via the existing
-    `"offices"` cache namespace (7-day TTL, see `core/cache.py`). Returns
-    the documented degraded fallback when upstream fails or returns an
-    empty / unrecognized payload; `used_fallback` is true in that case so
-    the caller can surface `partial: true` to the agent.
+def _type_label(code: str) -> str:
+    return _TYPE_LABELS.get(code, code)
+
+
+def list_offices(*, use_cache: bool = True) -> tuple[list[dict[str, Any]], bool]:
+    """Return `(office_records, used_fallback)`.
+
+    Each record is a normalized dict with `name` and, when upstream
+    supplies them, `long_name`, `type` (raw CDA code), `type_label`
+    (human label), and `reports_to`. Records are sorted by `name`.
+
+    Primary source is `cwms.api.get("offices")` cached under the `"offices"`
+    namespace (7-day TTL, see `core/cache.py`). On upstream failure or an
+    empty/unrecognized payload, returns the documented degraded fallback as
+    name-only records with `used_fallback=True`, so a caller can surface
+    `partial: true` to the agent.
     """
     cache = get_cache()
     cfg = current_config()
-    key = build_cache_key("offices", "all", api_root=cfg.api_root)
+    key = build_cache_key("offices", "records", api_root=cfg.api_root)
     if use_cache:
         hit = cache.get(key)
         if isinstance(hit, list) and hit:
-            return [str(o) for o in hit], False
+            return [dict(r) for r in hit], False
     try:
         raw = cwms_api.get("offices")
     except Exception:
-        return sorted(_FALLBACK_OFFICES), True
-    ids = _parse_office_ids(raw)
-    if not ids:
-        return sorted(_FALLBACK_OFFICES), True
-    ids = sorted(set(ids))
-    cache.set(key, ids, ttl=cache.ttl_for("offices"))
-    return ids, False
+        return _fallback_records(), True
+    records = _parse_office_records(raw)
+    if not records:
+        return _fallback_records(), True
+    records.sort(key=lambda r: r["name"])
+    cache.set(key, records, ttl=cache.ttl_for("offices"))
+    return [dict(r) for r in records], False
+
+
+def list_office_ids(*, use_cache: bool = True) -> tuple[list[str], bool]:
+    """Return `(office_ids, used_fallback)` — names only, derived from `list_offices`."""
+    records, used_fallback = list_offices(use_cache=use_cache)
+    return [r["name"] for r in records], used_fallback
 
 
 def cached_offices_for_locations() -> list[str]:
@@ -96,8 +126,17 @@ def cached_offices_for_locations() -> list[str]:
     return sorted(cached)
 
 
-def _parse_office_ids(raw: Any) -> list[str]:
-    """Tolerate the common CDA shapes for the offices payload."""
+def _fallback_records() -> list[dict[str, Any]]:
+    """Name-only records for the degraded fallback path (no upstream metadata)."""
+    return [{"name": name} for name in sorted(_FALLBACK_OFFICES)]
+
+
+def _parse_office_records(raw: Any) -> list[dict[str, Any]]:
+    """Tolerate the common CDA shapes for the offices payload.
+
+    Live CDA returns a JSON array of `{name, long-name, type, reports-to}`;
+    some wrappers nest it under `offices`/`entries`/`items`.
+    """
     if isinstance(raw, list):
         items: list[Any] = raw
     elif isinstance(raw, dict):
@@ -105,15 +144,29 @@ def _parse_office_ids(raw: Any) -> list[str]:
         items = candidate if isinstance(candidate, list) else []
     else:
         return []
-    out: list[str] = []
+    out: list[dict[str, Any]] = []
     for it in items:
         if isinstance(it, str):
-            out.append(it)
-        elif isinstance(it, dict):
-            v = it.get("office-id") or it.get("id") or it.get("name")
-            if isinstance(v, str):
-                out.append(v)
+            out.append({"name": it})
+            continue
+        if not isinstance(it, dict):
+            continue
+        name = it.get("office-id") or it.get("id") or it.get("name")
+        if not isinstance(name, str):
+            continue
+        record: dict[str, Any] = {"name": name}
+        long_name = it.get("long-name") or it.get("longName")
+        if isinstance(long_name, str):
+            record["long_name"] = long_name
+        code = it.get("type")
+        if isinstance(code, str) and code:
+            record["type"] = code
+            record["type_label"] = _type_label(code)
+        reports_to = it.get("reports-to") or it.get("reportsTo")
+        if isinstance(reports_to, str):
+            record["reports_to"] = reports_to
+        out.append(record)
     return out
 
 
-__all__ = ["cached_offices_for_locations", "list_office_ids"]
+__all__ = ["cached_offices_for_locations", "list_office_ids", "list_offices"]

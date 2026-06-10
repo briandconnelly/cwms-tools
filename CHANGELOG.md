@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cwms://offices` MCP resource: the USACE office directory (name, long name,
+  type, reporting parent for all ~68 offices) so agents can discover valid
+  `office` parameter values without out-of-band knowledge. Carries the NW
+  regional-rollup guidance (query NWDM/NWDP, not the NWO/NWK/NWS/NWP/NWW
+  district stubs) and degrades to a documented fallback slice with
+  `partial: true` when upstream is unreachable on a cold start. Cached 7 days.
+  Every tool's `office` parameter description, the server instructions, and the
+  `ghost_office` repair hints now point at it. (Adding the resource bumps the
+  capability fingerprint.) Closes #21.
+
 - Agent-friendly GitHub hardening (no runtime changes):
   - `AGENTS.md` is now the canonical instructions file; `CLAUDE.md` is a thin
     `@AGENTS.md` pointer.

@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from cwms_tools import __version__ as PKG_VERSION
-from cwms_tools.core import fingerprint, overview
+from cwms_tools.core import fingerprint, offices, overview
 from cwms_tools.core._workarounds import active_workarounds
 from cwms_tools.core.errors import ErrorCode
 from cwms_tools.core.session import current_config
@@ -97,15 +97,29 @@ TOOL_LATENCY: dict[str, str] = {
 
 #: Resource inventory — also kept here for the capability summary. Only resources
 #: actually registered on `build_server()` belong here, otherwise the capability
-#: summary advertises endpoints that 404 (Codex review M9 #4). `cwms://offices` and
-#: `cwms://parameters` are deferred to v0.2 alongside the `cwms_publishers_for_parameter`
-#: bulk index work.
+#: summary advertises endpoints that 404 (Codex review M9 #4). `cwms://offices`
+#: (office-code discovery) is registered as of v0.4. The companion
+#: `cwms://parameters` is still deferred — tracked separately (different data
+#: semantics, cache behavior, and payload size).
 RESOURCE_INVENTORY: list[dict[str, str]] = [
     {"uri": "cwms://capabilities", "mime_type": "application/json"},
+    {"uri": "cwms://offices", "mime_type": "application/json"},
     {"uri": "cwms://overview", "mime_type": "application/json"},
     {"uri": "cwms://overview/{section_id}{?detail}", "mime_type": "application/json"},
     {"uri": "cwms://overview/{section_id}/chunk/{chunk_id}", "mime_type": "application/json"},
 ]
+
+#: NW Division district stubs publish no operational data in CDA; data lands at
+#: the regional rollups instead. Surfaced in the `cwms://offices` guidance block
+#: and mirrored by the `ghost_office` repair path in `core/locations.py` /
+#: `core/catalog.py`. See cwms-overview.md §6.1.
+NW_ROLLUP_TARGETS: dict[str, str] = {
+    "NWO": "NWDM",
+    "NWK": "NWDM",
+    "NWS": "NWDP",
+    "NWP": "NWDP",
+    "NWW": "NWDP",
+}
 
 
 def capabilities_payload() -> dict[str, Any]:
@@ -216,6 +230,37 @@ def capabilities_payload() -> dict[str, Any]:
     }
 
 
+def offices_payload() -> dict[str, Any]:
+    """Build the `cwms://offices` directory served for office-code discovery.
+
+    The `office` argument on every CDA-hitting tool expects a USACE office
+    code; without this resource those codes are out-of-band knowledge. The
+    payload lists every office (name, long name, type, reporting parent) plus
+    the NW regional-rollup guidance — the main trap the resource exists to
+    prevent (query NWDM/NWDP, not the NWO/NWK/NWS/NWP/NWW district stubs).
+
+    Backed by `core.offices.list_offices` (cached 7 days). On a degraded cold
+    start — no cache, upstream unreachable — it returns the documented
+    fallback slice with `partial: true` rather than failing the read.
+    """
+    records, used_fallback = offices.list_offices()
+    return {
+        "count": len(records),
+        "offices": records,
+        "guidance": {
+            "nw_regional_rollup": (
+                "In Northwestern Division, query the regional rollups — NWDM "
+                "(Missouri River) or NWDP (Pacific Northwest). The NW district "
+                "offices (NWO, NWK, NWS, NWP, NWW) are catalog stubs that "
+                "publish no operational data in CDA."
+            ),
+            "nw_district_stubs": sorted(NW_ROLLUP_TARGETS),
+            "nw_rollup_targets": dict(NW_ROLLUP_TARGETS),
+        },
+        "partial": used_fallback,
+    }
+
+
 def overview_index_payload() -> dict[str, Any]:
     """Lightweight overview index — summaries only, no bodies."""
     sections = overview.all_sections()
@@ -296,6 +341,7 @@ def overview_chunk_payload(section_id: str, chunk_id: str) -> dict[str, Any] | N
 
 
 __all__ = [
+    "NW_ROLLUP_TARGETS",
     "RESERVED_ERROR_CODES",
     "RESOURCE_INVENTORY",
     "SERVER_NAME",
@@ -304,6 +350,7 @@ __all__ = [
     "TOOL_INVENTORY",
     "TOOL_LATENCY",
     "capabilities_payload",
+    "offices_payload",
     "overview_chunk_payload",
     "overview_index_payload",
     "overview_section_payload",
