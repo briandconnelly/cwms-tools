@@ -199,6 +199,14 @@ def test_cli_contract_is_a_fingerprint_input() -> None:
     assert base != changed
 
 
+def test_capabilities_declare_deprecation_policy() -> None:
+    from cwms_tools.mcp.resources import capabilities_payload
+
+    payload = capabilities_payload()
+    assert payload["deprecations"] == []
+    assert "remain discoverable" in payload["deprecation_policy"]
+
+
 def test_dead_error_codes_removed_and_reserved_codes_declared() -> None:
     from cwms_tools.core.errors import ErrorCode
     from cwms_tools.mcp.resources import capabilities_payload

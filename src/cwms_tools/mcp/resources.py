@@ -175,6 +175,13 @@ def capabilities_payload() -> dict[str, Any]:
                 "tool to the subset it can return."
             ),
         },
+        "deprecations": [],
+        "deprecation_policy": (
+            "Deprecated tools, resources, and error codes remain discoverable "
+            "for at least one minor release with an entry here naming the "
+            "replacement and the removal version. Removal bumps the "
+            "fingerprint. Entry shape: {name, kind, replacement, removed_in}."
+        ),
         "active_workarounds": active_workarounds(),
         "completions": {
             "supported": False,
