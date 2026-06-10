@@ -18,6 +18,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cwms_tools.core.errors import (
+    ErrorEnvelope,  # noqa: TC001 — runtime import: Pydantic resolves ErrorRef.error annotation at class-build time
+)
+
 if TYPE_CHECKING:
     from cwms_tools.core.errors import CwmsToolsError
 
@@ -67,25 +71,24 @@ class SourceMeta(BaseModel):
 
 
 class ErrorRef(BaseModel):
-    """Minimal error shape returned by tool handlers when a task fails.
+    """The in-band `{ok: false, error: {...}}` envelope returned by tool handlers.
 
-    The full error envelope (with repair hints, retryability, etc.) lives in
-    `core.errors.ErrorEnvelope`; this is a re-exported shape so handlers can
-    declare `ToolResponse | ErrorRef` return types and FastMCP infers a clean
-    output schema for both branches.
+    `error` is the full `ErrorEnvelope` so the published outputSchema documents
+    the failure contract (code, field, repair, retryable, retry_after_ms,
+    request_id) instead of an opaque object.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     ok: Literal[False] = False
-    error: dict[str, Any]
+    error: ErrorEnvelope
 
     @classmethod
     def from_error(cls, err: CwmsToolsError) -> ErrorRef:
-        """Build the in-band `{ok: false, error: {...envelope...}}` shape from a
-        `CwmsToolsError`. The single source of this conversion for every MCP tool
-        (task tools and the overview fallback), so all tool errors look identical."""
-        return cls.model_validate({"ok": False, "error": err.envelope.model_dump(mode="json")})
+        """Build the in-band error shape from a `CwmsToolsError`. The single
+        source of this conversion for every MCP tool, so all tool errors look
+        identical."""
+        return cls(error=err.envelope)
 
 
 # --------------------------------------------------------------------------

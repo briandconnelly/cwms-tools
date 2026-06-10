@@ -166,3 +166,18 @@ def test_success_models_default_ok_true_and_carry_cursor_fields():
         source=src,
     )
     assert h.ok is True and h.next_begin is None
+
+
+def test_error_ref_error_field_is_typed_envelope() -> None:
+    """The outputSchema must expose the error envelope's fields, not an opaque object."""
+    from cwms_tools.core.errors import ErrorEnvelope
+    from cwms_tools.core.models import ErrorRef
+
+    schema = ErrorRef.model_json_schema()
+    # The error property must reference the envelope definition, not be a bare object.
+    error_prop = schema["properties"]["error"]
+    assert "$ref" in error_prop or error_prop.get("type") != "object" or "properties" in error_prop
+
+    ref = ErrorRef.model_validate({"ok": False, "error": {"code": "not_found", "message": "nope"}})
+    assert isinstance(ref.error, ErrorEnvelope)
+    assert ref.error.code.value == "not_found"
