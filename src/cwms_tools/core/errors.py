@@ -18,7 +18,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ErrorCode(StrEnum):
-    """All error codes the server can emit. Part of the capability fingerprint."""
+    """All error codes the server can emit. Part of the capability fingerprint.
+
+    Codes not yet wired to an emission path are advertised as reserved — see
+    RESERVED_ERROR_CODES in cwms_tools.mcp.resources.
+    """
 
     GHOST_LOCATION = "ghost_location"
     GHOST_OFFICE = "ghost_office"

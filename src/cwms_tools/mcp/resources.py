@@ -41,7 +41,9 @@ TOOL_INVENTORY: list[str] = [
 #: yet. Advertised separately so agents don't write dead branches. Moving a
 #: code from reserved to live is additive; it lands in a tool's
 #: TOOL_ERROR_CODES entry when wired.
-RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable"]
+# wrapper_bug is raised in core/levels.py but absorbed into level_lookup_status
+# before any agent-facing surface; it returns to the live list when that path is re-wired.
+RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable", "wrapper_bug"]
 
 #: Per-tool error catalog. The codes each tool can return as `error.code`, so an
 #: agent can branch per tool instead of against the global enum. Curated from the
@@ -164,6 +166,11 @@ def capabilities_payload() -> dict[str, Any]:
                 "resources/read failures surface as JSON-RPC errors; the repair "
                 "contract (machine_code, human_message, repair, recoverable) rides in "
                 "error.data."
+            ),
+            "code_lists": (
+                "error_codes lists codes emittable today; error_codes_reserved are "
+                "planned codes with no emission path yet; tool_error_codes maps each "
+                "tool to the subset it can return."
             ),
         },
         "active_workarounds": active_workarounds(),

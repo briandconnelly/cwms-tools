@@ -208,8 +208,13 @@ def test_dead_error_codes_removed_and_reserved_codes_declared() -> None:
     assert "truncated" not in values
 
     payload = capabilities_payload()
-    assert payload["error_codes_reserved"] == ["ghost_location", "publisher_unavailable"]
+    assert payload["error_codes_reserved"] == [
+        "ghost_location",
+        "publisher_unavailable",
+        "wrapper_bug",
+    ]
     # Reserved codes stay in the enum (they are planned contract), and the
     # live list excludes them so agents don't write dead branches.
     assert "ghost_location" not in payload["error_codes"]
     assert "publisher_unavailable" not in payload["error_codes"]
+    assert "wrapper_bug" not in payload["error_codes"]
