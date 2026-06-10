@@ -37,6 +37,12 @@ TOOL_INVENTORY: list[str] = [
     "cwms_get_overview_section",
 ]
 
+#: Codes that exist in the enum as planned contract but have no emission path
+#: yet. Advertised separately so agents don't write dead branches. Moving a
+#: code from reserved to live is additive; it lands in a tool's
+#: TOOL_ERROR_CODES entry when wired.
+RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable"]
+
 #: Per-tool error catalog. The codes each tool can return as `error.code`, so an
 #: agent can branch per tool instead of against the global enum. Curated from the
 #: actual emission paths in `core/*`; part of the capability fingerprint (folded
@@ -144,7 +150,8 @@ def capabilities_payload() -> dict[str, Any]:
         "tool_error_codes": TOOL_ERROR_CODES,
         "tool_latency": TOOL_LATENCY,
         "resources": RESOURCE_INVENTORY,
-        "error_codes": sorted(c.value for c in ErrorCode),
+        "error_codes": sorted(c.value for c in ErrorCode if c.value not in RESERVED_ERROR_CODES),
+        "error_codes_reserved": list(RESERVED_ERROR_CODES),
         "error_handling": {
             "tools": (
                 "Tool failures return the in-band envelope {ok: false, error: {...}} "
@@ -262,6 +269,7 @@ def overview_chunk_payload(section_id: str, chunk_id: str) -> dict[str, Any] | N
 
 
 __all__ = [
+    "RESERVED_ERROR_CODES",
     "RESOURCE_INVENTORY",
     "SERVER_NAME",
     "SERVER_TITLE",

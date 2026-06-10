@@ -29,8 +29,6 @@ class ErrorCode(StrEnum):
     RATE_LIMITED = "rate_limited"
     UPSTREAM_ERROR = "upstream_error"
     WRAPPER_BUG = "wrapper_bug"
-    SESSION_UNCONFIGURED = "session_unconfigured"
-    TRUNCATED = "truncated"
     USAGE_ERROR = "usage_error"
 
 
@@ -46,8 +44,6 @@ _EXIT_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.RATE_LIMITED: 6,
     ErrorCode.UPSTREAM_ERROR: 9,
     ErrorCode.WRAPPER_BUG: 11,
-    ErrorCode.SESSION_UNCONFIGURED: 4,
-    ErrorCode.TRUNCATED: 1,
 }
 
 

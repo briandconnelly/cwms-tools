@@ -197,3 +197,19 @@ def test_cli_contract_is_a_fingerprint_input() -> None:
         tools={}, resources=[], cli_contract={"commands": [{"path": "x"}]}
     )
     assert base != changed
+
+
+def test_dead_error_codes_removed_and_reserved_codes_declared() -> None:
+    from cwms_tools.core.errors import ErrorCode
+    from cwms_tools.mcp.resources import capabilities_payload
+
+    values = {c.value for c in ErrorCode}
+    assert "session_unconfigured" not in values
+    assert "truncated" not in values
+
+    payload = capabilities_payload()
+    assert payload["error_codes_reserved"] == ["ghost_location", "publisher_unavailable"]
+    # Reserved codes stay in the enum (they are planned contract), and the
+    # live list excludes them so agents don't write dead branches.
+    assert "ghost_location" not in payload["error_codes"]
+    assert "publisher_unavailable" not in payload["error_codes"]
