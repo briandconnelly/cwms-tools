@@ -99,6 +99,26 @@ def test_validate_continuation_rejects_bool_offset_and_accepts_zero():
     )
 
 
+def test_decode_cursor_echoes_offending_token() -> None:
+    from cwms_tools.core.errors import CwmsToolsError
+    from cwms_tools.core.pagination import decode_cursor
+
+    with pytest.raises(CwmsToolsError) as exc_info:
+        decode_cursor("garbage-cursor")
+    env = exc_info.value.envelope
+    assert env.field == "cursor"
+    assert env.offending_value == "garbage-cursor"
+
+
+def test_validation_failures_echo_decoded_context() -> None:
+    from cwms_tools.core.errors import CwmsToolsError
+    from cwms_tools.core.pagination import validate_continuation
+
+    with pytest.raises(CwmsToolsError) as exc_info:
+        validate_continuation({"kind": "browse_region", "req": "x"}, kind="search_places", req="x")
+    assert exc_info.value.envelope.offending_value == "browse_region"
+
+
 def test_coerce_offices_rejects_overlong_office_strings():
     bad = {"offices": ["A" * (pagination.MAX_CURSOR_OFFICE_LEN + 1)]}
     with pytest.raises(CwmsToolsError) as exc:

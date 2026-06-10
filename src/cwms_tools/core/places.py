@@ -109,7 +109,8 @@ def search_places(
             # `cursor` implies paged access; an unlimited limit (None / CLI 0)
             # would slice a tail subset yet report has_more=false — contradictory.
             raise pagination.invalid_cursor(
-                "cursor pagination requires a positive limit; omit `cursor` to fetch all results"
+                "cursor pagination requires a positive limit; omit `cursor` to fetch all results",
+                offending_value=cursor[: pagination.CURSOR_ECHO_MAX],
             )
         decoded = pagination.decode_cursor(cursor)
         # Cheap checks BEFORE upstream fan-out: kind, request hash, offset shape,
@@ -566,7 +567,8 @@ def browse_region(
             # `cursor` implies paged access; an unlimited limit (None / CLI 0)
             # would slice a tail subset yet report has_more=false — contradictory.
             raise pagination.invalid_cursor(
-                "cursor pagination requires a positive limit; omit `cursor` to fetch all results"
+                "cursor pagination requires a positive limit; omit `cursor` to fetch all results",
+                offending_value=cursor[: pagination.CURSOR_ECHO_MAX],
             )
         decoded = pagination.decode_cursor(cursor)
         offset = pagination.validate_continuation(decoded, kind="browse_region", req=req)
