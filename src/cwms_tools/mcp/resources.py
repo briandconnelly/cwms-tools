@@ -17,6 +17,8 @@ from cwms_tools.core.session import current_config
 from cwms_tools.mcp.fastmcp_capabilities import (
     FALLBACKS,
     VERIFIED,
+    VERIFIED_AGAINST,
+    fastmcp_drift,
     installed_fastmcp_version,
 )
 
@@ -177,13 +179,15 @@ def capabilities_payload() -> dict[str, Any]:
         "completions": {
             "supported": False,
             "reason": (
-                "FastMCP 3.3.1 exposes no completion handler; the overview index "
+                "The installed FastMCP exposes no completion handler; the overview index "
                 "is the discovery path for resource-template variables."
             ),
             "discover_section_ids_via": "cwms://overview",
         },
         "fastmcp": {
             "installed_version": installed_fastmcp_version(),
+            "verified_against": VERIFIED_AGAINST,
+            "drift": fastmcp_drift(),
             "verified": list(VERIFIED.keys()),
             "fallbacks": list(FALLBACKS.keys()),
         },

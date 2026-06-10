@@ -90,11 +90,21 @@ def tool_definitions() -> dict[str, dict[str, Any]]:
 def canonical_fingerprint() -> str:
     """The one capability fingerprint shared by every agent-visible surface."""
     from cwms_tools.cli.commands.schema import cli_contract_payload  # noqa: PLC0415
+    from cwms_tools.mcp.fastmcp_capabilities import (  # noqa: PLC0415
+        FALLBACKS,
+        VERIFIED,
+        VERIFIED_AGAINST,
+    )
 
     return fingerprint.compute(
         tools=tool_definitions(),
         resources=RESOURCE_INVENTORY,
         cli_contract=cli_contract_payload(),
+        runtime_baseline={
+            "fastmcp_verified_against": VERIFIED_AGAINST,
+            "verified": sorted(VERIFIED),
+            "fallbacks": sorted(FALLBACKS),
+        },
     )
 
 

@@ -10,6 +10,7 @@ and any FALLBACKS.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from fastmcp import FastMCP
 from pydantic import BaseModel
@@ -115,3 +116,79 @@ def test_static_and_templated_resources_coexist() -> None:
         assert any("cwms://overview/{section_id}" in t.uri_template for t in templates)
 
     asyncio.run(_go())
+
+
+# --------------------------------------------------------------------------
+# isError spike — FastMCP 3.4.x protocol error transport.
+# --------------------------------------------------------------------------
+
+
+def test_spike_tool_error_produces_protocol_iserror() -> None:
+    """Spike: FastMCP 3.4.2 error transport via ToolResult vs ToolError.
+
+    Verdict (recorded in FALLBACKS["tool_error_iserror"]):
+    - raise ToolError(...) from a handler causes call_tool() to RAISE the
+      exception; it does NOT return a ToolResult with is_error=True. The
+      protocol isError path via the ToolError exception is therefore NOT a
+      usable return channel for structured content.
+    - However, returning ToolResult(is_error=True, structured_content={...})
+      DOES work: the ToolResult's is_error field maps to CallToolResult.isError
+      on the wire, and structured_content rides alongside. This is a NEW 3.4.x
+      capability absent in 3.3.1.
+
+    Migration note: flipping our in-band {ok:false} envelope to use
+    ToolResult(is_error=True) is a breaking agent-contract change that needs its
+    own PR; it is NOT done in this task. Tracked as a follow-up issue.
+    """
+    import pytest
+    from fastmcp.exceptions import ToolError
+    from fastmcp.tools.base import ToolResult
+    from mcp.types import CallToolResult, TextContent
+
+    # --- Part 1: raise ToolError raises from call_tool (no is_error result) ---
+    mcp_raises = FastMCP(name="spike-raises")
+
+    @mcp_raises.tool
+    async def always_fails() -> dict:
+        raise ToolError("structured failure message")
+
+    with pytest.raises(ToolError, match="structured failure message"):
+        asyncio.run(mcp_raises.call_tool("always_fails", arguments={}))
+
+    # --- Part 2: ToolResult(is_error=True) + structured_content works ---
+    mcp_result = FastMCP(name="spike-result")
+
+    # Use Any return hint to avoid from __future__ import annotations forward-ref
+    # resolution issue: FastMCP's Pydantic type adapter needs the annotation
+    # resolved at decoration time, but ToolResult is a local import here.
+    @mcp_result.tool
+    async def fails_with_result() -> Any:  # type: ignore[return]
+        return ToolResult(
+            content=[TextContent(type="text", text="error occurred")],
+            structured_content={"ok": False, "error": {"code": "test_error", "message": "test"}},
+            is_error=True,
+        )
+
+    result = asyncio.run(mcp_result.call_tool("fails_with_result", arguments={}))
+    assert result.is_error is True
+    assert result.structured_content == {
+        "ok": False,
+        "error": {"code": "test_error", "message": "test"},
+    }
+
+    # Verify it round-trips to CallToolResult with isError=True + structuredContent
+    mcp_wire_result = result.to_mcp_result()
+    assert isinstance(mcp_wire_result, CallToolResult)
+    assert mcp_wire_result.isError is True
+    assert mcp_wire_result.structuredContent == {
+        "ok": False,
+        "error": {"code": "test_error", "message": "test"},
+    }
+
+
+def test_capabilities_payload_exposes_baseline_and_drift() -> None:
+    from cwms_tools.mcp.resources import capabilities_payload
+
+    fm = capabilities_payload()["fastmcp"]
+    assert fm["verified_against"] == "3.4.2"
+    assert isinstance(fm["drift"], bool)
