@@ -354,3 +354,23 @@ def test_search_places_tool_exposes_cursor_in_schema():
     tools = asyncio.run(go())
     assert "cursor" in tools["cwms_search_places"].to_mcp_tool().inputSchema["properties"]
     assert "cursor" in tools["cwms_browse_region"].to_mcp_tool().inputSchema["properties"]
+
+
+def test_error_responses_carry_source_fingerprint(configured) -> None:
+    """M9 envelope rule applies to errors too: source.fingerprint on every response."""
+    server = build_server()
+    result = _call(
+        server,
+        "cwms_get_history",
+        {
+            "office": "SWT",
+            "name": "FOSS",
+            "parameter": "Elev",
+            "begin_iso": "not-a-date",
+            "end_iso": "2026-06-01T00:00:00Z",
+        },
+    )
+    payload = _branch(result.structured_content)
+    assert payload["ok"] is False
+    assert payload["error"]["source"]["fingerprint"] is not None
+    assert len(payload["error"]["source"]["fingerprint"]) == 64
