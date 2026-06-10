@@ -153,3 +153,30 @@ def test_offices_payload_marks_partial_on_degraded_fallback(configured) -> None:
 
     assert payload["partial"] is True
     assert payload["count"] > 0
+
+
+def test_offices_resource_reads_through_async_handler(configured) -> None:
+    """The `cwms://offices` resource offloads its blocking cache-miss fetch to
+    the bounded executor (`run_sync`); reading it through the async server path
+    must still return the payload (regression for the event-loop-block fix)."""
+    import asyncio
+    import json
+
+    from cwms_tools.mcp.server import build_server
+
+    server = build_server()
+
+    async def go() -> dict:
+        result = await server.read_resource("cwms://offices")
+        for item in result.contents:
+            body = getattr(item, "content", None) or getattr(item, "text", None)
+            if body:
+                return json.loads(body)
+        raise AssertionError("no content")
+
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+        payload = asyncio.run(go())
+
+    assert payload["count"] == 3
+    assert {o["name"] for o in payload["offices"]} == {"NWO", "NWDM", "HQ"}

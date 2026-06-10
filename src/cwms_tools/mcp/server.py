@@ -19,6 +19,7 @@ from mcp.types import ErrorData
 from pydantic import BaseModel, ConfigDict
 
 from cwms_tools import __version__ as PKG_VERSION
+from cwms_tools.core.concurrency import run_sync
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
 from cwms_tools.core.models import Detail, ErrorRef
 from cwms_tools.mcp.resources import (
@@ -147,8 +148,12 @@ def build_server() -> FastMCP:
         NW regional-rollup guidance. Network-backed (cached 7 days); degrades
         to a documented fallback slice with `partial: true` when upstream is
         unreachable on a cold start.
+
+        The cache-miss fetch is a blocking `cwms-python` call, so it runs on
+        the bounded executor (never directly on the event loop) — same policy
+        as the task tools. See `core.concurrency`.
         """
-        return offices_payload()
+        return await run_sync(offices_payload)
 
     @mcp.resource(
         "cwms://overview",

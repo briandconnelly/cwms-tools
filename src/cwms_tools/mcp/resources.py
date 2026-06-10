@@ -98,9 +98,9 @@ TOOL_LATENCY: dict[str, str] = {
 #: Resource inventory — also kept here for the capability summary. Only resources
 #: actually registered on `build_server()` belong here, otherwise the capability
 #: summary advertises endpoints that 404 (Codex review M9 #4). `cwms://offices`
-#: (office-code discovery) is registered as of v0.4. The companion
-#: `cwms://parameters` is still deferred — tracked separately (different data
-#: semantics, cache behavior, and payload size).
+#: (office-code discovery) is now registered. The companion `cwms://parameters`
+#: is still deferred — tracked separately (different data semantics, cache
+#: behavior, and payload size).
 RESOURCE_INVENTORY: list[dict[str, str]] = [
     {"uri": "cwms://capabilities", "mime_type": "application/json"},
     {"uri": "cwms://offices", "mime_type": "application/json"},
