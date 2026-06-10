@@ -59,9 +59,21 @@ def error_ref(err: CwmsToolsError) -> ErrorRef:
     Mirrors `_source()` on the success path: every response — success or
     failure — carries `source.fingerprint` so agents can correlate against a
     cached contract after a failure too.
+
+    When called from inside a live FastMCP request context, `protocol_request_id`
+    is populated with the JSON-RPC message id so agents can correlate the error
+    envelope against their client-side logs. The field is absent (None, stripped by
+    CompactDumpMixin) when `error_ref` is called outside a request context (e.g.
+    direct unit-test invocation via `server.call_tool`).
     """
     ref = ErrorRef.from_error(err)
     ref.error.source.fingerprint = canonical_fingerprint()
+    try:
+        from fastmcp.server.dependencies import get_context  # noqa: PLC0415
+
+        ref.error.protocol_request_id = str(get_context().request_id)
+    except (ImportError, RuntimeError, AttributeError):
+        pass  # not in a request context (e.g. direct unit-test invocation)
     return ref
 
 

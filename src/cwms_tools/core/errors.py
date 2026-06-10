@@ -98,6 +98,14 @@ class ErrorEnvelope(CompactDumpMixin, BaseModel):
     retryable: bool = False
     retry_after_ms: int | None = None
     request_id: str = Field(default_factory=lambda: uuid4().hex)
+    protocol_request_id: str | None = Field(
+        default=None,
+        description=(
+            "The JSON-RPC request id of the tools/call that produced this error, "
+            "when the server runtime exposes it. Use to correlate with client-side "
+            "logs; `request_id` remains the server-generated correlation id."
+        ),
+    )
     endpoints_called: list[str] = Field(default_factory=list)
     source: SourceInfo = Field(default_factory=SourceInfo)
 

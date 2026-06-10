@@ -395,6 +395,35 @@ def test_error_responses_carry_source_fingerprint(configured, tool, args) -> Non
     assert len(payload["error"]["source"]["fingerprint"]) == 64
 
 
+def test_error_envelope_carries_protocol_request_id(configured) -> None:
+    """protocol_request_id is set when the tool runs inside a real FastMCP request context.
+
+    Direct server.call_tool() has no active context, so we drive the call through
+    an in-memory fastmcp.Client to establish a real JSON-RPC session.  The Client
+    supplies the JSON-RPC request id (a string like "1") that the server echoes back.
+    """
+    import asyncio
+
+    from fastmcp import Client
+
+    server = build_server()
+
+    async def _go():
+        async with Client(server) as client:
+            return await client.call_tool(
+                "cwms_get_overview_section", {"section_id": "no-such-section"}
+            )
+
+    result = asyncio.run(_go())
+    # Client returns a CallToolResult; extract structured_content directly.
+    payload = result.structured_content or {}
+    payload = payload.get("result", payload)
+    assert payload["ok"] is False
+    # Additive field: present because the in-memory Client establishes a real
+    # request context so get_context().request_id is available.
+    assert payload["error"].get("protocol_request_id") is not None
+
+
 def test_semantic_nulls_survive_fastmcp_wire_serialization() -> None:
     import pydantic_core
 
