@@ -230,3 +230,36 @@ def test_value_response_keeps_semantic_nulls() -> None:
     assert "value" in dumped and dumped["value"] is None  # null means "no observation"
     assert "timestamp" in dumped and dumped["timestamp"] is None
     assert "publisher" not in dumped  # non-semantic null is stripped
+
+
+def test_serialization_mode_schema_keeps_fields() -> None:
+    """Guard the __get_pydantic_json_schema__ override in core/_compact.py: a
+    pydantic upgrade that bypasses it collapses every tool outputSchema to
+    {additionalProperties: true} with no properties."""
+    from pydantic import TypeAdapter
+
+    from cwms_tools.core.models import SearchPlacesResponse
+
+    schema = TypeAdapter(SearchPlacesResponse).json_schema(mode="serialization")
+    assert "query" in schema["properties"]
+    assert "results" in schema["properties"]
+
+
+def test_compact_models_round_trip() -> None:
+    from cwms_tools.core.models import DescribePlaceResponse, SourceMeta
+
+    resp = DescribePlaceResponse(
+        office_id="SWT",
+        name="FOSS",
+        location={},
+        project=None,
+        partial=False,
+        partial_reasons=[],
+        parameters=[],
+        parameter_count=0,
+        publishers=[],
+        ts_ids=[],
+        last_data_timestamp=None,
+        source=SourceMeta(fingerprint="f" * 64),
+    )
+    assert DescribePlaceResponse.model_validate(resp.model_dump(mode="json"))

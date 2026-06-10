@@ -272,14 +272,14 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     office_id: str
     name: str
     location: dict[str, Any]
-    project: dict[str, Any] | None
+    project: dict[str, Any] | None = None
     partial: bool
     partial_reasons: list[str]
     parameters: list[str]
     parameter_count: int
     publishers: list[PublisherFingerprint]
     ts_ids: list[str]
-    last_data_timestamp: str | None
+    last_data_timestamp: str | None = None
     source: SourceMeta
 
 
@@ -303,7 +303,7 @@ class ListParametersResponse(CompactDumpMixin, BaseModel):
     ts_count: int
     by_publisher: list[PublisherAtPlace]
     all_parameters: list[str]
-    last_data_timestamp: str | None
+    last_data_timestamp: str | None = None
     data_at: list[str] | None = Field(
         default=None,
         description=(
@@ -322,8 +322,8 @@ class BrowseRegionResponse(CompactDumpMixin, BaseModel):
 
     ok: Literal[True] = True
     office: str
-    bbox: dict[str, float] | None
-    state: str | None
+    bbox: dict[str, float] | None = None
+    state: str | None = None
     result_count: int = Field(
         default=0,
         description="Number of rows actually returned in `results` (after the `limit` cap).",
@@ -401,10 +401,10 @@ class ValueWithContextResponse(CompactDumpMixin, BaseModel):
     office_id: str
     location: str
     parameter: str
-    publisher: str | None
-    value: float | None
+    publisher: str | None = None
+    value: float | None = None
     unit: str
-    timestamp: str | None
+    timestamp: str | None = None
     status_class: StatusClass
     thresholds_active: list[ActiveThreshold]
     truncated: bool = False
@@ -416,8 +416,8 @@ class HistoryPoint(CompactDumpMixin, BaseModel):
     _keep_null: ClassVar[frozenset[str]] = frozenset({"value", "timestamp"})
     model_config = ConfigDict(extra="allow")
 
-    timestamp: str | None
-    value: float | None
+    timestamp: str | None = None
+    value: float | None = None
     quality: int | None = None
 
 
@@ -431,7 +431,7 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     office_id: str
     location: str
     parameter: str
-    publisher: str | None
+    publisher: str | None = None
     unit: str
     begin: str
     end: str

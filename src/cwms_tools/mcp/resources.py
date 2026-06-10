@@ -175,6 +175,12 @@ def capabilities_payload() -> dict[str, Any]:
                 "tool to the subset it can return."
             ),
         },
+        "response_shape": (
+            "Optional fields are omitted from responses instead of being sent "
+            "as null; treat a missing key as null. Exception: `value` and "
+            "`timestamp` on observations are sent as explicit nulls because "
+            "null there means 'no observation in the window'."
+        ),
         "deprecations": [],
         "deprecation_policy": (
             "Deprecated tools, resources, and error codes remain discoverable "

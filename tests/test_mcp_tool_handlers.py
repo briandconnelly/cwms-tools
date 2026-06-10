@@ -393,3 +393,26 @@ def test_error_responses_carry_source_fingerprint(configured, tool, args) -> Non
     assert payload["ok"] is False
     assert payload["error"]["source"]["fingerprint"] is not None
     assert len(payload["error"]["source"]["fingerprint"]) == 64
+
+
+def test_semantic_nulls_survive_fastmcp_wire_serialization() -> None:
+    import pydantic_core
+
+    from cwms_tools.core.models import SourceMeta, StatusClass, ValueWithContextResponse
+
+    resp = ValueWithContextResponse(
+        ts_id="X.Elev.Inst.1Hour.0.Best",
+        office_id="SWT",
+        location="X",
+        parameter="Elev",
+        publisher=None,
+        value=None,
+        unit="ft",
+        timestamp=None,
+        status_class=StatusClass.UNKNOWN,
+        thresholds_active=[],
+        source=SourceMeta(fingerprint="f" * 64),
+    )
+    wire = pydantic_core.to_jsonable_python(resp)
+    assert wire["value"] is None and wire["timestamp"] is None
+    assert "publisher" not in wire

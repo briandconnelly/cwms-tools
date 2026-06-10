@@ -28,6 +28,11 @@ class CompactDumpMixin:
     `TypeAdapter.json_schema(mode="serialization")`) still sees the full field
     schema. The actual null-stripping still happens at call time via the
     `model_serializer` hook on `pydantic_core.to_jsonable_python`.
+
+    Breakage symptom after a pydantic upgrade:
+    ``TypeAdapter(SomeModel).json_schema(mode="serialization")`` returns
+    ``{additionalProperties: true}`` with no ``properties`` key — see
+    ``test_serialization_mode_schema_keeps_fields``.
     """
 
     _keep_null: ClassVar[frozenset[str]] = frozenset()
