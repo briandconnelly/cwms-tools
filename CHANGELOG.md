@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prek hook, the CI `verify` job, and `tests/test_manifest.py`.
 - CI now tests on Python 3.14, with the macOS/Windows checks bumped to 3.14.
 
+### Fixed
+
+- `cwms_search_places` no longer silently swallows per-office errors: a single
+  NW-stub office (NWO/NWK/NWS/NWP/NWW) now returns the `ghost_office` envelope
+  with its repair hint, and a failing office in a multi-office fan-out is
+  reported via `partial: true` + `partial_reasons`.
+- The ghost-office repair hint from single-location reads now points at
+  `cwms_browse_region` (was a useless empty-query `cwms_search_places` call).
+- Error responses now carry `source.fingerprint`, matching success responses.
+
 ### Changed
 
 - Modernized for the Python 3.11 floor: ruff `target-version` raised to `py311`;
@@ -33,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pyproject` version, and latest CHANGELOG heading agree; PyPI publish uses
   `skip-existing` for safe reruns; least-privilege top-level `permissions`; and
   the dist upload fails fast on no files.
+- Tool `outputSchema`s now document the full error envelope (`code`, `field`,
+  `repair`, `retryable`, `retry_after_ms`, `request_id`) instead of an opaque
+  `error` object. Wire shape is unchanged.
 
 ### Removed
 
