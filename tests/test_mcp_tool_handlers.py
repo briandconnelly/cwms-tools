@@ -338,6 +338,14 @@ def test_publishers_for_parameter_handler(configured) -> None:
     assert payload["coverage"]["complete"] is True
 
 
+def test_search_places_handler_returns_ghost_office_for_nwo(configured) -> None:
+    server = build_server()
+    result = _call(server, "cwms_search_places", {"query": "Bear Creek", "office": "NWO"})
+    payload = _branch(result.structured_content)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "ghost_office"
+
+
 def test_search_places_tool_exposes_cursor_in_schema():
     async def go():
         mcp = build_server()

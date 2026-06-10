@@ -14,6 +14,7 @@ from typing import Any
 from cwms_tools.core import catalog, locations, offices, pagination, projects, publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.concurrency import MAX_WORKERS
+from cwms_tools.core.errors import CwmsToolsError
 from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
 from cwms_tools.core.session import current_config
 
@@ -123,8 +124,10 @@ def search_places(
             requested = offices.cached_offices_for_locations()
         offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
 
+    gathered, gather_reasons = _gather_enriched(offices_searched, query, use_cache=use_cache)
+    partial_reasons.extend(gather_reasons)
     enriched, filtered_out = _apply_parameter_filter(
-        _gather_enriched(offices_searched, query, use_cache=use_cache),
+        gathered,
         parameter,
         use_cache=use_cache,
     )
@@ -231,16 +234,33 @@ def _gather_enriched(
     query: str,
     *,
     use_cache: bool,
-) -> list[dict[str, Any]]:
-    """Run filtered enrichment per office and merge."""
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Run filtered enrichment per office and merge.
+
+    Returns `(rows, error_reasons)`. A failing office in a multi-office
+    fan-out degrades to a `"<office>: <code>"` entry in `error_reasons`
+    (surfaced as `partial_reasons` on the response) instead of failing the
+    whole call. When exactly ONE office was requested, its structured error
+    re-raises so the full envelope — including the ghost-office repair
+    hint — reaches the agent instead of an empty result.
+    """
     merged: list[dict[str, Any]] = []
+    reasons: list[str] = []
     for office_id in office_ids:
         try:
             rows = locations.search(office_id, query, use_cache=use_cache)
-        except Exception:
+        except CwmsToolsError as err:
+            if len(office_ids) == 1:
+                raise
+            reasons.append(f"{office_id}: {err.envelope.code.value}")
+            continue
+        except Exception as exc:  # unexpected — keep the fan-out alive but visible
+            if len(office_ids) == 1:
+                raise
+            reasons.append(f"{office_id}: internal_error ({type(exc).__name__})")
             continue
         merged.extend(rows)
-    return merged
+    return merged, reasons
 
 
 def _apply_parameter_filter(
