@@ -49,7 +49,7 @@ _EXIT_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.INVALID_FIELD: 2,
     ErrorCode.RATE_LIMITED: 6,
     ErrorCode.UPSTREAM_ERROR: 9,
-    ErrorCode.WRAPPER_BUG: 11,
+    ErrorCode.WRAPPER_BUG: 11,  # reserved (RESERVED_ERROR_CODES); keeps exit-code contract stable
 }
 
 
