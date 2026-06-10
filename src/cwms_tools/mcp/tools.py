@@ -92,7 +92,8 @@ def register_place_tools(mcp: FastMCP) -> None:
         query: Annotated[str, "Name fragment to match, case-insensitive."],
         office: Annotated[
             str | list[str] | None,
-            "USACE office code, or a list of office codes. Omit to fan out "
+            "USACE office code, or a list of office codes (discover valid "
+            "codes at the `cwms://offices` resource). Omit to fan out "
             "across offices already cached this session; pass an explicit "
             "list to widen. Unbounded discovery is intentionally avoided. "
             "New (uncached) offices in the list are capped per call; "
@@ -171,7 +172,11 @@ def register_place_tools(mcp: FastMCP) -> None:
         },
     )
     async def cwms_describe_place(
-        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
+        office: Annotated[
+            str,
+            "USACE office code (e.g. NWDM, SWT). Discover valid codes at the "
+            "`cwms://offices` resource.",
+        ],
         name: Annotated[str, "Location id within the office (e.g. FTPK, FOSS)."],
         detail: Detail = Detail.SUMMARY,
     ) -> DescribePlaceResponse | ErrorRef:
@@ -205,7 +210,10 @@ def register_place_tools(mcp: FastMCP) -> None:
         },
     )
     async def cwms_list_parameters(
-        office: Annotated[str, "USACE office code."],
+        office: Annotated[
+            str,
+            "USACE office code. Discover valid codes at the `cwms://offices` resource.",
+        ],
         name: Annotated[str, "Location id within the office."],
         detail: Detail = Detail.SUMMARY,
     ) -> ListParametersResponse | ErrorRef:
@@ -231,7 +239,11 @@ def register_place_tools(mcp: FastMCP) -> None:
         },
     )
     async def cwms_browse_region(
-        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
+        office: Annotated[
+            str,
+            "USACE office code (e.g. NWDM, SWT). Discover valid codes at the "
+            "`cwms://offices` resource.",
+        ],
         south: Annotated[float | None, "Bounding box south latitude in decimal degrees."] = None,
         west: Annotated[float | None, "Bounding box west longitude in decimal degrees."] = None,
         north: Annotated[float | None, "Bounding box north latitude in decimal degrees."] = None,
@@ -313,7 +325,11 @@ def register_value_tools(mcp: FastMCP) -> None:
         },
     )
     async def cwms_get_value(
-        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
+        office: Annotated[
+            str,
+            "USACE office code (e.g. NWDM, SWT). Discover valid codes at the "
+            "`cwms://offices` resource.",
+        ],
         name: Annotated[
             str,
             "CWMS location name/id within the office (e.g. FTPK, FOSS, "
@@ -380,7 +396,11 @@ def register_value_tools(mcp: FastMCP) -> None:
         },
     )
     async def cwms_get_history(
-        office: Annotated[str, "USACE office code (e.g. NWDM, SWT)."],
+        office: Annotated[
+            str,
+            "USACE office code (e.g. NWDM, SWT). Discover valid codes at the "
+            "`cwms://offices` resource.",
+        ],
         name: Annotated[str, "CWMS location name/id within the office (e.g. FTPK, FOSS)."],
         parameter: Annotated[
             str,
@@ -466,9 +486,9 @@ def register_publisher_tools(mcp: FastMCP) -> None:
         parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage)."],
         offices: Annotated[
             list[str] | None,
-            "Limit the index to these office codes. If omitted, only "
-            "offices already in cache are scanned; never expands to every "
-            "office implicitly.",
+            "Limit the index to these office codes (discover valid codes at "
+            "the `cwms://offices` resource). If omitted, only offices already "
+            "in cache are scanned; never expands to every office implicitly.",
         ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> PublishersForParameterResponse | ErrorRef:

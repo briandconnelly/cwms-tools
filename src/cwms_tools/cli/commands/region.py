@@ -25,7 +25,10 @@ def browse(
         typer.Option(
             "--office",
             "-o",
-            help="USACE office code (e.g. NWDM, SWT). Required.",
+            help=(
+                "USACE office code (e.g. NWDM, SWT). Required. "
+                "List valid codes with `cwms-tools offices`."
+            ),
         ),
     ],
     south: Annotated[

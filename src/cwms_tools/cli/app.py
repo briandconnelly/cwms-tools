@@ -11,6 +11,7 @@ from cwms_tools.cli.commands import config as config_cmd
 from cwms_tools.cli.commands import env as env_cmd
 from cwms_tools.cli.commands import fingerprint as fingerprint_cmd
 from cwms_tools.cli.commands import mcp as mcp_cmd
+from cwms_tools.cli.commands import offices as offices_cmd
 from cwms_tools.cli.commands import place as place_cmd
 from cwms_tools.cli.commands import publisher as publisher_cmd
 from cwms_tools.cli.commands import region as region_cmd
@@ -108,6 +109,7 @@ app.add_typer(env_cmd.app, name="env")
 app.add_typer(config_cmd.app, name="config")
 app.add_typer(fingerprint_cmd.app, name="fingerprint")
 app.add_typer(schema_cmd.app, name="schema")
+app.add_typer(offices_cmd.app, name="offices")
 
 # Place / region task tools (M4).
 app.add_typer(place_cmd.app, name="place")

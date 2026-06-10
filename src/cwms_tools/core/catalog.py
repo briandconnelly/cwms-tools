@@ -81,7 +81,8 @@ def _raise_ghost_office(office_id: str) -> None:
         offending_value=office_id,
         hint=(
             "NW Division districts (NWO, NWK, NWS, NWP, NWW) are catalog stubs. "
-            "Use NWDM (Missouri) or NWDP (Pacific NW) instead."
+            "Use NWDM (Missouri) or NWDP (Pacific NW) instead. The "
+            "`cwms://offices` resource lists every valid office code."
         ),
         repair=RepairHint(tool="cwms_browse_region", args={"office": target}),
     )

@@ -43,6 +43,20 @@ def test_server_registers_capabilities_and_overview_index(server) -> None:
     assert "cwms://overview" in uris
 
 
+def test_server_registers_offices_resource(server) -> None:
+    async def go() -> set[str]:
+        resources = await server.list_resources()
+        return {str(r.uri) for r in resources}
+
+    assert "cwms://offices" in asyncio.run(go())
+
+
+def test_capabilities_advertises_offices_resource(server) -> None:
+    payload = _read_json(server, "cwms://capabilities")
+    uris = {r["uri"] for r in payload["resources"]}
+    assert "cwms://offices" in uris
+
+
 def test_server_registers_overview_section_and_chunk_templates(server) -> None:
     async def go() -> list[str]:
         templates = await server.list_resource_templates()
@@ -266,7 +280,10 @@ def test_overview_section_tool_returns_section_for_good_slug(server) -> None:
     assert "body" in branch
 
 
-def test_resource_names_are_not_python_identifiers() -> None:
+def test_resource_names_are_explicit_not_handler_function_names() -> None:
+    """Resources/templates must register under their explicit human names, not
+    the underscore-prefixed handler-function identifiers FastMCP would otherwise
+    derive (e.g. `_capabilities`)."""
     import asyncio
 
     from cwms_tools.mcp.server import build_server
@@ -274,7 +291,7 @@ def test_resource_names_are_not_python_identifiers() -> None:
     server = build_server()
     resources = asyncio.run(server.list_resources())
     names = {r.name for r in resources}
-    assert names == {"capabilities", "overview-index"}
+    assert names == {"capabilities", "offices", "overview-index"}
     assert not any(n.startswith("_") for n in names)
 
     templates = asyncio.run(server.list_resource_templates())

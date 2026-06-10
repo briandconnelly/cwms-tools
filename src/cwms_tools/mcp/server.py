@@ -19,12 +19,14 @@ from mcp.types import ErrorData
 from pydantic import BaseModel, ConfigDict
 
 from cwms_tools import __version__ as PKG_VERSION
+from cwms_tools.core.concurrency import run_sync
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
 from cwms_tools.core.models import Detail, ErrorRef
 from cwms_tools.mcp.resources import (
     SERVER_NAME,
     SERVER_TITLE,
     capabilities_payload,
+    offices_payload,
     overview_chunk_payload,
     overview_index_payload,
     overview_section_payload,
@@ -40,7 +42,9 @@ INSTRUCTIONS = (
     f"{SERVER_TITLE}\n\n"
     "Start with `cwms://capabilities` for the structured server summary "
     "— tools, resources, error codes, fingerprint, and what this server "
-    "deliberately does not do. The bundled CWMS orientation document is "
+    "deliberately does not do. Valid `office` codes for the tools are "
+    "listed at `cwms://offices` (with the NW regional-rollup guidance). "
+    "The bundled CWMS orientation document is "
     "indexed at `cwms://overview`; fetch a section via "
     "`cwms://overview/{section_id}{?detail}` or, if your client does not "
     "browse MCP resources, the `cwms_get_overview_section` tool returns "
@@ -130,6 +134,26 @@ def build_server() -> FastMCP:
         """Structured server summary: name, version, fingerprint, tools, resources,
         error codes, negative scope, and active wrapper-bug workarounds."""
         return capabilities_payload()
+
+    @mcp.resource(
+        "cwms://offices",
+        name="offices",
+        title="USACE office directory",
+        mime_type="application/json",
+    )
+    async def _offices() -> dict[str, Any]:
+        """USACE office directory for office-code discovery.
+
+        Lists every office (name, long name, type, reporting parent) plus the
+        NW regional-rollup guidance. Network-backed (cached 7 days); degrades
+        to a documented fallback slice with `partial: true` when upstream is
+        unreachable on a cold start.
+
+        The cache-miss fetch is a blocking `cwms-python` call, so it runs on
+        the bounded executor (never directly on the event loop) — same policy
+        as the task tools. See `core.concurrency`.
+        """
+        return await run_sync(offices_payload)
 
     @mcp.resource(
         "cwms://overview",
