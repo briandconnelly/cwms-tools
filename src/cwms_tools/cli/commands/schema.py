@@ -148,6 +148,21 @@ def _commands() -> list[dict[str, Any]]:
             "options": [],
             "error_codes": [],
         },
+        {
+            "path": "cwms-tools offices",
+            "output_class": "record",
+            "reads_stdin": False,
+            "latency_class": "network",
+            "arguments": [],
+            "options": [],
+            "error_codes": [],
+            "notes": (
+                "Lists the USACE office codes the `--office` option expects, plus "
+                "the NW regional-rollup guidance. Network-backed, cached 7 days; "
+                "degrades to a documented fallback slice with `partial: true` on "
+                "cold-start upstream failure (never errors)."
+            ),
+        },
         # Place tools (M4).
         {
             "path": "cwms-tools place search",

@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ghost_office` repair hints now point at it. (Adding the resource bumps the
   capability fingerprint.) Closes #21.
 
+- `cwms-tools offices` CLI command: the CLI analog of the `cwms://offices`
+  resource, sharing the same core. Lists the office codes the `--office` option
+  expects plus the NW regional-rollup guidance, so CLI agents can discover valid
+  codes instead of relying on out-of-band knowledge. Every `--office` help
+  string now points at it. (Adding the command bumps the capability fingerprint.)
+
 - Agent-friendly GitHub hardening (no runtime changes):
   - `AGENTS.md` is now the canonical instructions file; `CLAUDE.md` is a thin
     `@AGENTS.md` pointer.

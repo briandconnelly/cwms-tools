@@ -56,11 +56,12 @@ def search(
             "--office",
             "-o",
             help=(
-                "USACE office code. Repeat to fan out across multiple "
-                "offices (e.g. `-o NWDP -o NWDM`). Omit to use offices "
-                "already cached this session; unbounded discovery is "
-                "intentionally avoided. Overflow beyond the per-call "
-                "budget lands in `offices_skipped_for_budget`."
+                "USACE office code (list valid codes with `cwms-tools "
+                "offices`). Repeat to fan out across multiple offices "
+                "(e.g. `-o NWDP -o NWDM`). Omit to use offices already "
+                "cached this session; unbounded discovery is intentionally "
+                "avoided. Overflow beyond the per-call budget lands in "
+                "`offices_skipped_for_budget`."
             ),
         ),
     ] = None,
