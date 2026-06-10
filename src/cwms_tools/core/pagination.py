@@ -31,6 +31,14 @@ MAX_CURSOR_OFFICE_LEN = 32
 CURSOR_ECHO_MAX = 64
 
 
+def _echo(value: Any) -> str:
+    """Truncate any cursor-derived value for safe echo in an error payload.
+
+    Forged tokens can pass the version/dict check yet embed huge strings in
+    any decoded field, so every echo is stringified and capped."""
+    return str(value)[:CURSOR_ECHO_MAX]
+
+
 def request_hash(parts: dict[str, Any]) -> str:
     """Stable, order-independent short hash of the normalized request."""
     raw = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
@@ -87,18 +95,18 @@ def validate_continuation(cursor: dict[str, Any], *, kind: str, req: str) -> int
     if cursor.get("kind") != kind:
         raise invalid_cursor(
             "cursor was issued for a different operation",
-            offending_value=cursor.get("kind"),
+            offending_value=_echo(cursor.get("kind")),
         )
     if cursor.get("req") != req:
         raise invalid_cursor(
             "cursor does not match the current query/filters",
-            offending_value=cursor.get("req"),
+            offending_value=_echo(cursor.get("req")),
         )
     offset = cursor.get("off")
     if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
         raise invalid_cursor(
             "cursor offset is malformed",
-            offending_value=cursor.get("off"),
+            offending_value=_echo(cursor.get("off")),
         )
     return offset
 
@@ -108,7 +116,7 @@ def ensure_total(cursor: dict[str, Any], *, total: int) -> None:
     if cursor.get("total") != total:
         raise invalid_cursor(
             "result set changed since the cursor was issued (catalog shifted)",
-            offending_value=cursor.get("total"),
+            offending_value=_echo(cursor.get("total")),
         )
 
 
@@ -126,11 +134,7 @@ def coerce_offices(cursor: dict[str, Any]) -> list[str]:
     ):
         raise invalid_cursor(
             "cursor office set is malformed",
-            offending_value=(
-                offices
-                if isinstance(offices, list) and len(offices) <= 10
-                else "<malformed offices payload>"
-            ),
+            offending_value="<malformed offices payload>",
         )
     return cast("list[str]", list(offices))
 
