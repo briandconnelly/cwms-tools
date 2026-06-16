@@ -229,6 +229,66 @@ def history(
         emit_error(err)
 
 
+@app.command("profile")
+def profile(
+    id_spec: Annotated[
+        str,
+        typer.Argument(
+            help=(
+                "Parent string + parameter in OFFICE/NAME/PARAMETER form, where "
+                "NAME is the parent 'string' (e.g. `NWDP/GWLW_S1/Temp-Water`), "
+                "NOT a single depth-tagged sensor."
+            )
+        ),
+    ],
+    window_hours: Annotated[
+        int,
+        typer.Option(
+            "--window-hours",
+            help="How far back to search for each sensor's most recent value, in hours.",
+        ),
+    ] = 24,
+    unit: Annotated[
+        Unit,
+        typer.Option(
+            "--unit",
+            help="Unit system: 'EN' (ft, °F) or 'SI' (m, °C).",
+        ),
+    ] = Unit.EN,
+    detail: Annotated[
+        Detail,
+        typer.Option(
+            "--detail",
+            help="'summary' drops the per-sensor ts_id; 'full' keeps it.",
+        ),
+    ] = Detail.SUMMARY,
+) -> None:
+    """Read every depth sensor of one string in a single call.
+
+    Returns the sensors sorted shallow→deep, each with structured
+    `depth: {value, unit}` and its latest value — a one-shot vertical
+    profile instead of one `value get` per depth.
+
+    Example: `cwms-tools value profile NWDP/GWLW_S1/Temp-Water`
+    """
+    office, name, parameter = _parse_id(id_spec)
+    try:
+        payload = values.get_profile(
+            office, name, parameter, window=timedelta(hours=window_hours), unit=unit.value
+        )
+        if detail is Detail.SUMMARY and isinstance(payload.get("profile"), list):
+            payload = {
+                **payload,
+                "profile": [
+                    {k: v for k, v in sensor.items() if k != "ts_id"}
+                    for sensor in payload["profile"]
+                ],
+            }
+        emit(payload)
+    except CwmsToolsError as err:
+        emit_error(err)
+
+
 def _parse_iso(value: str, *, field: str) -> datetime:
     """Parse an RFC3339 timestamp or emit a precise INVALID_FIELD error to stderr."""
     try:

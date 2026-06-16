@@ -386,6 +386,109 @@ def test_get_history_rejects_unknown_rollup(configured) -> None:
 
 
 # --------------------------------------------------------------------------
+# #26/#27: get_profile (whole-string depth read)
+# --------------------------------------------------------------------------
+
+
+def _profile_catalog():
+    return [
+        {"name": "GWLW_S1-D36,0ft", "parameters": ["Temp-Water"]},
+        {"name": "GWLW_S1-D3,0ft", "parameters": ["Temp-Water"]},
+        {"name": "GWLW_S1-D13,0ft", "parameters": ["Temp-Water"]},
+        {"name": "GWLW_S1", "parameters": []},  # parent string: no temp itself
+        {"name": "GWLW_S1-D25,0ft", "parameters": ["Elev"]},  # wrong parameter -> excluded
+        {"name": "OTHER-D5,0ft", "parameters": ["Temp-Water"]},  # different string -> excluded
+    ]
+
+
+def test_get_profile_sorts_shallow_to_deep_with_depth(configured, monkeypatch) -> None:
+    from cwms_tools.core import catalog as catalog_mod
+
+    monkeypatch.setattr(
+        catalog_mod,
+        "enrich_locations",
+        lambda office, like=None, use_cache=True: _profile_catalog(),
+    )
+    vals = {"GWLW_S1-D3,0ft": 67.0, "GWLW_S1-D13,0ft": 61.0, "GWLW_S1-D36,0ft": 55.0}
+
+    def fake_get_value(office, loc, parameter, **_):
+        return {
+            "value": vals[loc],
+            "unit": "degF",  # actual measurement unit, as the value tools return
+            "timestamp": "2026-05-17T18:00:00Z",
+            "publisher": "IRIDIUM-REV",
+            "ts_id": f"{loc}.Temp-Water.Inst.1Hour.0.IRIDIUM-REV",
+        }
+
+    monkeypatch.setattr(values, "get_value", fake_get_value)
+    payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
+
+    assert payload["sensor_count"] == 3
+    assert [e["name"] for e in payload["profile"]] == [
+        "GWLW_S1-D3,0ft",
+        "GWLW_S1-D13,0ft",
+        "GWLW_S1-D36,0ft",
+    ]
+    assert payload["profile"][0]["depth"] == {"value": pytest.approx(3.0), "unit": "ft"}
+    assert payload["profile"][0]["value"] == pytest.approx(67.0)
+    assert payload["profile"][-1]["depth"]["value"] == pytest.approx(36.0)
+    # Top-level unit mirrors the actual measurement unit from the sensor reads,
+    # not the requested EN/SI system (#32 review).
+    assert payload["unit"] == "degF"
+    assert "note" not in payload
+
+
+def test_get_profile_empty_returns_note(configured, monkeypatch) -> None:
+    from cwms_tools.core import catalog as catalog_mod
+
+    monkeypatch.setattr(
+        catalog_mod, "enrich_locations", lambda office, like=None, use_cache=True: []
+    )
+    payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
+    assert payload["sensor_count"] == 0
+    assert payload["profile"] == []
+    assert "note" in payload
+
+
+def test_get_profile_degrades_failed_sensor(configured, monkeypatch) -> None:
+    from cwms_tools.core import catalog as catalog_mod
+
+    monkeypatch.setattr(
+        catalog_mod,
+        "enrich_locations",
+        lambda office, like=None, use_cache=True: [
+            {"name": "GWLW_S1-D3,0ft", "parameters": ["Temp-Water"]},
+            {"name": "GWLW_S1-D13,0ft", "parameters": ["Temp-Water"]},
+        ],
+    )
+
+    def fake_get_value(office, loc, parameter, **_):
+        if loc == "GWLW_S1-D13,0ft":
+            raise CwmsToolsError.of(ErrorCode.NOT_FOUND, "gone", field="parameter")
+        return {"value": 67.0, "unit": "EN", "timestamp": "t", "publisher": "p", "ts_id": "x"}
+
+    monkeypatch.setattr(values, "get_value", fake_get_value)
+    payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
+    deep = payload["profile"][1]
+    assert deep["name"] == "GWLW_S1-D13,0ft"
+    assert deep["value"] is None
+    assert deep["error"] == "not_found"
+
+
+@pytest.mark.parametrize("hours", [-1, 0])
+def test_get_profile_rejects_non_positive_window(configured, hours) -> None:
+    """A non-positive look-back window (negative inverts begin/end; zero is an
+    empty window) is rejected up front as a deterministic usage_error, before
+    any catalog call — matching the 'must be positive' contract."""
+    from datetime import timedelta
+
+    with pytest.raises(CwmsToolsError) as exc:
+        values.get_profile("NWDP", "GWLW_S1", "Temp-Water", window=timedelta(hours=hours))
+    assert exc.value.envelope.code == ErrorCode.USAGE_ERROR
+    assert exc.value.envelope.field == "window_hours"
+
+
+# --------------------------------------------------------------------------
 # next_begin continuation timestamp
 # --------------------------------------------------------------------------
 

@@ -103,6 +103,10 @@
       "description": "Read observations across a bounded time window."
     },
     {
+      "name": "cwms_get_profile",
+      "description": "Read every depth sensor of one string in a single call."
+    },
+    {
       "name": "cwms_publishers_for_parameter",
       "description": "List the publishers reporting a parameter, with explicit coverage."
     }

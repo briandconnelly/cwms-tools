@@ -11,7 +11,7 @@ import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from cwms_tools.core import levels, publishers, timeseries
+from cwms_tools.core import catalog, depth, levels, publishers, timeseries
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Rollup
 
@@ -99,6 +99,111 @@ def get_value(
         "truncated": series.get("truncated", False),
         "truncation_hint": series.get("truncation_hint"),
     }
+
+
+def get_profile(
+    office: str,
+    name: str,
+    parameter: str,
+    *,
+    window: timedelta = timedelta(hours=24),
+    unit: str = "EN",
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """Read every depth-tagged sensor of one string in a single call (#26/#27).
+
+    `name` is the parent "string" location (e.g. `GWLW_S1`). This finds the
+    co-located depth-tagged sensors that publish `parameter` (e.g.
+    `GWLW_S1-D3,0ft`, `-D13,0ft`, ...), fetches each one's latest value, and
+    returns them as a profile sorted shallow→deep with structured
+    `depth: {value, unit}` per sensor — so a stratification question is one
+    round-trip instead of one call per depth, with no need to decode the
+    cryptic `D<n>,0ft` tag.
+    """
+    if window <= timedelta(0):
+        raise CwmsToolsError.of(
+            ErrorCode.USAGE_ERROR,
+            "window_hours must be a positive number of hours.",
+            field="window_hours",
+            offending_value=int(window.total_seconds() // 3600),
+            hint="Pass a positive look-back window, e.g. window_hours=24.",
+        )
+    # `enrich_locations(like=...)` still fetches the full per-office locations
+    # catalog (cached) and filters it client-side, but the `like` scopes the
+    # potentially-large timeseries-catalog enrichment to this string's depth
+    # children (`<parent>-D...`) instead of the whole office. That client-side
+    # filter is a plain substring match (no regex); the server-side ts `like` is
+    # built from re.escape'd, anchored row names; and the `startswith(prefix)`
+    # filter below is the precise selector — so the parent name can't widen or
+    # inject into the upstream query.
+    prefix = f"{name}-D"
+    enriched = catalog.enrich_locations(office, like=prefix, use_cache=use_cache)
+    children: list[tuple[str, dict[str, Any]]] = []
+    for row in enriched:
+        loc = row["name"]
+        if not loc.startswith(prefix):
+            continue
+        parsed = depth.parse_depth(loc)
+        if parsed is None or parameter not in row.get("parameters", []):
+            continue
+        children.append((loc, parsed))
+    children.sort(key=lambda c: depth.depth_sort_key(c[0]))
+
+    profile = [
+        _profile_entry(office, loc, parameter, parsed, window=window, unit=unit)
+        for loc, parsed in children
+    ]
+    # Top-level `unit` mirrors the other value tools: the actual measurement
+    # unit of the readings (e.g. degF, ft), taken from the first sensor read
+    # successfully; fall back to the requested unit system if every read failed.
+    measured_unit = next((e["unit"] for e in profile if e.get("unit")), unit)
+    response: dict[str, Any] = {
+        "office_id": office,
+        "name": name,
+        "parameter": parameter,
+        "unit": measured_unit,
+        "sensor_count": len(profile),
+        "profile": profile,
+    }
+    if not profile:
+        response["note"] = (
+            f"No depth-tagged sensors under {name!r} publish {parameter!r} in {office}. "
+            "Confirm the parent string id and parameter with cwms_list_parameters / "
+            "cwms_search_places, or read a single sensor with cwms_get_value."
+        )
+    return response
+
+
+def _profile_entry(
+    office: str,
+    location: str,
+    parameter: str,
+    parsed_depth: dict[str, Any],
+    *,
+    window: timedelta,
+    unit: str,
+) -> dict[str, Any]:
+    """One profile row: depth metadata plus the sensor's latest observation.
+
+    A per-sensor failure degrades to `value: null` with an `error` code rather
+    than failing the whole profile, so one dead sensor doesn't sink the read.
+    """
+    entry: dict[str, Any] = {"name": location, "depth": parsed_depth}
+    try:
+        point = get_value(
+            office, location, parameter, window=window, unit=unit, classify_against_levels=False
+        )
+    except CwmsToolsError as err:
+        entry.update(value=None, timestamp=None, error=err.envelope.code.value)
+        return entry
+    entry.update(
+        value=point.get("value"),
+        unit=point.get("unit", unit),
+        timestamp=point.get("timestamp"),
+        publisher=point.get("publisher"),
+        ts_id=point.get("ts_id"),
+    )
+    return entry
 
 
 def get_history(
@@ -374,4 +479,4 @@ def _coerce_dt(raw: Any) -> datetime | None:
     return None
 
 
-__all__ = ["get_history", "get_value"]
+__all__ = ["get_history", "get_profile", "get_value"]

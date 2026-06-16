@@ -36,6 +36,7 @@ from cwms_tools.core.models import (
     ErrorRef,
     HistoryResponse,
     ListParametersResponse,
+    ProfileResponse,
     PublishersForParameterResponse,
     Rollup,
     SearchPlacesResponse,
@@ -550,6 +551,63 @@ def register_value_tools(mcp: FastMCP) -> None:
         shaped["source"] = _source().model_dump(mode="json")
         return HistoryResponse.model_validate(shaped)
 
+    @mcp.tool(
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": True,
+            "idempotentHint": True,
+            "title": "Depth profile (whole string)",
+        },
+    )
+    async def cwms_get_profile(
+        office: Annotated[
+            str,
+            "USACE office code (e.g. NWDP). Discover valid codes at the `cwms://offices` resource.",
+        ],
+        name: Annotated[
+            str,
+            "Parent 'string' location id (e.g. GWLW_S1, UBLW_S1) — NOT a single "
+            "depth-tagged sensor. The tool finds the depth-tagged sensors hanging "
+            "off this string.",
+        ],
+        parameter: Annotated[
+            str,
+            "Parameter code to read at each depth (commonly Temp-Water). Case-sensitive.",
+        ],
+        window_hours: Annotated[
+            int,
+            "How far back to search for each sensor's most recent value, in hours.",
+        ] = 24,
+        unit: Annotated[
+            Literal["EN", "SI"],
+            "Unit system: 'EN' (ft, °F) or 'SI' (m, °C).",
+        ] = "EN",
+        detail: Detail = Detail.SUMMARY,
+    ) -> ProfileResponse | ErrorRef:
+        """Read every depth sensor of one string in a single call.
+
+        For a vertical profile (e.g. water-temperature stratification) at a
+        depth-tagged WQ string, this replaces one `cwms_get_value` call per
+        depth. Returns the sensors sorted shallow→deep, each with structured
+        `depth: {value, unit}` (so you don't decode the cryptic `D<n>,0ft`
+        tag) and its latest observation. A single dead sensor degrades to
+        `value: null` + `error` rather than failing the whole profile. When no
+        depth sensors match, `sensor_count` is 0 and `note` explains recovery.
+        """
+        raw = await _safe(
+            values.get_profile,
+            office,
+            name,
+            parameter,
+            window=timedelta(hours=window_hours),
+            unit=unit,
+        )
+        if isinstance(raw, ErrorRef):
+            return raw
+        shaped = _shape_profile_detail(raw, detail)
+        shaped["source"] = _source().model_dump(mode="json")
+        return ProfileResponse.model_validate(shaped)
+
 
 def register_publisher_tools(mcp: FastMCP) -> None:
     """Register the publisher-related helper tools on the FastMCP server."""
@@ -652,6 +710,18 @@ def _shape_history_detail(payload: dict[str, Any], detail: Detail) -> dict[str, 
     if isinstance(pruned.get("values"), list):
         pruned["values"] = [
             {k: v for k, v in row.items() if k != "quality"} for row in pruned["values"]
+        ]
+    return pruned
+
+
+def _shape_profile_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
+    """Summary mode drops the per-sensor `ts_id` (chatty); `depth` + value stay."""
+    if detail is Detail.FULL:
+        return dict(payload)
+    pruned = dict(payload)
+    if isinstance(pruned.get("profile"), list):
+        pruned["profile"] = [
+            {k: v for k, v in sensor.items() if k != "ts_id"} for sensor in pruned["profile"]
         ]
     return pruned
 
