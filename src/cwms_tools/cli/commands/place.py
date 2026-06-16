@@ -61,7 +61,7 @@ def search(
                 "(e.g. `-o NWDP -o NWDM`). Omit to use offices already "
                 "cached this session; unbounded discovery is intentionally "
                 "avoided. Overflow beyond the per-call budget lands in "
-                "`offices_skipped_for_budget`. When omitting --office "
+                "`offices_skipped_for_budget`. When omitting `--office` "
                 "resolves to an empty scope, the response carries a "
                 "top-level `repair_hint` naming a concrete data-bearing "
                 "office list to retry with."
@@ -130,7 +130,7 @@ def search(
     structured `depth: {value, unit}` (e.g. `{value: 3.0, unit: "ft"}`),
     so there's no need to parse the cryptic id.
 
-    When --office is omitted and the resolved scope is empty, the
+    When `--office` is omitted and the resolved scope is empty, the
     response carries a top-level `repair_hint` naming a concrete
     data-bearing office list to retry with.
     """
