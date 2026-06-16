@@ -176,6 +176,18 @@ class TsIdParts(BaseModel):
 # --------------------------------------------------------------------------
 
 
+class SensorDepth(CompactDumpMixin, BaseModel):
+    """Structured depth parsed from a depth-tagged sensor id (issue #27).
+
+    Removes the guesswork in ids like `GWLW_S1-D3,0ft` (the comma is a decimal
+    point, so this is 3.0 ft, not 0 ft) and `BECR-D042,5m` (42.5 m)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    value: float = Field(description="Sensor depth below the surface.")
+    unit: str = Field(description="Depth unit: 'ft' or 'm'.")
+
+
 class PlaceSummary(CompactDumpMixin, BaseModel):
     """One result from `cwms_search_places` / `cwms_browse_region`."""
 
@@ -187,6 +199,13 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
     location_kind: str | None = None
     latitude: float | None = None
     longitude: float | None = None
+    depth: SensorDepth | None = Field(
+        default=None,
+        description=(
+            "Parsed sensor depth when `name` is a depth-tagged WQ sensor "
+            "(e.g. GWLW_S1-D3,0ft → {value: 3.0, unit: 'ft'}). Omitted otherwise."
+        ),
+    )
     parameter_count: int = 0
     parameters: list[str] = Field(
         default_factory=list,
@@ -549,6 +568,54 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
             "next request to continue the window with no duplicate/skipped point. "
             "Omitted otherwise."
         ),
+    )
+    source: SourceMeta
+
+
+class ProfileSensor(CompactDumpMixin, BaseModel):
+    """One depth sensor's latest reading in a `cwms_get_profile` result."""
+
+    _keep_null: ClassVar[frozenset[str]] = frozenset({"value", "timestamp"})
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    depth: SensorDepth
+    value: float | None = None
+    unit: str | None = None
+    timestamp: str | None = None
+    publisher: str | None = None
+    ts_id: str | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Error code if this one sensor could not be read; the rest of the profile stands."
+        ),
+    )
+
+
+class ProfileResponse(CompactDumpMixin, BaseModel):
+    """Response shape for `cwms_get_profile` — a depth string read in one call."""
+
+    model_config = ConfigDict(extra="allow")
+
+    ok: Literal[True] = True
+    office_id: str
+    name: str = Field(description="The parent 'string' location (e.g. GWLW_S1).")
+    parameter: str
+    unit: str = Field(
+        description=(
+            "Actual measurement unit of the sensor readings (e.g. degF, ft) — taken "
+            "from the first successfully-read sensor, NOT the requested EN/SI system. "
+            "Falls back to the requested unit system only if every sensor read fails."
+        ),
+    )
+    sensor_count: int
+    profile: list[ProfileSensor] = Field(
+        description="Depth sensors sorted shallow→deep, each with structured depth + latest value.",
+    )
+    note: str | None = Field(
+        default=None,
+        description="Present only when no depth-tagged sensors matched; explains how to recover.",
     )
     source: SourceMeta
 

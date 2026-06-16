@@ -11,7 +11,15 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from cwms_tools.core import catalog, locations, offices, pagination, projects, publishers
+from cwms_tools.core import (
+    catalog,
+    depth,
+    locations,
+    offices,
+    pagination,
+    projects,
+    publishers,
+)
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.concurrency import MAX_WORKERS
 from cwms_tools.core.errors import CwmsToolsError
@@ -149,6 +157,7 @@ def search_places(
             "location_kind": r.get("location_kind"),
             "latitude": r.get("latitude"),
             "longitude": r.get("longitude"),
+            "depth": depth.parse_depth(r["name"]),
             "parameter_count": r["parameter_count"],
             "parameters": r.get("parameters", []),
             "publishers": r["publishers"],
@@ -706,6 +715,7 @@ def browse_region(
                 "location_kind": r.get("location_kind"),
                 "latitude": r.get("latitude"),
                 "longitude": r.get("longitude"),
+                "depth": depth.parse_depth(r["name"]),
                 "parameter_count": r["parameter_count"],
                 "parameters": r.get("parameters", []),
                 "publishers": r["publishers"],

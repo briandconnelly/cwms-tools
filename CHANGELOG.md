@@ -34,6 +34,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Adds `rollup`/`summary`/`buckets` to the response schema and a `--rollup`
   CLI option, bumping the capability fingerprint.) Closes #25.
 
+- `cwms_get_profile` MCP tool + `cwms-tools value profile` CLI command: read an
+  entire depth-tagged sensor string in one call instead of one `cwms_get_value`
+  per depth. Given a parent string (e.g. `GWLW_S1`) and a parameter, it finds
+  the co-located depth sensors that publish it, fetches each one's latest value,
+  and returns them sorted shallow→deep with structured `depth: {value, unit}`.
+  A single dead sensor degrades to `value: null` + an `error` code rather than
+  failing the whole profile; when no sensors match, `note` explains recovery.
+  Closes #26.
+- Structured sensor depth on search/browse results: `cwms_search_places` and
+  `cwms_browse_region` rows now carry a `depth: {value, unit}` field when the
+  location id is a depth-tagged WQ sensor (e.g. `GWLW_S1-D3,0ft` →
+  `{value: 3.0, unit: "ft"}`, `BECR-D042,5m` → `{value: 42.5, unit: "m"}`),
+  removing the guesswork that the comma is a decimal point and that the
+  trailing `,0ft` does not mean "0 ft". Closes #27.
+  (Adds a tool, a CLI command, and the `depth` response field — bumps the
+  capability fingerprint.)
+
 ### Changed
 
 - Tool failures now set the protocol-level `isError: true` flag in addition to

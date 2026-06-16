@@ -218,3 +218,51 @@ def test_value_get_partial_failure_keeps_aggregate_on_stdout(configured) -> None
     assert payload["summary"]["failed"] == 1
     assert payload["results"][0]["ok"] is False
     assert payload["results"][0]["error"]["code"] == "ghost_office"
+
+
+def test_value_profile_emits_sorted_profile(configured, monkeypatch) -> None:
+    """#26/#27: `value profile` reads a whole depth string in one call, sorted
+    shallow→deep with structured depth, and (summary) drops per-sensor ts_id."""
+    from cwms_tools.core import values
+
+    canned = {
+        "office_id": "NWDP",
+        "name": "GWLW_S1",
+        "parameter": "Temp-Water",
+        "unit": "EN",
+        "sensor_count": 2,
+        "profile": [
+            {
+                "name": "GWLW_S1-D3,0ft",
+                "depth": {"value": 3.0, "unit": "ft"},
+                "value": 67.1,
+                "unit": "EN",
+                "timestamp": "2026-05-17T18:00:00Z",
+                "publisher": "IRIDIUM-REV",
+                "ts_id": "GWLW_S1-D3,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV",
+            },
+            {
+                "name": "GWLW_S1-D36,0ft",
+                "depth": {"value": 36.0, "unit": "ft"},
+                "value": 55.0,
+                "unit": "EN",
+                "timestamp": "2026-05-17T18:00:00Z",
+                "publisher": "IRIDIUM-REV",
+                "ts_id": "GWLW_S1-D36,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV",
+            },
+        ],
+    }
+    monkeypatch.setattr(values, "get_profile", lambda *a, **k: dict(canned))
+    result = runner.invoke(app, ["value", "profile", "NWDP/GWLW_S1/Temp-Water"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["sensor_count"] == 2
+    assert [s["depth"]["value"] for s in payload["profile"]] == [3.0, 36.0]
+    # summary mode drops the chatty per-sensor ts_id
+    assert all("ts_id" not in s for s in payload["profile"])
+
+
+def test_value_profile_rejects_bad_id_shape() -> None:
+    result = runner.invoke(app, ["value", "profile", "missing-slashes"])
+    assert result.exit_code == 2
+    assert json.loads(result.stderr)["error"]["code"] == "usage_error"

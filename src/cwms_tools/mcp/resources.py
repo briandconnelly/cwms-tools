@@ -34,6 +34,7 @@ TOOL_INVENTORY: list[str] = [
     "cwms_list_parameters",
     "cwms_get_value",
     "cwms_get_history",
+    "cwms_get_profile",
     "cwms_browse_region",
     "cwms_publishers_for_parameter",
     "cwms_get_overview_section",
@@ -72,6 +73,10 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
         "rate_limited",
         "upstream_error",
     ],
+    # Per-sensor read failures degrade into the profile rows' `error` field
+    # rather than failing the call, so only catalog-level failures (plus the
+    # up-front window_hours validation) surface here.
+    "cwms_get_profile": ["ghost_office", "rate_limited", "upstream_error", "usage_error"],
     # Per-office failures are absorbed into coverage.offices_error_skipped rather
     # than failing the call, so this tool returns a result (with coverage) instead
     # of an error.code in normal operation.
@@ -90,6 +95,7 @@ TOOL_LATENCY: dict[str, str] = {
     "cwms_list_parameters": "network",
     "cwms_get_value": "network",
     "cwms_get_history": "slow",
+    "cwms_get_profile": "slow",
     "cwms_browse_region": "network",
     "cwms_publishers_for_parameter": "network",
     "cwms_get_overview_section": "local",

@@ -74,6 +74,7 @@ GOOD_ARGS = {
         "begin_iso": "2026-05-17T00:00:00Z",
         "end_iso": "2026-05-18T00:00:00Z",
     },
+    "cwms_get_profile": {"office": "SWT", "name": "GWLW_S1", "parameter": "Temp-Water"},
 }
 
 NW_STUB_ARGS = {
@@ -89,6 +90,7 @@ NW_STUB_ARGS = {
         "begin_iso": "2026-05-17T00:00:00Z",
         "end_iso": "2026-05-18T00:00:00Z",
     },
+    "cwms_get_profile": {"office": "NWO", "name": "BECR", "parameter": "Temp-Water"},
 }
 
 # (tool, code) -> (args, upstream_status or None for purely-local provocations)
@@ -113,6 +115,10 @@ PROVOCATIONS[("cwms_get_history", "invalid_field")] = (
 )
 PROVOCATIONS[("cwms_browse_region", "usage_error")] = (
     {"office": "SWT", "south": 1.0},  # partial bbox
+    None,
+)
+PROVOCATIONS[("cwms_get_profile", "usage_error")] = (
+    {**GOOD_ARGS["cwms_get_profile"], "window_hours": -1},  # negative look-back window
     None,
 )
 PROVOCATIONS[("cwms_get_overview_section", "not_found")] = (

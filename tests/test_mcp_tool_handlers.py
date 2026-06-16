@@ -324,6 +324,45 @@ def test_get_history_handler_returns_values(configured) -> None:
     assert "quality" not in payload["values"][0]
 
 
+def test_get_profile_handler_returns_sorted_profile(configured, monkeypatch) -> None:
+    """#26/#27: cwms_get_profile reads a whole depth string, sorted shallow→deep
+    with structured depth, and (summary) strips the per-sensor ts_id."""
+    from cwms_tools.core import values
+
+    monkeypatch.setattr(
+        values,
+        "get_profile",
+        lambda *a, **k: {
+            "office_id": "NWDP",
+            "name": "GWLW_S1",
+            "parameter": "Temp-Water",
+            "unit": "EN",
+            "sensor_count": 1,
+            "profile": [
+                {
+                    "name": "GWLW_S1-D3,0ft",
+                    "depth": {"value": 3.0, "unit": "ft"},
+                    "value": 67.1,
+                    "unit": "EN",
+                    "timestamp": "2026-05-17T18:00:00Z",
+                    "publisher": "IRIDIUM-REV",
+                    "ts_id": "GWLW_S1-D3,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV",
+                }
+            ],
+        },
+    )
+    server = build_server()
+    result = _call(
+        server,
+        "cwms_get_profile",
+        {"office": "NWDP", "name": "GWLW_S1", "parameter": "Temp-Water"},
+    )
+    payload = _branch(result.structured_content)
+    assert payload["sensor_count"] == 1
+    assert payload["profile"][0]["depth"] == {"value": 3.0, "unit": "ft"}
+    assert "ts_id" not in payload["profile"][0]  # stripped in summary mode
+
+
 def test_publishers_for_parameter_handler(configured) -> None:
     server = build_server()
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
