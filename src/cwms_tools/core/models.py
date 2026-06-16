@@ -45,6 +45,14 @@ class Unit(StrEnum):
     SI = "SI"
 
 
+class Rollup(StrEnum):
+    """History downsample mode: 'raw' returns every point; 'hourly'/'daily' return per-bucket min/max/mean/count aggregates."""  # noqa: E501
+
+    RAW = "raw"
+    HOURLY = "hourly"
+    DAILY = "daily"
+
+
 class SourceMeta(CompactDumpMixin, BaseModel):
     """Provenance attached to every successful tool response."""
 
@@ -447,9 +455,49 @@ class HistoryPoint(CompactDumpMixin, BaseModel):
     quality: int | None = None
 
 
+class HistorySummary(CompactDumpMixin, BaseModel):
+    """Window-level reduction so 'how has X changed?' needs no client-side math."""
+
+    model_config = ConfigDict(extra="allow")
+
+    count: int = Field(
+        description=(
+            "Number of observations with a numeric value AND a timestamp considered "
+            "for the summary (timestamp-less numeric points are excluded)."
+        ),
+    )
+    first: float = Field(description="Earliest observation by timestamp.")
+    last: float = Field(description="Latest observation by timestamp.")
+    min: float
+    max: float
+    mean: float
+    delta: float = Field(description="`last - first` over the window.")
+
+
+class HistoryBucket(CompactDumpMixin, BaseModel):
+    """One server-side rollup bucket (per UTC hour or day)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    timestamp: str = Field(description="RFC3339 UTC bucket start (half-open interval).")
+    min: float
+    max: float
+    mean: float
+    count: int = Field(
+        description=(
+            "Observations aggregated into this bucket — each with a numeric value and "
+            "a parseable RFC3339 timestamp (others are skipped)."
+        ),
+    )
+
+
 class HistoryResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_get_history`."""
 
+    # Keep `summary` even when null so the key is always present in the response
+    # (it is null only when the window holds no numeric observations); callers
+    # can rely on `summary` existing rather than probing for it.
+    _keep_null: ClassVar[frozenset[str]] = frozenset({"summary"})
     model_config = ConfigDict(extra="allow")
 
     ok: Literal[True] = True
@@ -461,8 +509,37 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     unit: str
     begin: str
     end: str
-    values: list[HistoryPoint]
-    value_count: int
+    rollup: Rollup = Field(
+        description=(
+            "Applied downsample mode: 'raw' (every point in `values`), or "
+            "'hourly'/'daily' (per-bucket aggregates in `buckets`; `values` is empty). "
+            "Always present (required)."
+        ),
+    )
+    summary: HistorySummary | None = Field(
+        description=(
+            "Window-level first/last/min/max/mean/delta/count over non-null "
+            "observations. The key is always present (required); its value is null "
+            "only when the window holds no numeric observations."
+        ),
+    )
+    values: list[HistoryPoint] = Field(
+        description=(
+            "Raw points (timestamp + value). Always present (required) but empty "
+            "under 'hourly'/'daily' rollup, where the aggregates are in `buckets`."
+        ),
+    )
+    buckets: list[HistoryBucket] | None = Field(
+        default=None,
+        description="Per-bucket aggregates when `rollup` is 'hourly'/'daily'; omitted for 'raw'.",
+    )
+    value_count: int = Field(
+        description=(
+            "Number of raw points in the window. This is always the raw count, "
+            "even under `rollup='hourly'/'daily'` where `values` is empty and the "
+            "aggregates are in `buckets` — so `value_count` may exceed `len(values)`."
+        ),
+    )
     truncated: bool = False
     truncation_hint: str | None = None
     next_begin: str | None = Field(

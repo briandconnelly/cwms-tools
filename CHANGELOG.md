@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   codes. (Adds a `repair_hint` field to the response schema, bumping the
   capability fingerprint.) Closes #24.
 
+- `cwms_get_history` now supports server-side time aggregation, cutting the
+  token cost of the most common "how has X changed over N days?" question:
+  - A `summary` block (first, last, min, max, mean, delta, count over the
+    window's non-null observations) — the key is always present (null only when
+    the window has no numeric observations) — so agents no longer pull every
+    hourly point and hand-compute deltas (a token cost and a correctness risk).
+  - A new `rollup` parameter (`raw` (default) | `hourly` | `daily`; CLI:
+    `--rollup`) downsamples server-side. `hourly`/`daily` return per-bucket
+    `{timestamp, min, max, mean, count}` rows in a new `buckets` field (with an
+    empty `values`), bucketed on UTC hour/day boundaries — a handful of rows
+    instead of hundreds.
+  (Adds `rollup`/`summary`/`buckets` to the response schema and a `--rollup`
+  CLI option, bumping the capability fingerprint.) Closes #25.
+
 ### Changed
 
 - Tool failures now set the protocol-level `isError: true` flag in addition to

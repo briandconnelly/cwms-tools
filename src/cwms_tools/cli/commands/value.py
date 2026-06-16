@@ -11,7 +11,7 @@ from cwms_tools.cli.exit_codes import from_error_code
 from cwms_tools.cli.render import emit, emit_error
 from cwms_tools.core import values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
-from cwms_tools.core.models import Detail, Unit
+from cwms_tools.core.models import Detail, Rollup, Unit
 
 app = typer.Typer(
     name="value",
@@ -177,6 +177,18 @@ def history(
             help="Unit system: 'EN' (English: ft, cfs) or 'SI' (metric: m, cms).",
         ),
     ] = Unit.EN,
+    rollup: Annotated[
+        Rollup,
+        typer.Option(
+            "--rollup",
+            help=(
+                "'raw' returns every point; 'hourly'/'daily' return per-bucket "
+                "min/max/mean/count (UTC buckets) for compact trends. The `summary` "
+                "key is always present regardless of rollup (null only when the "
+                "window has no numeric observations)."
+            ),
+        ),
+    ] = Rollup.RAW,
     detail: Annotated[
         Detail,
         typer.Option(
@@ -188,14 +200,22 @@ def history(
     """Read a windowed history of one parameter at one place.
 
     Sets `truncated: true` with a `truncation_hint` when the upstream
-    page cap (300,000 points) clipped the requested window.
+    page cap (300,000 points) clipped the requested window. For trend
+    questions, read the always-present `summary` block or pass
+    `--rollup hourly|daily` for compact per-bucket aggregates.
     """
     office, name, parameter = _parse_id(id_spec)
     begin_dt = _parse_iso(begin, field="begin")
     end_dt = _parse_iso(end, field="end")
     try:
         payload = values.get_history(
-            office, name, parameter, begin=begin_dt, end=end_dt, unit=unit.value
+            office,
+            name,
+            parameter,
+            begin=begin_dt,
+            end=end_dt,
+            unit=unit.value,
+            rollup=rollup.value,
         )
         if detail is Detail.SUMMARY and isinstance(payload.get("values"), list):
             payload = {

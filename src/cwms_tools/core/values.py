@@ -12,6 +12,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from cwms_tools.core import levels, publishers, timeseries
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
+from cwms_tools.core.models import Rollup
+
+#: Allowed `rollup` modes for `get_history`, derived from the `Rollup` enum so
+#: the enum stays the single source of truth (no drift). `raw` returns every
+#: point; `hourly`/`daily` return per-bucket min/max/mean/count instead.
+ROLLUP_MODES: tuple[str, ...] = tuple(r.value for r in Rollup)
 
 _threading = threading  # keep import live in case the formatter strips it
 
@@ -102,12 +109,30 @@ def get_history(
     begin: datetime,
     end: datetime,
     unit: str = "EN",
+    rollup: str = "raw",
 ) -> dict[str, Any]:
-    """Windowed history for one (office, location, parameter)."""
+    """Windowed history for one (office, location, parameter).
+
+    `rollup` controls the value shape (token cost): `raw` (default) returns
+    every point; `hourly`/`daily` server-side downsample to per-bucket
+    min/max/mean/count, so a trend question over a long window costs a handful
+    of rows instead of hundreds. A `summary` block (first/last/min/max/mean/
+    delta/count over the window) is always included so the most common
+    "how has X changed?" question needs no client-side reduction.
+    """
+    if rollup not in ROLLUP_MODES:
+        raise CwmsToolsError.of(
+            ErrorCode.USAGE_ERROR,
+            f"Unknown rollup {rollup!r}.",
+            field="rollup",
+            offending_value=rollup,
+            hint=f"Use one of: {', '.join(ROLLUP_MODES)}.",
+        )
     tsid = timeseries.require_canonical_ts_id(office, location, parameter)
     parts = publishers.parse_ts_id(tsid)
     series = timeseries.fetch_window(tsid, office=office, begin=begin, end=end, unit=unit)
-    return {
+    values = series["values"]
+    response: dict[str, Any] = {
         "ts_id": tsid,
         "office_id": office,
         "location": location,
@@ -116,12 +141,120 @@ def get_history(
         "unit": series.get("unit", unit),
         "begin": series["begin"],
         "end": series["end"],
-        "values": series["values"],
-        "value_count": len(series["values"]),
+        "rollup": rollup,
+        "value_count": len(values),
+        "summary": _summarize(values),
         "truncated": series.get("truncated", False),
         "truncation_hint": series.get("truncation_hint"),
         "next_begin": series.get("next_begin"),
     }
+    if rollup == "raw":
+        response["values"] = values
+    else:
+        # Rolled-up: omit the raw points (the whole point is fewer rows) and
+        # return the per-bucket aggregates instead.
+        response["values"] = []
+        response["buckets"] = _bucketize(values, rollup)
+    return response
+
+
+def _summarize(values: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """First/last/min/max/mean/delta/count over the non-null observations.
+
+    `first`/`last` are by timestamp (earliest/latest), derived independently of
+    the input ordering — RFC3339 UTC timestamps sort lexicographically, so an
+    out-of-order or unsorted window still yields correct first/last/delta. Only
+    observations that have both a numeric value AND a string timestamp are
+    considered (consistent with `timeseries._latest_point`), so a value with no
+    timestamp can't skew first/last. Timestamps are not re-parsed here — the
+    upstream emits RFC3339 UTC strings that sort correctly as-is. Returns None
+    when the window holds no such observations.
+    """
+    numeric = [
+        v
+        for v in values
+        if isinstance(v.get("value"), (int, float)) and isinstance(v.get("timestamp"), str)
+    ]
+    if not numeric:
+        return None
+    ordered = sorted(numeric, key=lambda v: v["timestamp"])
+    nums = [float(v["value"]) for v in ordered]
+    return {
+        "count": len(nums),
+        "first": nums[0],
+        "last": nums[-1],
+        "min": min(nums),
+        "max": max(nums),
+        "mean": sum(nums) / len(nums),
+        "delta": nums[-1] - nums[0],
+    }
+
+
+def _bucketize(values: list[dict[str, Any]], rollup: str) -> list[dict[str, Any]]:
+    """Group points into UTC hour/day buckets with min/max/mean/count.
+
+    Buckets are half-open intervals floored to the UTC hour (`hourly`) or UTC
+    calendar day (`daily`); the bucket `timestamp` is the interval start. Only
+    numeric observations contribute; empty buckets are not emitted. Bucketing
+    on UTC keeps the boundaries deterministic and independent of the series'
+    local timezone.
+    """
+    buckets: dict[str, dict[str, Any]] = {}
+    for point in values:
+        value = point.get("value")
+        ts = point.get("timestamp")
+        if not isinstance(value, (int, float)) or not isinstance(ts, str):
+            continue
+        key = _bucket_key(ts, rollup)
+        if key is None:
+            continue
+        agg = buckets.get(key)
+        fvalue = float(value)
+        if agg is None:
+            buckets[key] = {
+                "timestamp": key,
+                "min": fvalue,
+                "max": fvalue,
+                "_sum": fvalue,
+                "count": 1,
+            }
+        else:
+            agg["min"] = min(agg["min"], fvalue)
+            agg["max"] = max(agg["max"], fvalue)
+            agg["_sum"] += fvalue
+            agg["count"] += 1
+    out: list[dict[str, Any]] = []
+    for key in sorted(buckets):
+        agg = buckets[key]
+        out.append(
+            {
+                "timestamp": agg["timestamp"],
+                "min": agg["min"],
+                "max": agg["max"],
+                "mean": agg["_sum"] / agg["count"],
+                "count": agg["count"],
+            }
+        )
+    return out
+
+
+def _bucket_key(timestamp: str, rollup: str) -> str | None:
+    """Floor an RFC3339 UTC timestamp to its hour/day bucket start (RFC3339).
+
+    Returns None for an unparseable timestamp or an unexpected rollup (callers
+    validate `rollup` ∈ {hourly, daily}; this stays defensive rather than
+    silently treating an unknown mode as daily)."""
+    try:
+        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+    if rollup == "hourly":
+        floored = dt.replace(minute=0, second=0, microsecond=0)
+    elif rollup == "daily":
+        floored = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        return None
+    return floored.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _resolve_thresholds_with_timeout(

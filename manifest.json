@@ -100,7 +100,7 @@
     },
     {
       "name": "cwms_get_history",
-      "description": "Read raw observations across a bounded time window."
+      "description": "Read observations across a bounded time window."
     },
     {
       "name": "cwms_publishers_for_parameter",

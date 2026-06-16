@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import cwms
@@ -46,7 +47,7 @@ def _ms(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
 
 
-def _ts_payload(*, ts_id: str, points: list[tuple[datetime, float]]) -> dict:
+def _ts_payload(*, ts_id: str, points: Sequence[tuple[datetime, float | None]]) -> dict:
     return {
         "name": ts_id,
         "office-id": ts_id.split(".", maxsplit=1)[0],  # unused in our parser
@@ -207,6 +208,181 @@ def test_get_history_returns_windowed_values(configured) -> None:
     assert payload["values"][0]["timestamp"].startswith("2026-05-17T18:00")
     assert payload["values"][-1]["value"] == pytest.approx(1648.5)
     assert payload["truncated"] is False
+    # rollup defaults to raw: points are returned, no buckets.
+    assert payload["rollup"] == "raw"
+    assert "buckets" not in payload
+
+
+# --------------------------------------------------------------------------
+# #25: server-side summary + rollup
+# --------------------------------------------------------------------------
+
+
+def _history(rollup="raw", *, points, begin, end):
+    """Drive `values.get_history` with a mocked window of `points`."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
+        mocked.add(
+            responses.GET,
+            re.compile(rf"{re.escape(_ts_url())}\?.*"),
+            json=_ts_payload(ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev", points=points),
+            status=200,
+        )
+        return values.get_history("SWT", "FOSS", "Elev", begin=begin, end=end, rollup=rollup)
+
+
+def test_get_history_always_includes_summary(configured) -> None:
+    """The summary block lets agents answer 'how has X changed' without pulling
+    and hand-reducing every point (a token cost and a correctness risk)."""
+    pts = [
+        (datetime(2026, 5, 17, 18, 0, tzinfo=UTC), 10.0),
+        (datetime(2026, 5, 17, 18, 15, tzinfo=UTC), 14.0),
+        (datetime(2026, 5, 17, 18, 30, tzinfo=UTC), 12.0),
+    ]
+    s = _history(
+        points=pts,
+        begin=datetime(2026, 5, 17, 17, tzinfo=UTC),
+        end=datetime(2026, 5, 17, 19, tzinfo=UTC),
+    )["summary"]
+    assert s["count"] == 3
+    assert s["first"] == pytest.approx(10.0)
+    assert s["last"] == pytest.approx(12.0)
+    assert s["min"] == pytest.approx(10.0)
+    assert s["max"] == pytest.approx(14.0)
+    assert s["mean"] == pytest.approx(12.0)
+    assert s["delta"] == pytest.approx(2.0)  # last - first
+
+
+def test_summarize_derives_first_last_by_timestamp_not_order() -> None:
+    """first/last are by timestamp, so an out-of-order window still yields the
+    correct earliest/latest values and delta (not list-position based)."""
+    s = values._summarize(
+        [
+            {"timestamp": "2026-05-17T18:30:00Z", "value": 12.0},  # latest
+            {"timestamp": "2026-05-17T18:00:00Z", "value": 10.0},  # earliest
+            {"timestamp": "2026-05-17T18:15:00Z", "value": 14.0},
+        ]
+    )
+    assert s is not None
+    assert s["first"] == pytest.approx(10.0)  # earliest by timestamp
+    assert s["last"] == pytest.approx(12.0)  # latest by timestamp
+    assert s["delta"] == pytest.approx(2.0)
+    assert s["min"] == pytest.approx(10.0)
+    assert s["max"] == pytest.approx(14.0)
+
+
+def test_summarize_ignores_values_without_timestamp() -> None:
+    """A numeric value with no timestamp can't be ordered, so it's excluded from
+    the summary entirely (it must not become a spurious first/last)."""
+    s = values._summarize(
+        [
+            {"timestamp": None, "value": 999.0},  # no timestamp → excluded
+            {"timestamp": "2026-05-17T18:00:00Z", "value": 10.0},
+            {"timestamp": "2026-05-17T18:30:00Z", "value": 12.0},
+        ]
+    )
+    assert s is not None
+    assert s["count"] == 2
+    assert s["first"] == pytest.approx(10.0)
+    assert s["last"] == pytest.approx(12.0)
+    assert s["max"] == pytest.approx(12.0)  # 999.0 excluded
+
+
+def test_get_history_summary_is_null_key_when_window_empty(configured) -> None:
+    """No numeric observations → `summary` is null, but the KEY is still present
+    (both in the core dict and after model serialization via _keep_null) so
+    callers can rely on `summary` existing."""
+    from cwms_tools.core.models import HistoryResponse, SourceMeta
+
+    payload = _history(
+        points=[],
+        begin=datetime(2026, 5, 17, 17, tzinfo=UTC),
+        end=datetime(2026, 5, 17, 19, tzinfo=UTC),
+    )
+    assert "summary" in payload
+    assert payload["summary"] is None
+    assert payload["value_count"] == 0
+    # The compact serializer keeps the null `summary` key (it is in _keep_null).
+    dumped = HistoryResponse.model_validate(
+        {**payload, "source": SourceMeta(fingerprint="x" * 64).model_dump(mode="json")}
+    ).model_dump(mode="json")
+    assert "summary" in dumped
+    assert dumped["summary"] is None
+
+
+def test_get_history_summary_ignores_nulls(configured) -> None:
+    """Null observations (gaps) don't poison min/mean/first/last."""
+    pts = [
+        (datetime(2026, 5, 17, 18, 0, tzinfo=UTC), None),
+        (datetime(2026, 5, 17, 18, 15, tzinfo=UTC), 20.0),
+        (datetime(2026, 5, 17, 18, 30, tzinfo=UTC), 30.0),
+    ]
+    s = _history(
+        points=pts,
+        begin=datetime(2026, 5, 17, 17, tzinfo=UTC),
+        end=datetime(2026, 5, 17, 19, tzinfo=UTC),
+    )["summary"]
+    assert s["count"] == 2
+    assert s["first"] == pytest.approx(20.0)
+    assert s["min"] == pytest.approx(20.0)
+
+
+def test_get_history_hourly_rollup_buckets(configured) -> None:
+    """rollup='hourly' replaces raw points with per-hour min/max/mean/count
+    buckets — ~Nx fewer rows for a trend question."""
+    pts = [
+        (datetime(2026, 5, 17, 18, 0, tzinfo=UTC), 10.0),
+        (datetime(2026, 5, 17, 18, 30, tzinfo=UTC), 20.0),
+        (datetime(2026, 5, 17, 19, 0, tzinfo=UTC), 30.0),
+        (datetime(2026, 5, 17, 19, 30, tzinfo=UTC), 40.0),
+    ]
+    payload = _history(
+        "hourly",
+        points=pts,
+        begin=datetime(2026, 5, 17, 17, tzinfo=UTC),
+        end=datetime(2026, 5, 17, 20, tzinfo=UTC),
+    )
+    assert payload["rollup"] == "hourly"
+    assert payload["values"] == []
+    buckets = payload["buckets"]
+    assert len(buckets) == 2
+    assert buckets[0]["timestamp"].startswith("2026-05-17T18:00")
+    assert buckets[0]["min"] == pytest.approx(10.0)
+    assert buckets[0]["max"] == pytest.approx(20.0)
+    assert buckets[0]["mean"] == pytest.approx(15.0)
+    assert buckets[0]["count"] == 2
+    assert buckets[1]["timestamp"].startswith("2026-05-17T19:00")
+    assert buckets[1]["mean"] == pytest.approx(35.0)
+
+
+def test_get_history_daily_rollup_buckets(configured) -> None:
+    pts = [
+        (datetime(2026, 5, 17, 6, tzinfo=UTC), 1.0),
+        (datetime(2026, 5, 17, 18, tzinfo=UTC), 3.0),
+        (datetime(2026, 5, 18, 6, tzinfo=UTC), 5.0),
+    ]
+    payload = _history(
+        "daily",
+        points=pts,
+        begin=datetime(2026, 5, 17, tzinfo=UTC),
+        end=datetime(2026, 5, 19, tzinfo=UTC),
+    )
+    assert payload["rollup"] == "daily"
+    buckets = payload["buckets"]
+    assert [b["timestamp"][:10] for b in buckets] == ["2026-05-17", "2026-05-18"]
+    assert buckets[0]["mean"] == pytest.approx(2.0)
+    assert buckets[0]["count"] == 2
+
+
+def test_get_history_rejects_unknown_rollup(configured) -> None:
+    with pytest.raises(CwmsToolsError) as exc:
+        _history(
+            "weekly",
+            points=[],
+            begin=datetime(2026, 5, 17, tzinfo=UTC),
+            end=datetime(2026, 5, 19, tzinfo=UTC),
+        )
+    assert exc.value.envelope.code == ErrorCode.USAGE_ERROR
 
 
 # --------------------------------------------------------------------------

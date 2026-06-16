@@ -13,6 +13,7 @@ from cwms_tools.core.models import (
     Detail,
     HistoryResponse,
     PlaceSummary,
+    Rollup,
     SearchPlacesResponse,
     SourceMeta,
     StatusClass,
@@ -161,11 +162,28 @@ def test_success_models_default_ok_true_and_carry_cursor_fields():
         unit="EN",
         begin="2026-01-01T00:00:00Z",
         end="2026-01-02T00:00:00Z",
+        rollup=Rollup.RAW,
+        summary=None,
         values=[],
         value_count=0,
         source=src,
     )
     assert h.ok is True and h.next_begin is None
+    # rollup/summary/values are required (no defaults masking missing keys).
+    with pytest.raises(ValueError, match=r"(?i)rollup|summary|field required"):
+        HistoryResponse.model_validate(
+            {
+                "ts_id": "t",
+                "office_id": "o",
+                "location": "l",
+                "parameter": "p",
+                "unit": "EN",
+                "begin": "2026-01-01T00:00:00Z",
+                "end": "2026-01-02T00:00:00Z",
+                "value_count": 0,
+                "source": src.model_dump(mode="json"),
+            }
+        )
 
 
 def test_error_ref_error_field_is_typed_envelope() -> None:
