@@ -147,7 +147,10 @@ def register_place_tools(mcp: FastMCP) -> None:
             "list to widen. Unbounded discovery is intentionally avoided. "
             "New (uncached) offices in the list are capped per call; "
             "uncached overflow is returned under `offices_skipped_for_budget` "
-            "with a repair hint pointing back at this tool with that list.",
+            "— re-call this tool with those offices in `office` to widen. "
+            "If you know the place name but not the office, just omit this: "
+            "when nothing is in scope the response carries a `repair_hint` "
+            "naming a concrete data-bearing office list to retry with.",
         ] = None,
         parameter: Annotated[
             str | None,
@@ -181,6 +184,10 @@ def register_place_tools(mcp: FastMCP) -> None:
         `office` and `name`, call `cwms_describe_place`,
         `cwms_list_parameters`, or `cwms_get_value` / `cwms_get_history`
         directly instead.
+
+        Know the place name but not the office? Omit `office`. If nothing is
+        in scope the response is empty but carries a `repair_hint` naming a
+        concrete data-bearing office list — retry with `repair_hint.args`.
 
         Each result is enriched with parameter_count (0 means a ghost
         record with no published data), the parameters published at the

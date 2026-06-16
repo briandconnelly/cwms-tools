@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cwms_search_places` now returns a structured `repair_hint` when a bare-name
+  search resolves to no office in scope (the common "I know the place but not
+  the USACE office" case). Instead of an empty result with only the generic
+  `no_offices_in_scope` reason, the response names a concrete, copy-paste
+  retryable office list (the curated data-bearing set: NWDM/NWDP regional
+  rollups plus the district-publishing offices) under
+  `repair_hint.args.office`, echoing the caller's `query`/`parameter`. The
+  bare-name path is no longer a dead end resolved only by guessing office
+  codes. (Adds a `repair_hint` field to the response schema, bumping the
+  capability fingerprint.) Closes #24.
+
 ### Changed
 
 - Tool failures now set the protocol-level `isError: true` flag in addition to

@@ -126,6 +126,19 @@ def cached_offices_for_locations() -> list[str]:
     return sorted(cached)
 
 
+def discovery_office_candidates() -> list[str]:
+    """The curated data-bearing office set used to seed name-first discovery.
+
+    When an agent searches by bare name with no office in scope, this is the
+    concrete list `cwms_search_places` names in its `repair_hint` (issue #24):
+    the same heuristic slice `cached_offices_for_locations` probes — regional
+    rollups (NWDM/NWDP) plus the district-publishing offices — so the agent
+    gets a realistic, mostly data-bearing starting set rather than the full
+    ~68-office surface.
+    """
+    return sorted(_FALLBACK_OFFICES)
+
+
 def _fallback_records() -> list[dict[str, Any]]:
     """Name-only records for the degraded fallback path (no upstream metadata)."""
     return [{"name": name} for name in sorted(_FALLBACK_OFFICES)]
@@ -169,4 +182,9 @@ def _parse_office_records(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["cached_offices_for_locations", "list_office_ids", "list_offices"]
+__all__ = [
+    "cached_offices_for_locations",
+    "discovery_office_candidates",
+    "list_office_ids",
+    "list_offices",
+]

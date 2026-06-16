@@ -201,6 +201,24 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
     )
 
 
+class SearchRepairHint(CompactDumpMixin, BaseModel):
+    """A copy-paste-retryable next call an agent can make to recover from a
+    dead-end search response (e.g. a bare-name search with no office in scope, #24).
+
+    Named distinctly from `cwms_tools.core.errors.RepairHint` (the `{tool, args}`
+    shape carried inside error envelopes) so the two never collide in imports or
+    typing — this one is a richer, response-level recovery hint."""
+
+    model_config = ConfigDict(extra="allow")
+
+    reason: str = Field(description="Machine code for why the call could not be served.")
+    message: str = Field(description="Human-readable guidance for the retry.")
+    tool: str = Field(description="The tool to call next.")
+    args: dict[str, Any] = Field(
+        description="Concrete, ready-to-use arguments for the retry call.",
+    )
+
+
 class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_search_places`."""
 
@@ -227,6 +245,14 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     )
     partial: bool = False
     partial_reasons: list[str] = Field(default_factory=list)
+    repair_hint: SearchRepairHint | None = Field(
+        default=None,
+        description=(
+            "Present only when the search could not be served as asked (e.g. no "
+            "office in scope). Names a concrete retry call — pass `args.office` "
+            "back to widen the search. Omitted on a normal result."
+        ),
+    )
     results: list[PlaceSummary]
     total_count: int = Field(
         default=0,
