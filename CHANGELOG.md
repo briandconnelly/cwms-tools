@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-16
+
 ### Added
 
 - `cwms_search_places` now returns a structured `repair_hint` when a bare-name
@@ -444,7 +446,8 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   ~68 offices) in v0.1.0; `cwms_publishers_for_parameter` answers
   from cached + bounded-fetch offices only.
 
-[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.1.0...v0.2.0
