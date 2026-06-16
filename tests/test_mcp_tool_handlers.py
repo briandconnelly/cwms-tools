@@ -396,6 +396,53 @@ def test_error_responses_carry_source_fingerprint(configured, tool, args) -> Non
     assert len(payload["error"]["source"]["fingerprint"]) == 64
 
 
+ERROR_PROVOCATIONS = [
+    ("cwms_browse_region", {"office": "SWT", "south": 1.0}),
+    ("cwms_browse_region", {"office": "SWT", "limit": -1}),
+    ("cwms_search_places", {"query": "x", "office": "SWT", "limit": -1}),
+    ("cwms_search_places", {"query": "x", "office": "NWO"}),
+    (
+        "cwms_get_history",
+        {
+            "office": "SWT",
+            "name": "FOSS",
+            "parameter": "Elev",
+            "begin_iso": "not-a-date",
+            "end_iso": "2026-06-01T00:00:00Z",
+        },
+    ),
+    ("cwms_get_overview_section", {"section_id": "no-such-section"}),
+]
+
+
+@pytest.mark.parametrize(("tool", "args"), ERROR_PROVOCATIONS)
+def test_tool_failures_set_protocol_iserror_with_envelope(configured, tool, args) -> None:
+    """#19: tool failures set protocol-level isError:true while still carrying the
+    structured `{ok: false, error: {...}}` envelope in structuredContent. The
+    envelope stays the stable, branchable contract; native isError is additive."""
+    server = build_server()
+    result = _call(server, tool, args)
+    assert result.is_error is True
+    payload = _branch(result.structured_content)
+    assert payload["ok"] is False
+    assert payload["error"]["code"]
+
+
+def test_tool_success_does_not_set_protocol_iserror(configured) -> None:
+    """Success responses keep isError falsy — the additive signal fires only on failure."""
+    server = build_server()
+    ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_value(mocked, value=1648.21, ts=ts)
+        result = _call(
+            server,
+            "cwms_get_value",
+            {"office": "SWT", "name": "FOSS", "parameter": "Elev"},
+        )
+    assert result.is_error is not True
+    assert _branch(result.structured_content)["ok"] is True
+
+
 def test_error_envelope_carries_protocol_request_id(configured) -> None:
     """protocol_request_id is set when the tool runs inside a real FastMCP request context.
 
@@ -409,11 +456,16 @@ def test_error_envelope_carries_protocol_request_id(configured) -> None:
 
     async def _go():
         async with Client(server) as client:
+            # raise_on_error=False: the failure now sets protocol isError:true (#19),
+            # so the Client would otherwise raise. We still inspect the envelope.
             return await client.call_tool(
-                "cwms_get_overview_section", {"section_id": "no-such-section"}
+                "cwms_get_overview_section",
+                {"section_id": "no-such-section"},
+                raise_on_error=False,
             )
 
     result = asyncio.run(_go())
+    assert result.is_error is True
     # Client returns a CallToolResult; extract structured_content directly.
     payload = result.structured_content or {}
     payload = payload.get("result", payload)

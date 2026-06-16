@@ -173,12 +173,13 @@ def capabilities_payload() -> dict[str, Any]:
         "error_handling": {
             "tools": (
                 "Tool failures return the in-band envelope {ok: false, error: {...}} "
-                "in structuredContent — the stable contract; migration to protocol isError "
-                "is tracked in GitHub issue #19. Discriminate on the `ok` field, not "
-                "isError. The error object's full field set is documented in each tool's "
-                "outputSchema ($defs/ErrorEnvelope); key repair fields: code, message, "
-                "field, offending_value, hint, repair, retryable, retry_after_ms, "
-                "request_id, protocol_request_id, source."
+                "in structuredContent AND set protocol isError:true. Discriminate on "
+                "the `ok` field — that is the stable, branchable contract across MCP "
+                "clients; isError is an additive signal layered on top, not the "
+                "discriminator. The error object's full field set is documented in each "
+                "tool's outputSchema ($defs/ErrorEnvelope); key repair fields: code, "
+                "message, field, offending_value, hint, repair, retryable, "
+                "retry_after_ms, request_id, protocol_request_id, source."
             ),
             "resources": (
                 "resources/read failures surface as JSON-RPC errors; the repair "
