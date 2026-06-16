@@ -412,6 +412,11 @@ ERROR_PROVOCATIONS = [
         },
     ),
     ("cwms_get_overview_section", {"section_id": "no-such-section"}),
+    # Ghost-office provocations need no HTTP mock (the NW-stub guard raises
+    # locally), so they cheaply prove isError:true across the remaining handlers.
+    ("cwms_describe_place", {"office": "NWO", "name": "BECR"}),
+    ("cwms_list_parameters", {"office": "NWO", "name": "BECR"}),
+    ("cwms_get_value", {"office": "NWO", "name": "BECR", "parameter": "Elev"}),
 ]
 
 
