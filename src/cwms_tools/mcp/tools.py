@@ -37,6 +37,7 @@ from cwms_tools.core.models import (
     HistoryResponse,
     ListParametersResponse,
     PublishersForParameterResponse,
+    Rollup,
     SearchPlacesResponse,
     SourceMeta,
     ValueWithContextResponse,
@@ -480,17 +481,34 @@ def register_value_tools(mcp: FastMCP) -> None:
             Literal["EN", "SI"],
             "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms).",
         ] = "EN",
+        rollup: Annotated[
+            Rollup,
+            "Server-side downsample. 'raw' (default) returns every point in "
+            "`values`. 'hourly'/'daily' return per-bucket {min,max,mean,count} "
+            "in `buckets` (and an empty `values`) — far fewer rows for a trend "
+            "question. Buckets are UTC hour/day intervals. Regardless of rollup, "
+            "the response carries a `summary` key (first/last/min/max/mean/"
+            "delta/count) so you don't pull and hand-reduce every point; its "
+            "value is null only when the window has no numeric observations.",
+        ] = Rollup.RAW,
         detail: Detail = Detail.SUMMARY,
     ) -> HistoryResponse | ErrorRef:
-        """Read raw observations across a bounded time window.
+        """Read observations across a bounded time window.
 
         Use for a series of values over time. For the latest value plus
         threshold-derived status, call `cwms_get_value` instead — it is
         cheaper and includes the classification this tool does not.
-        Returns the values array (timestamp + value, plus quality codes
-        at `detail=full`) along with the resolved canonical timeseries
-        id. `truncated: true` with a `truncation_hint` is set when the
-        upstream page cap (300,000 points) clipped the requested window.
+
+        For "how has X changed over N days?" read `summary` (key always
+        present; null only when the window has no numeric observations)
+        or set `rollup='hourly'`/`'daily'` for compact per-bucket aggregates
+        instead of every raw point. Raw mode returns the values array
+        (timestamp + value, plus quality codes at `detail=full`) along with
+        the resolved canonical timeseries id. `truncated: true` with a
+        `truncation_hint` is set when the upstream page cap (300,000 points)
+        clipped the requested window — and in that case `summary` and `buckets`
+        are computed from the returned (clipped) points only, NOT the full
+        requested window; continue via `next_begin` to cover the rest.
         """
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
@@ -524,6 +542,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             begin=begin,
             end=end,
             unit=unit,
+            rollup=rollup.value,
         )
         if isinstance(raw, ErrorRef):
             return raw
