@@ -6,9 +6,14 @@ registration out of the top-level `build_server` keeps that function
 declarative and short as more tools land in later milestones.
 
 Every successful tool response carries a `source.fingerprint` field (the
-capability fingerprint at call time). Error responses carry the structured
+capability fingerprint at call time). Semantic handler failures (the
+`CwmsToolsError` → `ErrorRef` paths: not-found, ghost-office, usage/field
+validation we perform, upstream errors) carry the structured
 `{ok: false, error: {...}}` envelope in `structuredContent` AND set protocol
 `isError: true` (via `iserror_aware`); the envelope stays the discriminator.
+Malformed-argument errors raised by FastMCP/pydantic *before* a handler runs
+(wrong type, missing required arg, out-of-enum value) never reach `iserror_aware`
+and surface as plain protocol errors without the envelope.
 """
 
 from __future__ import annotations

@@ -172,14 +172,19 @@ def capabilities_payload() -> dict[str, Any]:
         "error_codes_reserved": list(RESERVED_ERROR_CODES),
         "error_handling": {
             "tools": (
-                "Tool failures return the in-band envelope {ok: false, error: {...}} "
-                "in structuredContent AND set protocol isError:true. Discriminate on "
-                "the `ok` field — that is the stable, branchable contract across MCP "
-                "clients; isError is an additive signal layered on top, not the "
-                "discriminator. The error object's full field set is documented in each "
-                "tool's outputSchema ($defs/ErrorEnvelope); key repair fields: code, "
-                "message, field, offending_value, hint, repair, retryable, "
-                "retry_after_ms, request_id, protocol_request_id, source."
+                "Semantic tool failures (not-found, ghost-office, the usage/field "
+                "validation this server performs, upstream errors) return the in-band "
+                "envelope {ok: false, error: {...}} in structuredContent AND set "
+                "protocol isError:true. Discriminate on the `ok` field — that is the "
+                "stable, branchable contract across MCP clients; isError is an additive "
+                "signal layered on top, not the discriminator. Malformed-argument "
+                "errors rejected by the protocol/schema layer BEFORE a handler runs "
+                "(wrong type, missing required arg, out-of-enum value) surface as plain "
+                "protocol errors without this envelope. The error object's full field "
+                "set is documented in each tool's outputSchema ($defs/ErrorEnvelope); "
+                "key repair fields: code, message, field, offending_value, hint, "
+                "repair, retryable, retry_after_ms, request_id, protocol_request_id, "
+                "source."
             ),
             "resources": (
                 "resources/read failures surface as JSON-RPC errors; the repair "

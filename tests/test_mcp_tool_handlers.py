@@ -471,7 +471,8 @@ def test_error_envelope_carries_protocol_request_id(configured) -> None:
 
     result = asyncio.run(_go())
     assert result.is_error is True
-    # Client returns a CallToolResult; extract structured_content directly.
+    # The fastmcp Client returns its own result wrapper; read structured_content
+    # off it directly (shape-agnostic — we only rely on is_error/structured_content).
     payload = result.structured_content or {}
     payload = payload.get("result", payload)
     assert payload["ok"] is False
