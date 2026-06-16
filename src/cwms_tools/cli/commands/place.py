@@ -61,7 +61,10 @@ def search(
                 "(e.g. `-o NWDP -o NWDM`). Omit to use offices already "
                 "cached this session; unbounded discovery is intentionally "
                 "avoided. Overflow beyond the per-call budget lands in "
-                "`offices_skipped_for_budget`."
+                "`offices_skipped_for_budget`. When an omitted `--office` "
+                "resolves to an empty scope, the response carries a "
+                "top-level `repair_hint` naming a concrete data-bearing "
+                "office list to retry with."
             ),
         ),
     ] = None,
@@ -113,7 +116,7 @@ def search(
         ),
     ] = Detail.SUMMARY,
 ) -> None:
-    """Search for places by name in one office.
+    """Search for places by name across one or more offices in scope.
 
     Each result is enriched with parameter_count (0 = ghost record),
     active publishers, last data timestamp, co-located variants, and
@@ -122,6 +125,14 @@ def search(
     ts ids but `UBLW_S1-D21,0ft` does), `data_at` names that sibling
     so the agent doesn't have to walk the co_located list to find it.
     Data-bearing records sort first.
+
+    Depth-tagged WQ sensor rows (e.g. `GWLW_S1-D3,0ft`) carry a
+    structured `depth: {value, unit}` (e.g. `{value: 3.0, unit: "ft"}`),
+    so there's no need to parse the cryptic id.
+
+    When `--office` is omitted and the resolved scope is empty, the
+    response carries a top-level `repair_hint` naming a concrete
+    data-bearing office list to retry with.
     """
     if limit < 0:
         emit_error(
