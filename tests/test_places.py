@@ -6,7 +6,7 @@ import cwms
 import pytest
 import responses
 
-from cwms_tools.core import locations, places, projects, session
+from cwms_tools.core import locations, offices, places, projects, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
@@ -642,6 +642,40 @@ def test_search_places_no_office_arg_uses_cached_scope_only(configured, mocked) 
     assert payload["results"] == []
     assert payload["partial"] is True
     assert any("no_offices_in_scope" in r for r in payload["partial_reasons"])
+
+
+def test_search_places_empty_scope_returns_repair_hint(configured, mocked) -> None:
+    """#24: a bare-name search with nothing in scope is otherwise a dead end.
+    Surface a structured `repair_hint` that names a concrete, ready-to-use
+    data-bearing office list to retry with, instead of the generic
+    'omit or pass a list' string."""
+    payload = places.search_places("Gas Works", parameter="Temp-Water")
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "no_offices_in_scope"
+    assert hint["tool"] == "cwms_search_places"
+    # The hint echoes the caller's query/parameter so it is copy-paste retryable.
+    assert hint["args"]["query"] == "Gas Works"
+    assert hint["args"]["parameter"] == "Temp-Water"
+    # And names a non-empty, concrete office list (the curated data-bearing set).
+    assert hint["args"]["office"] == offices.discovery_office_candidates()
+    assert hint["args"]["office"]  # non-empty
+
+
+def test_search_places_with_office_has_no_repair_hint(configured, mocked) -> None:
+    """The repair hint is a dead-end recovery affordance only — once an office
+    is in scope (here, results come back) the response carries no hint."""
+    _arm_fremont(mocked)
+    payload = places.search_places("Fremont Bridge", office="NWDP")
+    assert "repair_hint" not in payload
+
+
+def test_search_places_explicit_empty_office_has_no_repair_hint(configured, mocked) -> None:
+    """An explicit empty list (`office=[]`) is a deliberate 'search nothing' —
+    the hint is only the bare-name/implicit-scope recovery (office omitted), so
+    an explicit empty scope must NOT be widened with a hint."""
+    payload = places.search_places("Gas Works", office=[], parameter="Temp-Water")
+    assert payload["offices_searched"] == []
+    assert "repair_hint" not in payload
 
 
 def test_search_places_normalizes_string_office_to_unchanged_response(configured, mocked) -> None:

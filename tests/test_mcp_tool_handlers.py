@@ -346,6 +346,22 @@ def test_search_places_handler_returns_ghost_office_for_nwo(configured) -> None:
     assert payload["error"]["code"] == "ghost_office"
 
 
+def test_search_places_handler_surfaces_repair_hint_for_empty_scope(configured) -> None:
+    """#24: the empty-scope `repair_hint` must survive detail-shaping + Pydantic
+    validation in the MCP adapter, not just exist at the core level. A bare-name
+    search with no office and a cold cache resolves to empty scope (no upstream
+    call) and should carry the structured hint in the tool's response."""
+    server = build_server()
+    result = _call(server, "cwms_search_places", {"query": "Gas Works", "parameter": "Temp-Water"})
+    payload = _branch(result.structured_content)
+    assert payload["ok"] is True
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "no_offices_in_scope"
+    assert hint["tool"] == "cwms_search_places"
+    assert hint["args"]["query"] == "Gas Works"
+    assert hint["args"]["office"]  # non-empty curated office list
+
+
 def test_search_places_tool_exposes_cursor_in_schema():
     async def go():
         mcp = build_server()

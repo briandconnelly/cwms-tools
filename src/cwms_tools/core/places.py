@@ -70,8 +70,11 @@ def search_places(
     unbounded discovery is intentionally avoided. Pass an explicit list to
     widen. New (uncached) offices in the list are capped per call by
     `_fanout_budget()`; offices not fetched are listed under
-    `offices_skipped_for_budget` with a repair hint pointing back at this
-    tool with that list as the next `office` argument.
+    `offices_skipped_for_budget` — re-call with those offices in `office`
+    to widen. When the resolved scope is empty (a bare-name search with no
+    cached offices), the response carries a top-level `repair_hint`: a
+    ready-to-use retry call naming the curated data-bearing office list under
+    `repair_hint.args.office`. It is omitted whenever any office was searched.
 
     `parameter`: optional CWMS parameter code (e.g. `Temp-Water`). When
     set, data-bearing rows that do not publish this parameter are dropped
@@ -102,28 +105,9 @@ def search_places(
         limit = None  # 0 means "no cap"; normalize so pagination math is well-defined
 
     req = pagination.request_hash({"q": query, "parameter": parameter})
-    decoded: dict[str, Any] | None = None
-    offset = 0
-    if cursor is not None:
-        if limit is None:
-            # `cursor` implies paged access; an unlimited limit (None / CLI 0)
-            # would slice a tail subset yet report has_more=false — contradictory.
-            raise pagination.invalid_cursor(
-                "cursor pagination requires a positive limit; omit `cursor` to fetch all results",
-                offending_value=cursor[: pagination.CURSOR_ECHO_MAX],
-            )
-        decoded = pagination.decode_cursor(cursor)
-        # Cheap checks BEFORE upstream fan-out: kind, request hash, offset shape,
-        # and a bounded/typed office set (a forged cursor must not widen the fan-out).
-        offset = pagination.validate_continuation(decoded, kind="search_places", req=req)
-        offices_searched = pagination.coerce_offices(decoded)
-        offices_skipped: list[str] = []
-        partial_reasons: list[str] = []
-    else:
-        requested = _normalize_office_arg(office)
-        if requested is None:
-            requested = offices.cached_offices_for_locations()
-        offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
+    decoded, offset, offices_searched, offices_skipped, partial_reasons = _resolve_scope(
+        office=office, cursor=cursor, limit=limit, req=req
+    )
 
     gathered, gather_reasons = _gather_enriched(offices_searched, query, use_cache=use_cache)
     partial_reasons.extend(gather_reasons)
@@ -193,7 +177,73 @@ def search_places(
     if partial_reasons:
         response["partial"] = True
         response["partial_reasons"] = partial_reasons
+    # Name-first dead-end recovery (#24): only when the caller OMITTED `office`
+    # (office is None) and the implicit cached scope was empty. An explicit
+    # empty list (office=[]) is a deliberate "search nothing" — widening it with
+    # a hint would contradict the caller's stated scope, so don't.
+    if office is None and decoded is None and not offices_searched:
+        response["repair_hint"] = _empty_scope_repair_hint(query, parameter)
     return response
+
+
+def _empty_scope_repair_hint(query: str, parameter: str | None) -> dict[str, Any]:
+    """Build the `repair_hint` for an empty-scope `cwms_search_places` result.
+
+    Echoes the caller's `query`/`parameter` and names the curated data-bearing
+    office set so the hint is copy-paste retryable as the next call's `office`.
+    """
+    args: dict[str, Any] = {
+        "query": query,
+        "office": offices.discovery_office_candidates(),
+    }
+    if parameter is not None:
+        args["parameter"] = parameter
+    return {
+        "reason": "no_offices_in_scope",
+        "message": (
+            "No office in scope, so nothing was searched. Retry with an explicit "
+            "`office` list — the data-bearing offices below are the best starting "
+            "set; widen from there (or pass a known office) if the place isn't found."
+        ),
+        "tool": "cwms_search_places",
+        "args": args,
+    }
+
+
+def _resolve_scope(
+    *,
+    office: str | list[str] | None,
+    cursor: str | None,
+    limit: int | None,
+    req: str,
+) -> tuple[dict[str, Any] | None, int, list[str], list[str], list[str]]:
+    """Resolve the office set to search, honoring a continuation cursor.
+
+    Returns `(decoded_cursor, offset, offices_searched, offices_skipped,
+    partial_reasons)`. On the cursor path the office set is locked to the
+    cursor's bounded list (a forged cursor must not widen the fan-out); on the
+    fresh path it is the explicit `office` list or the cached default scope,
+    bounded by the per-call fan-out budget.
+    """
+    if cursor is None:
+        requested = _normalize_office_arg(office)
+        if requested is None:
+            requested = offices.cached_offices_for_locations()
+        offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
+        return None, 0, offices_searched, offices_skipped, partial_reasons
+
+    if limit is None:
+        # `cursor` implies paged access; an unlimited limit (None / CLI 0)
+        # would slice a tail subset yet report has_more=false — contradictory.
+        raise pagination.invalid_cursor(
+            "cursor pagination requires a positive limit; omit `cursor` to fetch all results",
+            offending_value=cursor[: pagination.CURSOR_ECHO_MAX],
+        )
+    decoded = pagination.decode_cursor(cursor)
+    # Cheap checks BEFORE upstream fan-out: kind, request hash, offset shape,
+    # and a bounded/typed office set (a forged cursor must not widen the fan-out).
+    offset = pagination.validate_continuation(decoded, kind="search_places", req=req)
+    return decoded, offset, pagination.coerce_offices(decoded), [], []
 
 
 def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
