@@ -6,14 +6,25 @@ registration out of the top-level `build_server` keeps that function
 declarative and short as more tools land in later milestones.
 
 Every successful tool response carries a `source.fingerprint` field (the
-capability fingerprint at call time). Error responses use the structured
-`{ok: false, error: {...}}` envelope.
+capability fingerprint at call time). Semantic handler failures (the
+`CwmsToolsError` → `ErrorRef` paths: not-found, ghost-office, usage/field
+validation we perform, upstream errors) carry the structured
+`{ok: false, error: {...}}` envelope in `structuredContent` AND set protocol
+`isError: true` (via `iserror_aware`); the envelope stays the discriminator.
+Malformed-argument errors raised by FastMCP/pydantic *before* a handler runs
+(wrong type, missing required arg, out-of-enum value) never reach `iserror_aware`
+and surface as plain protocol errors without the envelope.
 """
 
 from __future__ import annotations
 
+import functools
+import json
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Literal
+
+from fastmcp.tools.base import ToolResult
+from mcp.types import TextContent
 
 from cwms_tools.core import concurrency, places, publishers_index, values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
@@ -77,6 +88,43 @@ def error_ref(err: CwmsToolsError) -> ErrorRef:
     return ref
 
 
+def _error_tool_result(ref: ErrorRef) -> ToolResult:
+    """Wrap an in-band `{ok: false}` envelope so the failure also sets the
+    protocol-level `isError: true` flag (#19).
+
+    The structured envelope remains the stable, branchable contract — agents
+    discriminate on the `ok` field — and `isError` is an additive signal layered
+    on top via FastMCP 3.4.x's `ToolResult(is_error=...)`. The text content
+    mirrors the JSON envelope so non-structured clients see the same payload.
+    """
+    envelope = ref.model_dump(mode="json")
+    return ToolResult(
+        content=[TextContent(type="text", text=json.dumps(envelope))],
+        structured_content=envelope,
+        is_error=True,
+    )
+
+
+def iserror_aware(fn):
+    """Decorate a tool handler so a returned `ErrorRef` becomes a protocol error.
+
+    Handlers keep returning `ErrorRef` (the single internal error currency); this
+    wrapper converts that to `ToolResult(is_error=True, ...)` at the protocol
+    boundary while leaving success responses untouched. `functools.wraps`
+    preserves the signature and return annotation FastMCP introspects to build
+    the input/output schemas.
+    """
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        result = await fn(*args, **kwargs)
+        if isinstance(result, ErrorRef):
+            return _error_tool_result(result)
+        return result
+
+    return wrapper
+
+
 def register_place_tools(mcp: FastMCP) -> None:
     """Register the place-related tools on the FastMCP server."""
 
@@ -88,6 +136,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             "title": "Search places by name",
         },
     )
+    @iserror_aware
     async def cwms_search_places(
         query: Annotated[str, "Name fragment to match, case-insensitive."],
         office: Annotated[
@@ -171,6 +220,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             "title": "Describe a place",
         },
     )
+    @iserror_aware
     async def cwms_describe_place(
         office: Annotated[
             str,
@@ -209,6 +259,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             "title": "List parameters at a place",
         },
     )
+    @iserror_aware
     async def cwms_list_parameters(
         office: Annotated[
             str,
@@ -238,6 +289,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             "title": "Browse a region's catalog",
         },
     )
+    @iserror_aware
     async def cwms_browse_region(
         office: Annotated[
             str,
@@ -324,6 +376,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             "title": "Current value (optional status)",
         },
     )
+    @iserror_aware
     async def cwms_get_value(
         office: Annotated[
             str,
@@ -395,6 +448,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             "title": "Windowed history",
         },
     )
+    @iserror_aware
     async def cwms_get_history(
         office: Annotated[
             str,
@@ -482,6 +536,7 @@ def register_publisher_tools(mcp: FastMCP) -> None:
             "title": "Publishers reporting a parameter",
         },
     )
+    @iserror_aware
     async def cwms_publishers_for_parameter(
         parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage)."],
         offices: Annotated[

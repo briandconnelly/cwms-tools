@@ -126,7 +126,7 @@ def test_static_and_templated_resources_coexist() -> None:
 def test_spike_tool_error_produces_protocol_iserror() -> None:
     """Spike: FastMCP 3.4.2 error transport via ToolResult vs ToolError.
 
-    Verdict (recorded in FALLBACKS["tool_error_iserror"]):
+    Verdict (now shipped — recorded in VERIFIED["tool_error_iserror"], #19):
     - raise ToolError(...) from a handler causes call_tool() to RAISE the
       exception; it does NOT return a ToolResult with is_error=True. The
       protocol isError path via the ToolError exception is therefore NOT a
@@ -136,9 +136,11 @@ def test_spike_tool_error_produces_protocol_iserror() -> None:
       on the wire, and structured_content rides alongside. This is a NEW 3.4.x
       capability absent in 3.3.1.
 
-    Migration note: flipping our in-band {ok:false} envelope to use
-    ToolResult(is_error=True) is a breaking agent-contract change that needs its
-    own PR; it is NOT done in this task. Tracked as a follow-up issue.
+    Shipped in #19: tool failures now return ToolResult(is_error=True, ...) so the
+    protocol isError flag rides alongside the retained in-band {ok:false} envelope.
+    The envelope stays the discriminator; isError is additive. See
+    iserror_aware/_error_tool_result in cwms_tools.mcp.tools and the end-to-end
+    coverage in test_mcp_tool_handlers.py.
     """
     import pytest
     from fastmcp.exceptions import ToolError

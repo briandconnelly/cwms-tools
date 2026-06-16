@@ -27,21 +27,19 @@ VERIFIED: Final[dict[str, str]] = {
     ),
     "transport_stdio": "transport='stdio' is supported.",
     "transport_streamable_http": "transport='streamable-http' is supported.",
+    "tool_error_iserror": (
+        "tool failures set protocol isError:true while carrying the structured "
+        "{ok:false} envelope in structuredContent. Implemented by returning "
+        "ToolResult(is_error=True, content=..., structured_content=<envelope>) — "
+        "the additive isError signal that arrived in 3.4.x. (raise ToolError(...) "
+        "is NOT used: it makes call_tool() raise and strips structuredContent to "
+        "a plain text message.) The {ok:false} envelope remains the stable, "
+        "branchable contract; isError is layered on top (#19)."
+    ),
 }
 
 #: Capabilities that needed a documented fallback.
-FALLBACKS: Final[dict[str, str]] = {
-    "tool_error_iserror": (
-        "raise ToolError(...) makes FastMCP's Python call_tool() raise rather "
-        "than return a result; on the wire the lowlevel layer converts it to "
-        "isError:true with a plain text message only — no structuredContent can "
-        "ride along. Returning ToolResult(is_error=True, content=..., "
-        "structured_content=...) does produce protocol isError:true with "
-        "structuredContent (new in 3.4.x). Migration off the in-band {ok:false} "
-        "envelope is tracked in issue #19; the in-band envelope is retained "
-        "for now."
-    ),
-}
+FALLBACKS: Final[dict[str, str]] = {}
 
 #: Pinned version against which VERIFIED/FALLBACKS were measured.
 VERIFIED_AGAINST: Final[str] = "3.4.2"

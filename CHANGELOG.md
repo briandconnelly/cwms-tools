@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tool failures now set the protocol-level `isError: true` flag in addition to
+  carrying the structured `{ok: false, error: {...}}` envelope in
+  `structuredContent`. The envelope remains the stable, branchable contract —
+  agents should still discriminate on the `ok` field — and `isError` is an
+  additive signal for MCP clients that key on it. Implemented by returning
+  `ToolResult(is_error=True, structured_content=<envelope>)` from every tool's
+  error path. The FastMCP runtime baseline records this under
+  `VERIFIED["tool_error_iserror"]` (moved from `FALLBACKS`), which bumps the
+  capability fingerprint. Closes #19.
+
 ## [0.4.0] - 2026-06-10
 
 ### Added

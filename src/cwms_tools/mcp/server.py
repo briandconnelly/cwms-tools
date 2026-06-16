@@ -33,6 +33,7 @@ from cwms_tools.mcp.resources import (
 )
 from cwms_tools.mcp.tools import (
     error_ref,
+    iserror_aware,
     register_place_tools,
     register_publisher_tools,
     register_value_tools,
@@ -240,6 +241,7 @@ def build_server() -> FastMCP:
             "title": "Get overview section",
         }
     )
+    @iserror_aware
     async def cwms_get_overview_section(
         section_id: Annotated[
             str,
