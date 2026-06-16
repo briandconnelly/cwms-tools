@@ -50,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trailing `,0ft` does not mean "0 ft". Closes #27.
   (Adds a tool, a CLI command, and the `depth` response field — bumps the
   capability fingerprint.)
+- CLI help parity (docs only, no behavior change): `place search`'s `--office`
+  help and docstring now advertise that omitting `--office` on an empty scope
+  returns a top-level `repair_hint` (closes #33), and the `place search` /
+  `region browse` docstrings now note that depth-tagged sensor rows carry a
+  structured `depth: {value, unit}` (closes #34). Both fields were already
+  emitted; only the CLI help lagged the MCP wording.
 
 ### Changed
 
