@@ -61,7 +61,7 @@ def search(
                 "(e.g. `-o NWDP -o NWDM`). Omit to use offices already "
                 "cached this session; unbounded discovery is intentionally "
                 "avoided. Overflow beyond the per-call budget lands in "
-                "`offices_skipped_for_budget`. When omitting `--office` "
+                "`offices_skipped_for_budget`. When an omitted `--office` "
                 "resolves to an empty scope, the response carries a "
                 "top-level `repair_hint` naming a concrete data-bearing "
                 "office list to retry with."
@@ -116,7 +116,7 @@ def search(
         ),
     ] = Detail.SUMMARY,
 ) -> None:
-    """Search for places by name in one office.
+    """Search for places by name across one or more offices in scope.
 
     Each result is enriched with parameter_count (0 = ghost record),
     active publishers, last data timestamp, co-located variants, and

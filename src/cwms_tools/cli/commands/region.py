@@ -96,7 +96,7 @@ def browse(
     """Browse the locations published by one office, with optional filters.
 
     All four bounding-box corners must be set together or none. When
-    --state and a bbox are both set, both filters apply. Returns the same
+    `--state` and a bbox are both set, both filters apply. Returns the same
     enriched per-place records as `place search` (including `parameters` and
     the `data_at` repair hint), with `result_count`, `ghost_count`, and
     `total_count` totals at the top. Depth-tagged WQ sensor rows
