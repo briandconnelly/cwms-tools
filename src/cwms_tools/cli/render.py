@@ -15,6 +15,7 @@ from typing import Any, NoReturn
 import typer
 
 from cwms_tools.core.errors import CwmsToolsError, exit_code_for
+from cwms_tools.core.rounding import round_floats
 
 # Per `agent-friendly-cli` §"Agent-Safe Invocation": machine mode is forced on
 # whenever stdout is not a TTY, regardless of flags. Explicit `--machine` /
@@ -66,8 +67,11 @@ def emit(value: Any, *, mode: OutputMode | None = None) -> None:
     """
     out_mode = mode or OutputMode()
     indent = out_mode.indent
+    # Round float values to strip unit-conversion noise (issue #45). The CLI
+    # serializes core dicts straight to JSON, bypassing the Pydantic models, so
+    # this is the CLI-side twin of the rounding in `core._compact.CompactDumpMixin`.
     typer.echo(
-        json.dumps(value, indent=indent, sort_keys=False, default=str),
+        json.dumps(round_floats(value), indent=indent, sort_keys=False, default=str),
         nl=True,
     )
 

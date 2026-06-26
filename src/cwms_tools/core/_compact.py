@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from pydantic import GetJsonSchemaHandler, model_serializer
 
+from cwms_tools.core.rounding import round_floats
+
 if TYPE_CHECKING:
     from pydantic.json_schema import JsonSchemaValue
     from pydantic_core import core_schema as _cs
@@ -62,4 +64,11 @@ class CompactDumpMixin:
     def _drop_nulls(self, handler: Any) -> dict[str, Any]:
         data = handler(self)
         keep = type(self)._keep_null
-        return {k: v for k, v in data.items() if v is not None or k in keep}
+        pruned = {k: v for k, v in data.items() if v is not None or k in keep}
+        # Round float values to remove unit-conversion noise (issue #45) at the
+        # serialization boundary — on the serializer *output*, not the model
+        # fields, so validation/types stay exact. Idempotent and key-aware
+        # (coordinates/money pass through). This fires per nested model too, but
+        # `round_floats` recurses into raw `dict[str, Any]` passthrough fields a
+        # nested model can't reach, and double application is a no-op.
+        return round_floats(pruned)

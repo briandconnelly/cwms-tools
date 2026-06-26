@@ -263,6 +263,43 @@ def test_serialization_mode_schema_keeps_fields() -> None:
     assert "results" in schema["properties"]
 
 
+def test_value_response_rounds_conversion_noise_on_dump() -> None:
+    """Issue #45: the model serializer rounds measurement floats to 6 sig figs."""
+    from cwms_tools.core.models import SourceMeta, StatusClass, ValueWithContextResponse
+
+    resp = ValueWithContextResponse(
+        ts_id="BBLW_S1-D1,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV",
+        office_id="NWDP",
+        location="BBLW_S1-D1,0ft",
+        parameter="Temp-Water",
+        value=68.55000000000001,
+        unit="degF",
+        timestamp="2026-05-17T18:00:00Z",
+        status_class=StatusClass.UNKNOWN,
+        thresholds_active=[],
+        source=SourceMeta(fingerprint="f" * 64),
+    )
+    dumped = resp.model_dump(mode="json")
+    assert dumped["value"] == 68.55
+
+
+def test_place_summary_preserves_coordinates_but_rounds_other_floats() -> None:
+    """Lat/lon carve-out survives serialization; an extra measurement float rounds."""
+    summary = PlaceSummary.model_validate(
+        {
+            "office_id": "NWDM",
+            "name": "FTPK",
+            "latitude": 47.99123456,
+            "longitude": -106.41234567,
+            "reading": 20.305555555555557,  # extra="allow"; rounded as a generic float
+        }
+    )
+    dumped = summary.model_dump(mode="json")
+    assert dumped["latitude"] == 47.99123456  # citation-grade precision preserved
+    assert dumped["longitude"] == -106.41234567
+    assert dumped["reading"] == 20.3056
+
+
 def test_compact_models_round_trip() -> None:
     from cwms_tools.core.models import DescribePlaceResponse, SourceMeta
 
