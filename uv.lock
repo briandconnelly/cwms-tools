@@ -477,16 +477,16 @@ wheels = [
 
 [[package]]
 name = "cwms-python"
-version = "1.0.7"
+version = "1.0.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas" },
     { name = "requests" },
     { name = "requests-toolbelt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/07/45b7cbc9ff81b2586d395cf45f253486d16775f6d365eff95acf9d836816/cwms_python-1.0.7.tar.gz", hash = "sha256:2bd0bb6a6e3c6bbdc9ad2454039b61cfb547d1bed37c7aaddf999aa854010e92", size = 44040, upload-time = "2026-03-31T16:30:10.19Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/a6/3440f1ae93f442713c71a62147be93012ebd98d40c80e38b06319899bf9e/cwms_python-1.0.8.tar.gz", hash = "sha256:1ff75098eec279c51a27a03431c880bf5baaf7ddc0ea3e10b6af0b4b4d35c527", size = 44370, upload-time = "2026-06-03T19:00:02.559Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/45/34/71f3067d287f9ba065219927c1b453fcc8a7e5921820f55803941f99ca30/cwms_python-1.0.7-py3-none-any.whl", hash = "sha256:219548fcc3fbf1986c0007dc6ec7036608cc59b5d8b42b68baefcf1312f60d5d", size = 68628, upload-time = "2026-03-31T16:30:08.884Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/14/b02c80f65ea40bfaa35fb1deeb97c92f6a1c9839cd87b71f56a748596537/cwms_python-1.0.8-py3-none-any.whl", hash = "sha256:9cdc2e6fb60be9561f680900ad2eb7d2cfda2c5c4157fc7fbb94ac3f4dd3f278", size = 69003, upload-time = "2026-06-03T19:00:01.182Z" },
 ]
 
 [[package]]
