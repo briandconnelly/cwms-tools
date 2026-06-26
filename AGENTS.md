@@ -27,6 +27,22 @@ hydrologic data API.
 - Run tests with `uv run pytest`.
 - Aim for 95%+ coverage.
 
+## CLI ↔ MCP parity
+
+The CLI and MCP server are two surfaces over the **same** `core/` producers.
+Keeping them in lockstep is an explicit project goal: for a given tool, the CLI
+and MCP responses must agree field-for-field in both `summary` and `full` detail
+modes (modulo each surface's envelope — the MCP `ok`/`source` wrapper and the
+CLI batch envelope).
+
+- Response detail-shaping (`summary`/`full` pruning) and serialization
+  (null-strip, float-round) belong in shared `core/` helpers, not re-implemented
+  per surface. Change a field or a shaper once, in core; never patch one sink and
+  leave the other (the root cause of #45 and #55; consolidation tracked by #56).
+- Parity tests are the enforcement, not this note: when you add or change a
+  tool's fields or detail-shaping, add or extend a test asserting the CLI and MCP
+  output match for that tool. A documented goal drifts; a failing test does not.
+
 ## Branching & commits
 
 - Work on feature branches; never commit directly to `main`.

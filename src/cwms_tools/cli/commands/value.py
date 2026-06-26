@@ -9,7 +9,7 @@ import typer
 
 from cwms_tools.cli.exit_codes import from_error_code
 from cwms_tools.cli.render import emit, emit_error
-from cwms_tools.core import values
+from cwms_tools.core import shaping, values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail, Rollup, Unit
 
@@ -118,14 +118,7 @@ def get(
                 unit=unit.value,
                 classify_against_levels=with_status,
             )
-            if detail is Detail.SUMMARY and isinstance(payload.get("thresholds_active"), list):
-                payload = {
-                    **payload,
-                    "thresholds_active": [
-                        {k: v for k, v in t.items() if k not in {"level_id", "source_workaround"}}
-                        for t in payload["thresholds_active"]
-                    ],
-                }
+            payload = shaping.shape_value_detail(payload, detail)
             results.append({"id": spec, "ok": True, "data": payload})
             ok_count += 1
         except CwmsToolsError as err:
@@ -217,14 +210,7 @@ def history(
             unit=unit.value,
             rollup=rollup.value,
         )
-        if detail is Detail.SUMMARY and isinstance(payload.get("values"), list):
-            payload = {
-                **payload,
-                "values": [
-                    {k: v for k, v in row.items() if k != "quality"} for row in payload["values"]
-                ],
-            }
-        emit(payload)
+        emit(shaping.shape_history_detail(payload, detail))
     except CwmsToolsError as err:
         emit_error(err)
 
@@ -276,15 +262,7 @@ def profile(
         payload = values.get_profile(
             office, name, parameter, window=timedelta(hours=window_hours), unit=unit.value
         )
-        if detail is Detail.SUMMARY and isinstance(payload.get("profile"), list):
-            payload = {
-                **payload,
-                "profile": [
-                    {k: v for k, v in sensor.items() if k != "ts_id"}
-                    for sensor in payload["profile"]
-                ],
-            }
-        emit(payload)
+        emit(shaping.shape_profile_detail(payload, detail))
     except CwmsToolsError as err:
         emit_error(err)
 

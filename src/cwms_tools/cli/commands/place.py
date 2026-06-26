@@ -13,7 +13,7 @@ from typing import Annotated
 import typer
 
 from cwms_tools.cli.render import emit, emit_error
-from cwms_tools.core import places
+from cwms_tools.core import places, shaping
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail
 
@@ -165,12 +165,7 @@ def search(
         )
     except CwmsToolsError as err:
         emit_error(err)
-    if detail is Detail.SUMMARY:
-        payload = {
-            **payload,
-            "results": [{k: v for k, v in r.items() if k != "raw"} for r in payload["results"]],
-        }
-    emit(payload)
+    emit(shaping.shape_place_detail(payload, detail))
 
 
 @app.command("describe")
@@ -202,29 +197,7 @@ def describe(
         payload = places.describe_place(office, name)
     except CwmsToolsError as err:
         emit_error(err)
-    if detail is Detail.SUMMARY and isinstance(payload.get("location"), dict):
-        loc = payload["location"]
-        payload = {
-            **payload,
-            "location": {
-                k: loc.get(k)
-                for k in (
-                    "office-id",
-                    "name",
-                    "location-kind",
-                    "latitude",
-                    "longitude",
-                    "public-name",
-                    "long-name",
-                    "horizontal-datum",
-                    "state-initial",
-                    "nearest-city",
-                    "timezone-name",
-                )
-                if k in loc
-            },
-        }
-    emit(payload)
+    emit(shaping.shape_place_detail(payload, detail))
 
 
 @app.command("parameters")
@@ -242,6 +215,10 @@ def parameters(
     """
     office, name = _parse_office_slash_name(spec)
     try:
-        emit(places.list_parameters(office, name))
+        payload = places.list_parameters(office, name)
     except CwmsToolsError as err:
         emit_error(err)
+    # No `--detail` toggle here; routed through the shared shaper (a no-op for
+    # this response shape) to stay structurally in lockstep with the
+    # `cwms_list_parameters` MCP tool, which applies the same place shaper.
+    emit(shaping.shape_place_detail(payload, Detail.SUMMARY))

@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 from cwms_tools.cli.render import emit, emit_error
-from cwms_tools.core import publishers_index
+from cwms_tools.core import publishers_index, shaping
 from cwms_tools.core.errors import CwmsToolsError
 from cwms_tools.core.models import Detail
 
@@ -65,6 +65,4 @@ def for_parameter(
         )
     except CwmsToolsError as err:
         emit_error(err)
-    if detail is Detail.SUMMARY:
-        payload = {k: v for k, v in payload.items() if k != "_observed_publishers_by_office"}
-    emit(payload)
+    emit(shaping.shape_publishers_detail(payload, detail))

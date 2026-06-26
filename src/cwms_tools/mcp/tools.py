@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
-from cwms_tools.core import concurrency, places, publishers_index, values
+from cwms_tools.core import concurrency, places, publishers_index, shaping, values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
 from cwms_tools.core.models import (
@@ -217,7 +217,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         )
         if isinstance(raw, ErrorRef):
             return raw
-        shaped = _shape_detail(raw, detail)
+        shaped = shaping.shape_place_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return SearchPlacesResponse.model_validate(shaped)
 
@@ -251,7 +251,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         raw = await _safe(places.describe_place, office, name)
         if isinstance(raw, ErrorRef):
             return raw
-        shaped = _shape_detail(raw, detail)
+        shaped = shaping.shape_place_detail(raw, detail)
         workaround = shaped.get("source_workaround")
         upstream_status = shaped.get("upstream_status")
         shaped["source"] = _source(
@@ -286,7 +286,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         raw = await _safe(places.list_parameters, office, name)
         if isinstance(raw, ErrorRef):
             return raw
-        shaped = _shape_detail(raw, detail)
+        shaped = shaping.shape_place_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return ListParametersResponse.model_validate(shaped)
 
@@ -369,7 +369,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         )
         if isinstance(raw, ErrorRef):
             return raw
-        shaped = _shape_detail(raw, detail)
+        shaped = shaping.shape_place_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return BrowseRegionResponse.model_validate(shaped)
 
@@ -445,7 +445,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         )
         if isinstance(raw, ErrorRef):
             return raw
-        shaped = _shape_value_detail(raw, detail)
+        shaped = shaping.shape_value_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return ValueWithContextResponse.model_validate(shaped)
 
@@ -547,7 +547,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         )
         if isinstance(raw, ErrorRef):
             return raw
-        shaped = _shape_history_detail(raw, detail)
+        shaped = shaping.shape_history_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return HistoryResponse.model_validate(shaped)
 
@@ -604,7 +604,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         )
         if isinstance(raw, ErrorRef):
             return raw
-        shaped = _shape_profile_detail(raw, detail)
+        shaped = shaping.shape_profile_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return ProfileResponse.model_validate(shaped)
 
@@ -648,90 +648,14 @@ def register_publisher_tools(mcp: FastMCP) -> None:
         )
         if isinstance(raw, ErrorRef):
             return raw
-        shaped = _shape_publishers_detail(raw, detail)
+        shaped = shaping.shape_publishers_detail(raw, detail)
         shaped["source"] = _source().model_dump(mode="json")
         return PublishersForParameterResponse.model_validate(shaped)
 
 
-# --------------------------------------------------------------------------
-# Detail toggle helpers
-# --------------------------------------------------------------------------
-
-
-def _shape_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
-    """Apply the `detail` toggle to a place-tool response."""
-    if detail is Detail.FULL:
-        return dict(payload)
-    pruned = dict(payload)
-    if "location" in pruned and isinstance(pruned["location"], dict):
-        loc = pruned["location"]
-        pruned["location"] = {
-            k: loc.get(k)
-            for k in (
-                "office-id",
-                "name",
-                "location-kind",
-                "latitude",
-                "longitude",
-                "public-name",
-                "long-name",
-                "horizontal-datum",
-                "state-initial",
-                "nearest-city",
-                "timezone-name",
-            )
-            if k in loc
-        }
-    if "results" in pruned and isinstance(pruned["results"], list):
-        pruned["results"] = [
-            {k: v for k, v in r.items() if k != "raw"}
-            for r in pruned["results"]
-            if isinstance(r, dict)
-        ]
-    return pruned
-
-
-def _shape_value_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
-    if detail is Detail.FULL:
-        return dict(payload)
-    pruned = dict(payload)
-    if isinstance(pruned.get("thresholds_active"), list):
-        pruned["thresholds_active"] = [
-            {k: v for k, v in t.items() if k not in {"level_id", "source_workaround"}}
-            for t in pruned["thresholds_active"]
-        ]
-    return pruned
-
-
-def _shape_history_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
-    if detail is Detail.FULL:
-        return dict(payload)
-    pruned = dict(payload)
-    if isinstance(pruned.get("values"), list):
-        pruned["values"] = [
-            {k: v for k, v in row.items() if k != "quality"} for row in pruned["values"]
-        ]
-    return pruned
-
-
-def _shape_profile_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
-    """Summary mode drops the per-sensor `ts_id` (chatty); `depth` + value stay."""
-    if detail is Detail.FULL:
-        return dict(payload)
-    pruned = dict(payload)
-    if isinstance(pruned.get("profile"), list):
-        pruned["profile"] = [
-            {k: v for k, v in sensor.items() if k != "ts_id"} for sensor in pruned["profile"]
-        ]
-    return pruned
-
-
-def _shape_publishers_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
-    if detail is Detail.FULL:
-        return dict(payload)
-    pruned = dict(payload)
-    pruned.pop("_observed_publishers_by_office", None)
-    return pruned
+# Detail toggle shaping lives in `core.shaping` so the CLI and MCP surfaces apply
+# the exact same `summary`/`full` pruning (see #56). Call sites use
+# `shaping.shape_*_detail(...)` directly.
 
 
 def _negative_limit_error(limit: int) -> CwmsToolsError:
