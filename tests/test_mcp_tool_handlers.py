@@ -237,6 +237,22 @@ def test_get_value_handler(configured) -> None:
     )
 
 
+def test_get_value_handler_rounds_conversion_noise(configured) -> None:
+    """Issue #45: the noisy float is rounded in the structured content that
+    FastMCP serializes from the Pydantic response model."""
+    server = build_server()
+    ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_value(mocked, value=68.55000000000001, ts=ts)
+        result = _call(
+            server,
+            "cwms_get_value",
+            {"office": "SWT", "name": "FOSS", "parameter": "Elev"},
+        )
+    payload = _branch(result.structured_content)
+    assert payload["value"] == 68.55
+
+
 def test_get_history_handler_rejects_bad_begin_iso(configured) -> None:
     """A bad `begin_iso` reports `field == "begin_iso"`, not the lumped
     `"begin_iso/end_iso"` placeholder the previous manual envelope used."""

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Numeric values in tool and CLI responses are now rounded to 6 significant
+  figures at the serialization boundary, removing the IEEE-754 noise that unit
+  conversion injected (e.g. a water temperature surfaced as
+  `68.55000000000001 °F` / `20.305555555555557 °C`). CWMS exposes no
+  sensor-precision metadata, so consumers could not strip this themselves;
+  6 sig figs sits well below any plausible sensor resolution, so no real signal
+  is lost. Rounding is significant-figures (not fixed-decimals) so it holds
+  across the huge magnitude range of CWMS parameters (temps ~20, flows in
+  thousands of cfs, volts ~12). Coordinates (`latitude`/`longitude`, bbox
+  bounds) and cost fields are carved out to preserve citation-grade precision.
+  Applies uniformly to the MCP and CLI surfaces. Closes #45.
+
 ## [0.5.0] - 2026-06-16
 
 ### Added

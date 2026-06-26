@@ -79,6 +79,20 @@ def test_value_get_single_id(configured) -> None:
     assert item["data"]["level_lookup_status"] == "skipped"
 
 
+def test_value_get_rounds_conversion_noise(configured) -> None:
+    """Issue #45: a noisy unit-converted value is rounded in the CLI JSON
+    output (the CLI path bypasses the Pydantic models, so render.emit rounds)."""
+    ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_value(mocked, value=68.55000000000001, ts=ts)
+        result = runner.invoke(app, ["value", "get", "SWT/FOSS/Elev"])
+    assert result.exit_code == 0, result.stdout
+    # The raw JSON text must not carry the IEEE-754 tail.
+    assert "68.55000000000001" not in result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["results"][0]["data"]["value"] == 68.55
+
+
 def test_value_get_with_status_runs_classification(configured) -> None:
     """`--with-status` opts into the slow threshold lookup. Hitting the
     /levels endpoint is required; the response reports the lookup ran to
