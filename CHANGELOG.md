@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `cwms-tools publisher for-parameter` no longer leaks the internal
+  `_observed_publishers_by_office` diagnostic field in its default output. The
+  CLI now matches the `cwms_publishers_for_parameter` MCP tool: summary mode
+  (the default) strips the field, and a new `--detail full` toggle preserves it
+  for debugging. Closes #55.
 - Numeric values in tool and CLI responses are now rounded to 6 significant
   figures at the serialization boundary, removing the IEEE-754 noise that unit
   conversion injected (e.g. a water temperature surfaced as

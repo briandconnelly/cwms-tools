@@ -9,6 +9,7 @@ import typer
 from cwms_tools.cli.render import emit, emit_error
 from cwms_tools.core import publishers_index
 from cwms_tools.core.errors import CwmsToolsError
+from cwms_tools.core.models import Detail
 
 app = typer.Typer(
     name="publisher",
@@ -39,6 +40,16 @@ def for_parameter(
             ),
         ),
     ] = None,
+    detail: Annotated[
+        Detail,
+        typer.Option(
+            "--detail",
+            help=(
+                "'summary' drops the internal `_observed_publishers_by_office` "
+                "diagnostic; 'full' keeps it."
+            ),
+        ),
+    ] = Detail.SUMMARY,
 ) -> None:
     """List the publishers that report a parameter, with explicit coverage.
 
@@ -54,4 +65,6 @@ def for_parameter(
         )
     except CwmsToolsError as err:
         emit_error(err)
+    if detail is Detail.SUMMARY:
+        payload = {k: v for k, v in payload.items() if k != "_observed_publishers_by_office"}
     emit(payload)

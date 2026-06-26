@@ -315,7 +315,8 @@ def _commands() -> list[dict[str, Any]]:
                     "string",
                     repeatable=True,
                     help="Office code; repeat. List codes with `cwms-tools offices`.",
-                )
+                ),
+                _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
             "error_codes": _errs("rate_limited", "upstream_error"),
         },
