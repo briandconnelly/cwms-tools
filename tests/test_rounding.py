@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
@@ -95,7 +96,19 @@ def test_nan_and_inf_pass_through_without_math_error() -> None:
 
 def test_zero_and_negative_zero() -> None:
     assert round_floats(0.0) == 0.0
-    assert round_floats(-0.0) == 0.0
+    # -0.0 must be normalized to +0.0: `-0.0 == 0.0` is True, so an equality
+    # check is vacuous — assert the sign and the serialized symptom instead.
+    normalized = round_floats(-0.0)
+    assert math.copysign(1.0, normalized) == 1.0
+    assert json.dumps(normalized) == "0.0"
+
+
+def test_negative_zero_normalized_even_for_exempt_keys() -> None:
+    # The zero normalization runs ahead of the coordinate/money carve-out, so a
+    # signed-zero coordinate doesn't leak "-0.0" into the JSON either.
+    out = round_floats({"latitude": -0.0})
+    assert math.copysign(1.0, out["latitude"]) == 1.0
+    assert json.dumps(out) == '{"latitude": 0.0}'
 
 
 def test_idempotent() -> None:

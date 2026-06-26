@@ -68,10 +68,14 @@ def _normalize_key(key: str) -> str:
 def _round_sig(value: float, sig_figs: int) -> float:
     """Round one float to `sig_figs` significant figures.
 
-    Non-finite values (NaN, ±inf) and exact zero are returned unchanged — they
-    have no meaningful significant-figure form and `log10` would raise on them.
+    Non-finite values (NaN, ±inf) are returned unchanged — they have no
+    meaningful significant-figure form and `log10` would raise on them. Zero is
+    normalized to ``+0.0`` (callers route exact zero here only via `round_floats`,
+    which already normalizes, but keep this self-consistent for direct callers).
     """
-    if value == 0.0 or not math.isfinite(value):
+    if value == 0.0:
+        return 0.0
+    if not math.isfinite(value):
         return value
     # digits-after-the-decimal-point for `round`; negative for magnitudes >= 10**sig_figs.
     digits = sig_figs - 1 - math.floor(math.log10(abs(value)))
@@ -92,9 +96,14 @@ def round_floats(obj: Any, *, sig_figs: int = DEFAULT_SIG_FIGS, _key: str | None
     if isinstance(obj, bool):
         return obj
     if isinstance(obj, float):
-        if _key is not None and _normalize_key(_key) in _UNROUNDED_KEYS:
-            return obj
-        return _round_sig(obj, sig_figs)
+        # Normalize signed zero first, ahead of the carve-out: `-0.0` is not
+        # meaningful precision and `json.dumps(-0.0)` emits the noisy "-0.0".
+        # Doing this before the key check covers exempt floats (e.g. a
+        # `latitude` of -0.0) too.
+        if obj == 0.0:
+            return 0.0
+        exempt = _key is not None and _normalize_key(_key) in _UNROUNDED_KEYS
+        return obj if exempt else _round_sig(obj, sig_figs)
     if isinstance(obj, dict):
         return {k: round_floats(v, sig_figs=sig_figs, _key=k) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
