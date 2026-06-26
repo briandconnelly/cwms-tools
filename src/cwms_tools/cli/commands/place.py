@@ -13,7 +13,7 @@ from typing import Annotated
 import typer
 
 from cwms_tools.cli.render import emit, emit_error
-from cwms_tools.core import places
+from cwms_tools.core import places, shaping
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail
 
@@ -165,12 +165,7 @@ def search(
         )
     except CwmsToolsError as err:
         emit_error(err)
-    if detail is Detail.SUMMARY:
-        payload = {
-            **payload,
-            "results": [{k: v for k, v in r.items() if k != "raw"} for r in payload["results"]],
-        }
-    emit(payload)
+    emit(shaping.shape_place_detail(payload, detail))
 
 
 @app.command("describe")
@@ -202,29 +197,7 @@ def describe(
         payload = places.describe_place(office, name)
     except CwmsToolsError as err:
         emit_error(err)
-    if detail is Detail.SUMMARY and isinstance(payload.get("location"), dict):
-        loc = payload["location"]
-        payload = {
-            **payload,
-            "location": {
-                k: loc.get(k)
-                for k in (
-                    "office-id",
-                    "name",
-                    "location-kind",
-                    "latitude",
-                    "longitude",
-                    "public-name",
-                    "long-name",
-                    "horizontal-datum",
-                    "state-initial",
-                    "nearest-city",
-                    "timezone-name",
-                )
-                if k in loc
-            },
-        }
-    emit(payload)
+    emit(shaping.shape_place_detail(payload, detail))
 
 
 @app.command("parameters")

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- CLI and MCP response `detail` shaping is now defined once in
+  `core/shaping.py` and imported by both surfaces, replacing the two drifted
+  copies (`mcp/tools.py` `_shape_*` and the inline pruning in each CLI command)
+  that caused #45 and #55. Behavior is unchanged; a new CLI↔MCP parity test
+  asserts the two surfaces agree field-for-field in both `summary` and `full`
+  modes for every tool, so they cannot silently diverge again. Closes #56.
+
 ### Fixed
 
 - `cwms-tools publisher for-parameter` no longer leaks the internal
