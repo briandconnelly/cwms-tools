@@ -215,6 +215,10 @@ def parameters(
     """
     office, name = _parse_office_slash_name(spec)
     try:
-        emit(places.list_parameters(office, name))
+        payload = places.list_parameters(office, name)
     except CwmsToolsError as err:
         emit_error(err)
+    # No `--detail` toggle here; routed through the shared shaper (a no-op for
+    # this response shape) to stay structurally in lockstep with the
+    # `cwms_list_parameters` MCP tool, which applies the same place shaper.
+    emit(shaping.shape_place_detail(payload, Detail.SUMMARY))

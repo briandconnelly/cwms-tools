@@ -48,8 +48,7 @@ def configured(tmp_path, monkeypatch: pytest.MonkeyPatch):
     cache = Cache(directory=tmp_path / "cache")
     set_cache(cache)
     yield
-    cache.close()
-    set_cache(None)
+    set_cache(None)  # also closes the cache; no separate cache.close() needed
     session._state["config"] = None
 
 
@@ -230,8 +229,61 @@ PUBLISHERS = {
     "has_internal": lambda d: "_observed_publishers_by_office" in d,
 }
 
-CASES = [SEARCH, DESCRIBE, VALUE, HISTORY, PROFILE, PUBLISHERS]
-CASE_IDS = ["search", "describe", "value", "history", "profile", "publishers"]
+# `place parameters` and `region browse` have NO CLI `--detail` toggle: they
+# always emit the summary shape, routed through `shape_place_detail` to stay in
+# lockstep with their MCP peers. `cli_detail: False` tells the test to skip the
+# `full` variant and not pass `--detail` on the CLI.
+LIST_PARAMETERS = {
+    "model": M.ListParametersResponse,
+    "fields": {
+        "office_id": "SWT",
+        "name": "FOSS",
+        "ts_count": 1,
+        "by_publisher": [
+            {"publisher": "Ccp-Rev", "rank": 9, "parameters": ["Elev"], "ts_count": 1}
+        ],
+        "all_parameters": ["Elev"],
+    },
+    "producer": (places, "list_parameters"),
+    "cli": ["place", "parameters", "SWT/FOSS"],
+    "mcp": ("cwms_list_parameters", {"office": "SWT", "name": "FOSS"}),
+    "cli_extract": lambda d: d,
+    "cli_detail": False,
+    "has_internal": lambda d: False,  # the shaper is a structural no-op here
+}
+# `raw` is included to exercise the place shaper's results-strip branch — the
+# #56 "region browse no-raw" guard. The real producer omits `raw`, so this
+# guards that if it ever leaks, BOTH surfaces strip it (CLI no longer diverges).
+BROWSE_REGION = {
+    "model": M.BrowseRegionResponse,
+    "fields": {
+        "office": "SWT",
+        "result_count": 1,
+        "ghost_count": 0,
+        "total_count": 1,
+        "truncated": False,
+        "has_more": False,
+        "results": [{"office_id": "SWT", "name": "FOSS", "raw": {"big": "blob"}}],
+    },
+    "producer": (places, "browse_region"),
+    "cli": ["region", "browse", "--office", "SWT"],
+    "mcp": ("cwms_browse_region", {"office": "SWT"}),
+    "cli_extract": lambda d: d,
+    "cli_detail": False,
+    "has_internal": lambda d: "raw" in d["results"][0],
+}
+
+CASES = [SEARCH, DESCRIBE, VALUE, HISTORY, PROFILE, PUBLISHERS, LIST_PARAMETERS, BROWSE_REGION]
+CASE_IDS = [
+    "search",
+    "describe",
+    "value",
+    "history",
+    "profile",
+    "publishers",
+    "list_parameters",
+    "browse_region",
+]
 
 
 def _cli_data(case: dict, argv: list[str]) -> dict[str, Any]:
@@ -243,11 +295,15 @@ def _cli_data(case: dict, argv: list[str]) -> dict[str, Any]:
 @pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
 @pytest.mark.parametrize("detail", ["summary", "full"])
 def test_cli_mcp_parity(case: dict, detail: str, configured, monkeypatch) -> None:
+    has_detail: bool = case.get("cli_detail", True)
+    if not has_detail and detail == "full":
+        pytest.skip("CLI command has no --detail toggle; only the summary shape exists")
+
     raw = _producer_payload(case["model"], **case["fields"])
     module, attr = case["producer"]
     monkeypatch.setattr(module, attr, lambda *a, **k: copy.deepcopy(raw))
 
-    cli_argv = [*case["cli"], "--detail", detail]
+    cli_argv = [*case["cli"], "--detail", detail] if has_detail else list(case["cli"])
     mcp_name, mcp_args = case["mcp"]
 
     cli_data = _cli_data(case, cli_argv)

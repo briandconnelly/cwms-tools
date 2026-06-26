@@ -7,9 +7,10 @@ from typing import Annotated
 import typer
 
 from cwms_tools.cli.render import emit, emit_error
-from cwms_tools.core import places
+from cwms_tools.core import places, shaping
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
+from cwms_tools.core.models import Detail
 
 app = typer.Typer(
     name="region",
@@ -131,14 +132,16 @@ def browse(
         bbox = BBox(south=south, west=west, north=north, east=east)
 
     try:
-        emit(
-            places.browse_region(
-                office=office,
-                bbox=bbox,
-                state=state,
-                limit=None if limit == 0 else limit,
-                cursor=cursor,
-            )
+        payload = places.browse_region(
+            office=office,
+            bbox=bbox,
+            state=state,
+            limit=None if limit == 0 else limit,
+            cursor=cursor,
         )
     except CwmsToolsError as err:
         emit_error(err)
+    # `region browse` has no `--detail` toggle; it always emits the summary
+    # shape, routed through the shared shaper so it stays in lockstep with the
+    # `cwms_browse_region` MCP tool (e.g. both strip `raw` from results).
+    emit(shaping.shape_place_detail(payload, Detail.SUMMARY))

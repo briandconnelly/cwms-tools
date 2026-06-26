@@ -61,9 +61,10 @@ def shape_place_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any
         pruned["location"] = {k: loc.get(k) for k in LOCATION_SUMMARY_KEYS if k in loc}
     results = pruned.get("results")
     if isinstance(results, list):
-        pruned["results"] = [
-            {k: v for k, v in r.items() if k != "raw"} for r in results if isinstance(r, dict)
-        ]
+        # The producer contract is a list of dict records; a non-dict entry is a
+        # core regression we want to surface, not silently drop (so `.items()`
+        # raises loudly rather than omitting the row).
+        pruned["results"] = [{k: v for k, v in r.items() if k != "raw"} for r in results]
     return pruned
 
 
