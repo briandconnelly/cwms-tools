@@ -298,12 +298,17 @@ def test_browse_region_filters_by_bbox(configured, mocked) -> None:
 
 
 def test_browse_region_limit_truncates_and_reports_total_count(configured, mocked) -> None:
-    """M2/C4: browse caps results and reports the full size + a repair hint."""
+    """M2/C4: browse caps results and reports the full size + a repair hint.
+
+    #73: `truncated` means unrecoverable-by-paging; a `limit` cap here is
+    fully pageable via `next_cursor`, so `truncated` stays False — `has_more`
+    is the signal to page, not `truncated`."""
     _arm_all(mocked)
     payload = places.browse_region(office="SWT", limit=1)
     assert payload["result_count"] == 1
     assert payload["total_count"] == 2
-    assert payload["truncated"] is True
+    assert payload["truncated"] is False
+    assert payload["has_more"] is True
     assert payload["limit"] == 1
     assert "truncation_hint" in payload
     # Data-bearing FOSS sorts ahead of the CHOU-Lock ghost, so the cap keeps it.
@@ -710,15 +715,42 @@ def test_search_places_caps_uncached_office_fanout_by_budget(
     )
 
 
+def test_search_places_skipped_offices_coexist_with_truncated_false(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#73 review: `truncated: false` describes row completeness within the
+    *searched* offices only — it must NOT be conflated with (or imply)
+    scope completeness. A response can simultaneously have `has_more: true`
+    (more rows to page through in the searched office) AND non-empty
+    `offices_skipped_for_budget` (an office never searched at all);
+    `truncated` stays `false` regardless, since `offices_skipped_for_budget`
+    — not `truncated` — is the dedicated signal for scope incompleteness."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    locations_payload = {
+        "locations": [
+            {"office-id": "NWDP", "name": f"Site_{i:04d}", "latitude": 47.0, "longitude": -122.0}
+            for i in range(75)
+        ]
+    }
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=locations_payload, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    payload = places.search_places("Site", office=["NWDP", "SWT"])
+    assert payload["offices_searched"] == ["NWDP"]
+    assert payload["offices_skipped_for_budget"] == ["SWT"]
+    assert payload["has_more"] is True
+    assert payload["truncated"] is False
+
+
 # --------------------------------------------------------------------------
 # search_places --limit truncation
 # --------------------------------------------------------------------------
 
 
 def test_search_places_caps_result_count_by_default(configured, mocked) -> None:
-    """Broad searches should be capped so agents don't get flooded.
-    Default cap is 50; rows past the cap are dropped and the response
-    carries `truncated: true` plus the full `total_count`."""
+    """Broad searches should be capped so agents don't get flooded. Default
+    cap is 50; rows past the cap are dropped and the response carries
+    `has_more: true` plus the full `total_count` — `truncated` stays False
+    since `next_cursor` can page through the rest (#73)."""
     locations_payload = {
         "locations": [
             {
@@ -745,7 +777,8 @@ def test_search_places_caps_result_count_by_default(configured, mocked) -> None:
     )
     payload = places.search_places("Temp String", office="NWDP")
     assert payload["total_count"] == 75
-    assert payload["truncated"] is True
+    assert payload["truncated"] is False
+    assert payload["has_more"] is True
     assert payload["limit"] == 50
     assert len(payload["results"]) == 50
 

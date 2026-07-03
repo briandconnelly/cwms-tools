@@ -195,8 +195,9 @@ def register_place_tools(mcp: FastMCP) -> None:
         ] = None,
         limit: Annotated[
             int,
-            "Result cap (default 50; 0 = no cap). When hit, sets `truncated`/"
-            "`total_count`/`has_more`/`next_cursor` for the next page.",
+            "Result cap (default 50; 0 = no cap). When hit, sets `total_count`/"
+            "`has_more`/`next_cursor` for the next page (fully pageable — "
+            "`truncated` stays false).",
         ] = places.DEFAULT_SEARCH_LIMIT,
         cursor: Annotated[str | None, _CURSOR_HINT] = None,
         detail: Detail = Detail.SUMMARY,
@@ -307,7 +308,8 @@ def register_place_tools(mcp: FastMCP) -> None:
         limit: Annotated[
             int,
             "Result cap (default 50; 0 = no cap). Data-bearing rows sort ahead "
-            "of ghosts. When hit, sets `truncated`/`has_more`/`next_cursor`.",
+            "of ghosts. When hit, sets `has_more`/`next_cursor` (fully "
+            "pageable — `truncated` stays false).",
         ] = places.DEFAULT_BROWSE_LIMIT,
         cursor: Annotated[str | None, _CURSOR_HINT] = None,
         detail: Detail = Detail.SUMMARY,

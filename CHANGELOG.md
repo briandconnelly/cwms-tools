@@ -32,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `cwms_search_places`/`cwms_browse_region` (and their CLI equivalents) no
+  longer set `truncated: true` when a `limit` cap is hit. `truncated` is
+  meant for genuinely unrecoverable caps (as `cwms_get_history` already
+  handles correctly); search/browse results are always fully pageable via
+  `has_more`/`next_cursor`, so reporting `truncated: true` there could
+  cause an agent to give up or over-narrow its query instead of paging.
+  `truncated` now always reports `false` for these two tools. Documented
+  that this is orthogonal to `cwms_search_places`'s pre-existing
+  `offices_skipped_for_budget` (a separate signal for scope — as opposed
+  to row — incompleteness), so `truncated: false` never implies every
+  requested office was searched. Closes #73.
 - `cwms_get_history`/`cwms-tools value history` now cap raw points returned
   under the default `rollup='raw'` at `MAX_RAW_HISTORY_POINTS` (5,000). The
   only prior bound was the upstream 300,000-point page cap, so a naive
