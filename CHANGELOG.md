@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Trimmed the serialized `tools/list` payload every preloading MCP client
+  pays before its first call: ~81.4k chars (~20.4k tokens) down to ~54.1k
+  chars (~13.5k tokens), a 34% reduction. The `ErrorEnvelope` schema — full
+  and identical in every tool's outputSchema because FastMCP can't flatten
+  the `SomeResponse | ErrorRef` return-type Union — is now a single shared
+  compact shape (`mcp/output_schema.iserror_output_schema()`, still
+  enumerating every `ErrorCode` and the `repair`/`source` nested field
+  shapes so resource-blind clients keep the full branch-key set and repair
+  contract inline), and tool docstrings, param descriptions, and
+  response-field descriptions were tightened throughout to cut duplicated
+  prose (the "discover office codes" sentence, repair-hint restatements,
+  etc.) without dropping any selection/repair content. A new CI test
+  (`test_tools_list_budget.py`) guards the total against regression.
+  Closes #67.
 - CLI and MCP response `detail` shaping is now defined once in
   `core/shaping.py` and imported by both surfaces, replacing the two drifted
   copies (`mcp/tools.py` `_shape_*` and the inline pruning in each CLI command)

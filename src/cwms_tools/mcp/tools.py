@@ -44,9 +44,22 @@ from cwms_tools.core.models import (
     ValueWithContextResponse,
 )
 from cwms_tools.mcp.contract import canonical_fingerprint
+from cwms_tools.mcp.output_schema import iserror_output_schema
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
+
+#: Shared param prose (#67): defined once so every tool's copy stays in sync
+#: and short, instead of each repeating a full paragraph in its own schema.
+_OFFICE_HINT = "USACE office code. Discover valid codes at `cwms://offices`."
+_CURSOR_HINT = (
+    "Opaque cursor from a prior `next_cursor`; omit for page one. A stale "
+    "cursor returns `invalid_cursor` — retry without it."
+)
+_PARAMETER_HINT = (
+    "Parameter code (e.g. Temp-Water, Elev, Flow-In). Case-sensitive; see `cwms_list_parameters`."
+)
+_UNIT_HINT = "Unit system: 'EN' (ft, cfs) or 'SI' (m, cms)."
 
 
 def _source(
@@ -163,72 +176,39 @@ def register_place_tools(mcp: FastMCP) -> None:
             "idempotentHint": True,
             "title": "Search places by name",
         },
+        output_schema=iserror_output_schema(SearchPlacesResponse),
     )
     @iserror_aware
     async def cwms_search_places(
         query: Annotated[str, "Name fragment to match, case-insensitive."],
         office: Annotated[
             str | list[str] | None,
-            "USACE office code, or a list of office codes (discover valid "
-            "codes at the `cwms://offices` resource). Omit to fan out "
-            "across offices already cached this session; pass an explicit "
-            "list to widen. Unbounded discovery is intentionally avoided. "
-            "New (uncached) offices in the list are capped per call; "
-            "uncached overflow is returned under `offices_skipped_for_budget` "
-            "— re-call this tool with those offices in `office` to widen. "
-            "If you know the place name but not the office, just omit this: "
-            "when nothing is in scope the response carries a `repair_hint` "
-            "naming a concrete data-bearing office list to retry with.",
+            "Office code(s); omit to fan out across already-cached offices. "
+            "Uncached overflow lands in `offices_skipped_for_budget`. Omit if "
+            "unknown — an empty result's `repair_hint` names offices to retry.",
         ] = None,
         parameter: Annotated[
             str | None,
-            "Filter to locations publishing this parameter (e.g. Temp-Water, "
-            "Elev, Flow-In). When set, locations that don't publish this "
-            "parameter are dropped — except barren parents whose `data_at` "
-            "siblings publish it (kept as a discovery hint). The response "
-            "carries `nearby_non_matching_count` so the agent sees how much "
-            "was filtered out.",
+            "Filter to locations publishing this parameter; ghost parents "
+            "with a `data_at` match are kept. Drop count in "
+            "`nearby_non_matching_count`.",
         ] = None,
         limit: Annotated[
             int,
-            "Cap on the number of results (default 50). Broad queries like "
-            "'Temp String' can match hundreds of rows; the cap keeps response "
-            "size predictable. Pass 0 for no cap. When the cap kicks in the "
-            "response carries `truncated: true` and `total_count`. When the cap is hit, "
-            "the response sets has_more:true and returns next_cursor for the next page.",
+            "Result cap (default 50; 0 = no cap). When hit, sets `truncated`/"
+            "`total_count`/`has_more`/`next_cursor` for the next page.",
         ] = places.DEFAULT_SEARCH_LIMIT,
-        cursor: Annotated[
-            str | None,
-            "Opaque pagination cursor from a prior call's `next_cursor`. Pass it "
-            "back verbatim to fetch the next page; omit it for the first page. "
-            "On a stale cursor (changed query/filters or a shifted catalog) the "
-            "tool returns the `invalid_cursor` error — restart without `cursor`.",
-        ] = None,
+        cursor: Annotated[str | None, _CURSOR_HINT] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> SearchPlacesResponse | ErrorRef:
         """Resolve a CWMS place name to ranked location matches.
 
-        Use for ambiguous name lookup. If you already have the canonical
-        `office` and `name`, call `cwms_describe_place`,
-        `cwms_list_parameters`, or `cwms_get_value` / `cwms_get_history`
-        directly instead.
+        For ambiguous name lookup. With a known `office` + `name`, call
+        `cwms_describe_place`, `cwms_list_parameters`, or `cwms_get_value`/
+        `cwms_get_history` instead.
 
-        Know the place name but not the office? Omit `office`. If nothing is
-        in scope the response is empty but carries a `repair_hint` naming a
-        concrete data-bearing office list — retry with `repair_hint.args`.
-
-        Each result is enriched with parameter_count (0 means a ghost
-        record with no published data), the parameters published at the
-        location, the list of publishers active there, the most recent
-        data timestamp, any other ids within ~100m of the same
-        coordinates, and `data_at` — when a barren parent has a
-        co-located data-bearing sibling, the sibling names land in
-        `data_at` so the agent gets the repair hint without walking the
-        co_located list. The `data_at` lookup falls back to the full
-        office catalog when an in-result sibling does not match the
-        query, so a parent like `FBLW` can still name its depth-tagged
-        `FBLW_D1-*` temperature sensors. Data-bearing records sort
-        first; ghosts are kept at the bottom of the list.
+        Data-bearing records sort first; each carries `data_at` co-located
+        repair hints when it's a ghost.
         """
         if limit < 0:
             return error_ref(_negative_limit_error(limit))
@@ -254,25 +234,19 @@ def register_place_tools(mcp: FastMCP) -> None:
             "idempotentHint": True,
             "title": "Describe a place",
         },
+        output_schema=iserror_output_schema(DescribePlaceResponse),
     )
     @iserror_aware
     async def cwms_describe_place(
-        office: Annotated[
-            str,
-            "USACE office code (e.g. NWDM, SWT). Discover valid codes at the "
-            "`cwms://offices` resource.",
-        ],
+        office: Annotated[str, _OFFICE_HINT],
         name: Annotated[str, "Location id within the office (e.g. FTPK, FOSS)."],
         detail: Detail = Detail.SUMMARY,
     ) -> DescribePlaceResponse | ErrorRef:
         """Read everything about one place in a single call.
 
-        Combines the location record, project metadata (when present),
-        the parameters published at the location grouped by publisher,
-        and the most recent data timestamp. Sets `partial: true` when
-        any underlying lookup degrades (e.g. the upstream project record
-        returns a format error); the `partial_reasons` field names the
-        causes so the agent can decide whether to retry or proceed.
+        Location record, project metadata, parameters grouped by publisher,
+        and last data timestamp. Sets `partial`/`partial_reasons` when a
+        sub-lookup degrades (e.g. a project-record format error).
         """
         raw = await _safe(places.describe_place, office, name)
         if isinstance(raw, ErrorRef):
@@ -293,21 +267,18 @@ def register_place_tools(mcp: FastMCP) -> None:
             "idempotentHint": True,
             "title": "List parameters at a place",
         },
+        output_schema=iserror_output_schema(ListParametersResponse),
     )
     @iserror_aware
     async def cwms_list_parameters(
-        office: Annotated[
-            str,
-            "USACE office code. Discover valid codes at the `cwms://offices` resource.",
-        ],
+        office: Annotated[str, _OFFICE_HINT],
         name: Annotated[str, "Location id within the office."],
         detail: Detail = Detail.SUMMARY,
     ) -> ListParametersResponse | ErrorRef:
         """List the parameters published at a location, grouped by publisher.
 
-        The cheapest probe for distinguishing data-bearing locations
-        from ghost catalog records: a ghost returns `ts_count: 0` and an
-        empty `by_publisher` list.
+        The cheapest ghost probe: a ghost returns `ts_count: 0` and an empty
+        `by_publisher` list.
         """
         raw = await _safe(places.list_parameters, office, name)
         if isinstance(raw, ErrorRef):
@@ -323,44 +294,29 @@ def register_place_tools(mcp: FastMCP) -> None:
             "idempotentHint": True,
             "title": "Browse a region's catalog",
         },
+        output_schema=iserror_output_schema(BrowseRegionResponse),
     )
     @iserror_aware
     async def cwms_browse_region(
-        office: Annotated[
-            str,
-            "USACE office code (e.g. NWDM, SWT). Discover valid codes at the "
-            "`cwms://offices` resource.",
-        ],
-        south: Annotated[float | None, "Bounding box south latitude in decimal degrees."] = None,
-        west: Annotated[float | None, "Bounding box west longitude in decimal degrees."] = None,
-        north: Annotated[float | None, "Bounding box north latitude in decimal degrees."] = None,
-        east: Annotated[float | None, "Bounding box east longitude in decimal degrees."] = None,
+        office: Annotated[str, _OFFICE_HINT],
+        south: Annotated[float | None, "Bounding box south latitude, decimal degrees."] = None,
+        west: Annotated[float | None, "Bounding box west longitude, decimal degrees."] = None,
+        north: Annotated[float | None, "Bounding box north latitude, decimal degrees."] = None,
+        east: Annotated[float | None, "Bounding box east longitude, decimal degrees."] = None,
         state: Annotated[str | None, "Two-letter US state code (e.g. MT, OK)."] = None,
         limit: Annotated[
             int,
-            "Cap on the number of results (default 50). A no-filter browse of a "
-            "large office can return thousands of rows; the cap keeps the response "
-            "bounded. Pass 0 for no cap. When the cap kicks in the response carries "
-            "`truncated: true`, `total_count`, and `truncation_hint`. Data-bearing "
-            "rows sort ahead of ghosts so a capped browse keeps the useful records. "
-            "When the cap is hit, the response sets has_more:true and returns "
-            "next_cursor for the next page.",
+            "Result cap (default 50; 0 = no cap). Data-bearing rows sort ahead "
+            "of ghosts. When hit, sets `truncated`/`has_more`/`next_cursor`.",
         ] = places.DEFAULT_BROWSE_LIMIT,
-        cursor: Annotated[
-            str | None,
-            "Opaque pagination cursor from a prior call's `next_cursor`. Pass it "
-            "back verbatim to fetch the next page; omit it for the first page. "
-            "On a stale cursor (changed query/filters or a shifted catalog) the "
-            "tool returns the `invalid_cursor` error — restart without `cursor`.",
-        ] = None,
+        cursor: Annotated[str | None, _CURSOR_HINT] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> BrowseRegionResponse | ErrorRef:
         """Browse the locations published by one office, optionally filtered.
 
-        Returns the same enriched per-place records as `cwms_search_places`
-        (including `parameters` and the `data_at` repair hint), with
-        `result_count`, `ghost_count`, and `total_count` totals at the top. The
-        bounding-box filter requires all four corners or none.
+        Same enriched per-place records as `cwms_search_places` (including
+        `data_at`), with `result_count`/`ghost_count`/`total_count` totals.
+        The bounding-box filter requires all four corners or none.
         """
         bbox: BBox | None = None
         provided = [v for v in (south, west, north, east) if v is not None]
@@ -410,55 +366,37 @@ def register_value_tools(mcp: FastMCP) -> None:
             "idempotentHint": True,
             "title": "Current value (optional status)",
         },
+        output_schema=iserror_output_schema(ValueWithContextResponse),
     )
     @iserror_aware
     async def cwms_get_value(
-        office: Annotated[
-            str,
-            "USACE office code (e.g. NWDM, SWT). Discover valid codes at the "
-            "`cwms://offices` resource.",
-        ],
+        office: Annotated[str, _OFFICE_HINT],
         name: Annotated[
             str,
             "CWMS location name/id within the office (e.g. FTPK, FOSS, "
             "or a depth-tagged sensor like UBLW_S1-D21,0ft).",
         ],
-        parameter: Annotated[
-            str,
-            "Parameter code. Common examples: Temp-Water, Stage, Elev, Flow-In, "
-            "Flow-Out, Precip, Conc-DO, Volt-Battery. Case-sensitive. See "
-            "`cwms_list_parameters` on a known location for the full set.",
-        ],
+        parameter: Annotated[str, _PARAMETER_HINT],
         window_hours: Annotated[
             int,
             "How far back to search for the most recent value, in hours.",
         ] = 24,
-        unit: Annotated[
-            Literal["EN", "SI"],
-            "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms).",
-        ] = "EN",
+        unit: Annotated[Literal["EN", "SI"], _UNIT_HINT] = "EN",
         with_status: Annotated[
             bool,
-            "Classify the observation against applicable CWMS Location Levels. "
-            "OFF by default — the levels lookup is reliably slow (the 8 s "
-            "budget often expires on cold cache). The response always carries "
-            "`level_lookup_status` (skipped, computed, timed_out, unavailable) "
-            "so callers can see what happened.",
+            "Classify against CWMS Location Levels. OFF by default (slow, "
+            "often times out on cold cache); `level_lookup_status` reports "
+            "what happened either way.",
         ] = False,
         detail: Detail = Detail.SUMMARY,
     ) -> ValueWithContextResponse | ErrorRef:
         """Latest observation for a parameter at a place.
 
-        Value-only and fast by default. Set `with_status=true` to also
-        classify against applicable thresholds; that path is slow and
-        often times out — agents on a tight budget should leave it off
-        and follow up with a separate classification step if needed.
+        Value-only and fast by default; `with_status=true` also classifies
+        against thresholds but is slow and often times out.
 
-        Auto-selects the canonical (best publisher) timeseries id at the
-        location. When classification ran successfully the response
-        carries `status_class` (nominal, watch, action, flood, or
-        unknown) and `thresholds_active` with the signed delta from the
-        observation to each threshold.
+        Auto-selects the canonical timeseries id. On successful
+        classification, carries `status_class` and `thresholds_active`.
         """
         raw = await _safe(
             values.get_value,
@@ -482,21 +420,13 @@ def register_value_tools(mcp: FastMCP) -> None:
             "idempotentHint": True,
             "title": "Windowed history",
         },
+        output_schema=iserror_output_schema(HistoryResponse),
     )
     @iserror_aware
     async def cwms_get_history(
-        office: Annotated[
-            str,
-            "USACE office code (e.g. NWDM, SWT). Discover valid codes at the "
-            "`cwms://offices` resource.",
-        ],
+        office: Annotated[str, _OFFICE_HINT],
         name: Annotated[str, "CWMS location name/id within the office (e.g. FTPK, FOSS)."],
-        parameter: Annotated[
-            str,
-            "Parameter code. Common examples: Temp-Water, Stage, Elev, Flow-In, "
-            "Flow-Out, Precip, Conc-DO, Volt-Battery. Case-sensitive. See "
-            "`cwms_list_parameters` on a known location for the full set.",
-        ],
+        parameter: Annotated[str, _PARAMETER_HINT],
         begin_iso: Annotated[
             str, "Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z)."
         ],
@@ -504,47 +434,26 @@ def register_value_tools(mcp: FastMCP) -> None:
             str,
             "Window end as an RFC3339 timestamp (e.g. 2026-05-18T00:00:00Z).",
         ],
-        unit: Annotated[
-            Literal["EN", "SI"],
-            "Unit system: 'EN' for English (ft, cfs) or 'SI' for metric (m, cms).",
-        ] = "EN",
+        unit: Annotated[Literal["EN", "SI"], _UNIT_HINT] = "EN",
         rollup: Annotated[
             Rollup,
-            "Server-side downsample. 'raw' (default) returns every point in "
-            "`values`, up to a server-side cap (currently 5,000 — see "
-            "`truncated`/`truncation_hint`). 'hourly'/'daily' return per-bucket "
-            "{min,max,mean,count} in `buckets` (and an empty `values`) — far "
-            "fewer rows for a trend question, and not subject to that cap. "
-            "Buckets are UTC hour/day intervals. Regardless of rollup, the "
-            "response carries a `summary` key (first/last/min/max/mean/delta/"
-            "count) so you don't pull and hand-reduce every point; its value "
-            "is null only when the window has no numeric observations.",
+            "Downsample: 'raw' (default) or 'hourly'/'daily' (per-bucket "
+            "aggregates in `buckets`, exempt from the local raw-point cap — "
+            "but the upstream fetch cap can still apply; see `truncated`).",
         ] = Rollup.RAW,
         detail: Detail = Detail.SUMMARY,
     ) -> HistoryResponse | ErrorRef:
         """Read observations across a bounded time window.
 
-        Use for a series of values over time. For the latest value plus
-        threshold-derived status, call `cwms_get_value` instead — it is
-        cheaper and includes the classification this tool does not.
+        For a value series over time; for latest value + status, use
+        `cwms_get_value` instead (cheaper).
 
-        For "how has X changed over N days?" read `summary` (key always
-        present; null only when the window has no numeric observations)
-        or set `rollup='hourly'`/`'daily'` for compact per-bucket aggregates
-        instead of every raw point. Raw mode returns the values array
-        (timestamp + value, plus quality codes at `detail=full`) along with
-        the resolved canonical timeseries id, capped at 5,000 points per call
-        so a long window over a high-frequency series can't return tens of
-        thousands of rows unbounded. `truncated: true` with a
-        `truncation_hint` is set either when that response cap trims `values`
-        or when the upstream page cap (300,000 points) clipped the fetch
-        itself before it reached the requested window end. In the latter
-        case `summary`/`buckets` cover only the fetched prefix, NOT the full
-        requested window — switching `rollup` does not recover the rest;
-        continue via `next_begin` and repeat until `truncated` is false. When
-        only the local 5,000-point cap fired (the fetch itself covered the
-        whole window), switching to `rollup='hourly'`/`'daily'` DOES give a
-        compact summary of the full window in one call.
+        Read `summary` for "how has X changed", or `rollup='hourly'`/`'daily'`
+        for compact aggregates. If `truncated`, check `truncation_hint`: a
+        local raw-point cap still covers the full window (rollup gives a
+        complete summary), but an upstream fetch cap means `summary`/
+        `buckets` cover only the fetched prefix — continue via `next_begin`
+        until `truncated` is false.
         """
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
@@ -593,18 +502,15 @@ def register_value_tools(mcp: FastMCP) -> None:
             "idempotentHint": True,
             "title": "Depth profile (whole string)",
         },
+        output_schema=iserror_output_schema(ProfileResponse),
     )
     @iserror_aware
     async def cwms_get_profile(
-        office: Annotated[
-            str,
-            "USACE office code (e.g. NWDP). Discover valid codes at the `cwms://offices` resource.",
-        ],
+        office: Annotated[str, _OFFICE_HINT],
         name: Annotated[
             str,
-            "Parent 'string' location id (e.g. GWLW_S1, UBLW_S1) — NOT a single "
-            "depth-tagged sensor. The tool finds the depth-tagged sensors hanging "
-            "off this string.",
+            "Parent 'string' location id (e.g. GWLW_S1) — NOT a single "
+            "depth-tagged sensor; finds the sensors hanging off this string.",
         ],
         parameter: Annotated[
             str,
@@ -614,21 +520,15 @@ def register_value_tools(mcp: FastMCP) -> None:
             int,
             "How far back to search for each sensor's most recent value, in hours.",
         ] = 24,
-        unit: Annotated[
-            Literal["EN", "SI"],
-            "Unit system: 'EN' (ft, °F) or 'SI' (m, °C).",
-        ] = "EN",
+        unit: Annotated[Literal["EN", "SI"], "Unit system: 'EN' (ft, °F) or 'SI' (m, °C)."] = "EN",
         detail: Detail = Detail.SUMMARY,
     ) -> ProfileResponse | ErrorRef:
         """Read every depth sensor of one string in a single call.
 
-        For a vertical profile (e.g. water-temperature stratification) at a
-        depth-tagged WQ string, this replaces one `cwms_get_value` call per
-        depth. Returns the sensors sorted shallow→deep, each with structured
-        `depth: {value, unit}` (so you don't decode the cryptic `D<n>,0ft`
-        tag) and its latest observation. A single dead sensor degrades to
-        `value: null` + `error` rather than failing the whole profile. When no
-        depth sensors match, `sensor_count` is 0 and `note` explains recovery.
+        For a vertical profile (e.g. water-temperature stratification);
+        replaces one `cwms_get_value` call per depth. A dead sensor
+        degrades to `value: null` + `error` rather than failing the whole
+        profile; when none match, `note` explains recovery.
         """
         raw = await _safe(
             values.get_profile,
@@ -655,27 +555,23 @@ def register_publisher_tools(mcp: FastMCP) -> None:
             "idempotentHint": True,
             "title": "Publishers reporting a parameter",
         },
+        output_schema=iserror_output_schema(PublishersForParameterResponse),
     )
     @iserror_aware
     async def cwms_publishers_for_parameter(
         parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage)."],
         offices: Annotated[
             list[str] | None,
-            "Limit the index to these office codes (discover valid codes at "
-            "the `cwms://offices` resource). If omitted, only offices already "
-            "in cache are scanned; never expands to every office implicitly.",
+            "Limit the index to these office codes. If omitted, only offices "
+            "already cached are scanned — never expands to every office.",
         ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> PublishersForParameterResponse | ErrorRef:
         """List the publishers reporting a parameter, with explicit coverage.
 
-        Indexes the offices in `offices`; when `offices` is omitted, only
-        offices already in the local cache are scanned — this tool never
-        implicitly fans out to every office. A per-call budget caps how
-        many uncached offices it fetches, and any beyond the budget land
-        in `coverage.offices_skipped_for_budget` with a `repair` hint
-        that points back at this tool with that list, so the caller can
-        continue the index in deterministic chunks.
+        Indexes `offices`, or only already-cached offices when omitted —
+        never fans out to every office. Budget overflow lands in
+        `coverage.offices_skipped_for_budget` with a `repair` hint back here.
         """
         raw = await _safe(
             publishers_index.publishers_for_parameter,
