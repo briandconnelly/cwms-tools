@@ -587,6 +587,22 @@ def test_get_history_raw_cap_hint_has_no_next_begin_when_timestamps_unparseable(
     assert "narrow the window" in payload["truncation_hint"]
 
 
+def test_timestamp_sort_key_pushes_malformed_string_timestamps_last() -> None:
+    """A timestamp that IS a string but doesn't parse as RFC3339 (e.g. a
+    garbage/malformed value) must sort last like a missing timestamp, not by
+    its raw string value — otherwise it could sort ahead of genuinely-earlier
+    valid points and get kept over them by `_cap_raw_points` (#66)."""
+    valid_early = {"timestamp": "2026-05-01T00:00:00Z", "value": 1.0}
+    valid_late = {"timestamp": "2026-05-02T00:00:00Z", "value": 2.0}
+    malformed = {"timestamp": "not-a-timestamp", "value": 3.0}
+    missing = {"timestamp": None, "value": 4.0}
+
+    ordered = sorted([malformed, valid_late, missing, valid_early], key=values._timestamp_sort_key)
+    assert ordered[0] is valid_early
+    assert ordered[1] is valid_late
+    assert {id(ordered[2]), id(ordered[3])} == {id(malformed), id(missing)}
+
+
 # --------------------------------------------------------------------------
 # #26/#27: get_profile (whole-string depth read)
 # --------------------------------------------------------------------------

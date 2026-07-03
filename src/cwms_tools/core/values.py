@@ -312,8 +312,16 @@ def _cap_raw_points(
 
 
 def _timestamp_sort_key(point: dict[str, Any]) -> tuple[int, str]:
+    """Sort key for `_cap_raw_points`: parseable timestamps sort first
+    (chronologically); missing or unparseable timestamps sort last."""
     timestamp = point.get("timestamp")
-    return (0, timestamp) if isinstance(timestamp, str) else (1, "")
+    if isinstance(timestamp, str):
+        try:
+            datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return (1, "")
+        return (0, timestamp)
+    return (1, "")
 
 
 def _next_begin_from_points(points: list[dict[str, Any]]) -> str | None:
