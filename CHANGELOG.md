@@ -47,6 +47,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the module's own "every successful tool response carries
   `source.fingerprint`" contract — all three of its success branches
   (index, section, chunk) now carry it. Closes #70.
+- The capability fingerprint now moves when agent-visible selection prose
+  changes, not just when a schema does. Previously a tool `description`
+  rewrite, its latency class, a resource's `name`/`title`/`description`, the
+  FastMCP server `instructions` string, or the capability-summary prose in
+  `capabilities_payload()` (what the server does/does not do, error-handling
+  and response-shape guidance, deprecation policy) could all change without
+  moving the fingerprint, leaving cached agents unaware their selection
+  criteria were stale. `mcp.contract.tool_definitions()` now carries each
+  tool's live `description`/`title`; a new `mcp.contract.resource_definitions()`
+  live-introspects resource/template `name`/`title`/`description` from the
+  real FastMCP registration (merging in `error_codes` from the existing
+  hand-maintained inventory, since FastMCP has no introspection point for
+  those, plus a new test pinning that inventory's URI set against the live
+  one so the two can't silently diverge); a new
+  `mcp.resources.capability_contract_payload()` factors out the static,
+  non-circular subset of the capability summary (including `tool_latency`) as
+  its own fingerprint input; and the server's `instructions` string is now
+  read from the live built server via `mcp.contract.server_instructions()`
+  rather than a separately-referenced constant. Deliberately excluded as
+  runtime-volatile rather than source-controlled prose: `prerequisites.api_root`/
+  `user_agent`, the `fastmcp` installed-version/drift diagnostics, and
+  `active_workarounds` (all already covered, where relevant, by the existing
+  version/runtime-baseline fingerprint inputs). Closes #71.
 - `ghost_office` errors no longer discard the agent's original call intent.
   Previously every ghost-office repair pointed at `cwms_browse_region`
   regardless of which tool actually failed — e.g. `cwms_get_value(office=NWO,
