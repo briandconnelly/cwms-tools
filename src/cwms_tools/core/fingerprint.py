@@ -16,7 +16,7 @@ A stable SHA-256 over the inputs documented in the plan's §Discovery contract:
     server does/does not do, error-handling and response-shape guidance,
     deprecation policy — everything in `capabilities_payload()` except values
     that are either circular (the fingerprint itself) or runtime-volatile
-    (`api_root`, installed versions, already covered by inputs 1/2/9))
+    (`api_root`, installed versions, already covered by inputs 1/2/9)
 11. The FastMCP server `instructions` string (#71 — a prose rewrite to either
     of these that changes agent behavior must move the fingerprint, not just
     input/output schemas)

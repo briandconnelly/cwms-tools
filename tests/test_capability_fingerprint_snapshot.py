@@ -314,13 +314,20 @@ def test_resource_inventory_matches_registered_resources() -> None:
     `capabilities_payload()` advertises without moving the fingerprint,
     since the fingerprint reads `mime_type` live. `error_codes` is exempt
     from this check: `resource_definitions()` sources it FROM
-    `RESOURCE_INVENTORY` by construction, so it can never disagree — this
-    also means a duplicate URI in `RESOURCE_INVENTORY` (which the plain
-    URI-set comparison alone would hide) surfaces here as a length mismatch.
+    `RESOURCE_INVENTORY` by construction, so it can never disagree.
+
+    Duplicate-URI detection and URI-set parity are checked separately
+    (Copilot review) so a failure points at the actual cause instead of a
+    generic length mismatch that could equally mean a missing/extra entry.
     """
+    uris = [r["uri"] for r in RESOURCE_INVENTORY]
+    assert len(uris) == len(set(uris)), "RESOURCE_INVENTORY has a duplicate URI"
+
     live = resource_definitions()
-    assert len(RESOURCE_INVENTORY) == len(live), "RESOURCE_INVENTORY has a duplicate URI"
-    assert {r["uri"] for r in RESOURCE_INVENTORY} == set(live.keys())
+    assert set(uris) == set(live.keys()), (
+        "RESOURCE_INVENTORY and resource_definitions() disagree on URIs"
+    )
+
     for entry in RESOURCE_INVENTORY:
         assert entry["mime_type"] == live[entry["uri"]]["mime_type"], (
             f"{entry['uri']}: RESOURCE_INVENTORY mime_type has drifted from the live registration"

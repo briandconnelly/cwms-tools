@@ -57,7 +57,8 @@ def _run_coro(factory: Callable[[], Coroutine[Any, Any, _T]]) -> _T:
 
 @lru_cache(maxsize=1)
 def tool_definitions() -> dict[str, dict[str, Any]]:
-    """Return `{tool_name: {description, input_schema, output_schema, annotations}}`.
+    """Return `{tool_name: {title, description, input_schema, output_schema,
+    annotations, error_codes}}`.
 
     Built by standing up the server once and reading each registered tool's
     MCP-level definition. Cached because the schema surface is static per
