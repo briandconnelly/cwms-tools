@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
-from cwms_tools.core import concurrency, places, publishers_index, shaping, values
+from cwms_tools.core import concurrency, offices, places, publishers_index, shaping, values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, ErrorEnvelope, surface_field_name
 from cwms_tools.core.geo import BBox, first_missing_bbox_field
 from cwms_tools.core.models import (
@@ -226,6 +226,16 @@ def register_place_tools(mcp: FastMCP) -> None:
             parameter=parameter,
             limit=effective_limit,
             cursor=cursor,
+            _repair_call=(
+                "cwms_search_places",
+                {
+                    "query": query,
+                    **({"parameter": parameter} if parameter is not None else {}),
+                    "limit": limit,
+                    **({"cursor": cursor} if cursor is not None else {}),
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -254,7 +264,12 @@ def register_place_tools(mcp: FastMCP) -> None:
         and last data timestamp. Sets `partial`/`partial_reasons` when a
         sub-lookup degrades (e.g. a project-record format error).
         """
-        raw = await _safe(places.describe_place, office, name)
+        raw = await _safe(
+            places.describe_place,
+            office,
+            name,
+            _repair_call=("cwms_describe_place", {"name": name, "detail": detail.value}),
+        )
         if isinstance(raw, ErrorRef):
             return raw
         shaped = shaping.shape_place_detail(raw, detail)
@@ -286,7 +301,12 @@ def register_place_tools(mcp: FastMCP) -> None:
         The cheapest ghost probe: a ghost returns `ts_count: 0` and an empty
         `by_publisher` list.
         """
-        raw = await _safe(places.list_parameters, office, name)
+        raw = await _safe(
+            places.list_parameters,
+            office,
+            name,
+            _repair_call=("cwms_list_parameters", {"name": name, "detail": detail.value}),
+        )
         if isinstance(raw, ErrorRef):
             return raw
         shaped = shaping.shape_place_detail(raw, detail)
@@ -355,6 +375,20 @@ def register_place_tools(mcp: FastMCP) -> None:
             state=state,
             limit=effective_limit,
             cursor=cursor,
+            _repair_call=(
+                "cwms_browse_region",
+                {
+                    **(
+                        {"south": south, "west": west, "north": north, "east": east}
+                        if bbox is not None
+                        else {}
+                    ),
+                    **({"state": state} if state is not None else {}),
+                    "limit": limit,
+                    **({"cursor": cursor} if cursor is not None else {}),
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -413,6 +447,17 @@ def register_value_tools(mcp: FastMCP) -> None:
             window=timedelta(hours=window_hours),
             unit=unit,
             classify_against_levels=with_status,
+            _repair_call=(
+                "cwms_get_value",
+                {
+                    "name": name,
+                    "parameter": parameter,
+                    "window_hours": window_hours,
+                    "unit": unit,
+                    "with_status": with_status,
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -495,6 +540,18 @@ def register_value_tools(mcp: FastMCP) -> None:
             end=end,
             unit=unit,
             rollup=rollup.value,
+            _repair_call=(
+                "cwms_get_history",
+                {
+                    "name": name,
+                    "parameter": parameter,
+                    "begin_iso": begin_iso,
+                    "end_iso": end_iso,
+                    "unit": unit,
+                    "rollup": rollup.value,
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -544,6 +601,16 @@ def register_value_tools(mcp: FastMCP) -> None:
             parameter,
             window=timedelta(hours=window_hours),
             unit=unit,
+            _repair_call=(
+                "cwms_get_profile",
+                {
+                    "name": name,
+                    "parameter": parameter,
+                    "window_hours": window_hours,
+                    "unit": unit,
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -609,16 +676,35 @@ def _negative_limit_error(limit: int) -> CwmsToolsError:
     )
 
 
-async def _safe(fn, *args, **kwargs) -> dict[str, Any] | ErrorRef:
+async def _safe(
+    fn, *args, _repair_call: tuple[str, dict[str, Any]] | None = None, **kwargs
+) -> dict[str, Any] | ErrorRef:
     """Run a sync core function on the bounded executor; surface known errors structured.
 
     Returns the raw dict on success, or an `ErrorRef` (with fingerprint stamped)
     on any `CwmsToolsError`. Handlers check `isinstance(raw, ErrorRef)` and
     return it directly.
+
+    `_repair_call`, when given, is `(tool_name, wire_format_args)` for THIS
+    handler's own call (args as the agent would actually pass them, minus
+    `office`) — the single place a `ghost_office` failure gets a same-tool
+    retry repair instead of core's old hardcoded `cwms_browse_region` switch
+    (#69). Core can't build this itself: it doesn't know which surface/tool
+    is calling, and `_safe`'s own `*args`/`**kwargs` are already core-format
+    (`timedelta`/`datetime`/`BBox`, not `window_hours`/`begin_iso`/bbox
+    floats), so this takes the handler's ORIGINAL wire-format args instead.
     """
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
+        office_id = err.envelope.offending_value
+        if (
+            _repair_call is not None
+            and err.envelope.code is ErrorCode.GHOST_OFFICE
+            and isinstance(office_id, str)
+        ):
+            tool, call_args = _repair_call
+            err.envelope.repair = offices.ghost_office_repair(office_id, tool=tool, args=call_args)
         return error_ref(err)
 
 

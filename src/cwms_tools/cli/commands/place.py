@@ -12,7 +12,13 @@ from typing import Annotated
 
 import typer
 
-from cwms_tools.cli.render import emit, emit_error, rewrite_error_field
+from cwms_tools.cli.render import (
+    attach_ghost_office_repair,
+    attach_ghost_office_spec_repair,
+    emit,
+    emit_error,
+    rewrite_error_field,
+)
 from cwms_tools.core import places, shaping
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail
@@ -165,7 +171,14 @@ def search(
             cursor=cursor,
         )
     except CwmsToolsError as err:
-        emit_error(err)
+        repair_args: dict[str, object] = {"query": query}
+        if parameter is not None:
+            repair_args["parameter"] = parameter
+        repair_args["limit"] = limit
+        if cursor is not None:
+            repair_args["cursor"] = cursor
+        repair_args["detail"] = detail.value
+        emit_error(attach_ghost_office_repair(err, tool="cwms_search_places", args=repair_args))
     emit(shaping.shape_place_detail(payload, detail))
 
 
@@ -198,7 +211,18 @@ def describe(
         payload = places.describe_place(office, name)
     except CwmsToolsError as err:
         # No `--office` flag on this command — `spec` is the retryable arg.
-        emit_error(rewrite_error_field(err, when="office_id", to="spec"))
+        # Repair targets the actual CLI invocation (#69 review): `spec` isn't
+        # a real MCP `cwms_describe_place` argument, so the repair.tool must
+        # be the CLI command, not the MCP tool name.
+        rewrite_error_field(err, when="office_id", to="spec")
+        attach_ghost_office_spec_repair(
+            err,
+            tool="cwms-tools place describe",
+            spec_key="spec",
+            spec_suffix=name,
+            args={"detail": detail.value},
+        )
+        emit_error(err)
     emit(shaping.shape_place_detail(payload, detail))
 
 
@@ -220,7 +244,12 @@ def parameters(
         payload = places.list_parameters(office, name)
     except CwmsToolsError as err:
         # No `--office` flag on this command — `spec` is the retryable arg.
-        emit_error(rewrite_error_field(err, when="office_id", to="spec"))
+        # Repair targets the CLI invocation (#69 review): see cwms_describe_place.
+        rewrite_error_field(err, when="office_id", to="spec")
+        attach_ghost_office_spec_repair(
+            err, tool="cwms-tools place parameters", spec_key="spec", spec_suffix=name, args={}
+        )
+        emit_error(err)
     # No `--detail` toggle here; routed through the shared shaper (a no-op for
     # this response shape) to stay structurally in lockstep with the
     # `cwms_list_parameters` MCP tool, which applies the same place shaper.

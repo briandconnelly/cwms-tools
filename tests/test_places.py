@@ -608,15 +608,17 @@ def test_search_places_with_office_list_searches_each(configured, mocked) -> Non
 
 
 def test_search_places_single_ghost_office_raises_ghost_office(configured, mocked) -> None:
-    """A single NW-stub office must surface the ghost_office envelope, not empty results."""
+    """A single NW-stub office must surface the ghost_office envelope, not empty results.
+
+    #69: `repair` is None at this core level — a same-tool retry needs the
+    calling surface's own name/args, which `mcp.tools._safe`/`cli.render`
+    attach at the boundary (see test_mcp_tool_handlers.py/test_cli_place.py
+    for the surface-level repair assertions)."""
     with pytest.raises(CwmsToolsError) as exc_info:
         places.search_places("Bear Creek", office="NWO")
     env = exc_info.value.envelope
     assert env.code is ErrorCode.GHOST_OFFICE
-    assert env.repair is not None
-    # Already browse_region via the catalog guard; Task 2 aligns
-    # locations.py's single-location guard.
-    assert env.repair.tool == "cwms_browse_region"
+    assert env.repair is None
 
 
 def test_search_places_multi_office_records_failed_office_as_partial(configured, mocked) -> None:

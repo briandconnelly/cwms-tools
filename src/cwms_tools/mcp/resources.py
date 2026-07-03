@@ -138,15 +138,9 @@ RESOURCE_INVENTORY: list[dict[str, Any]] = [
 
 #: NW Division district stubs publish no operational data in CDA; data lands at
 #: the regional rollups instead. Surfaced in the `cwms://offices` guidance block
-#: and mirrored by the `ghost_office` repair path in `core/locations.py` /
-#: `core/catalog.py`. See cwms-overview.md §6.1.
-NW_ROLLUP_TARGETS: dict[str, str] = {
-    "NWO": "NWDM",
-    "NWK": "NWDM",
-    "NWS": "NWDP",
-    "NWP": "NWDP",
-    "NWW": "NWDP",
-}
+#: and used to build the `ghost_office` same-tool retry repair (#69). Canonical
+#: home is `core.offices`; re-exported here for existing importers of this name.
+NW_ROLLUP_TARGETS = offices.NW_ROLLUP_TARGETS
 
 
 def capabilities_payload() -> dict[str, Any]:

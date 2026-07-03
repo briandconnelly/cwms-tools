@@ -23,7 +23,40 @@ from typing import Any
 from cwms import api as cwms_api
 
 from cwms_tools.core.cache import Cache, build_cache_key, get_cache
+from cwms_tools.core.errors import RepairHint
 from cwms_tools.core.session import current_config
+
+# NW Division district stubs — catalog stubs that publish no operational
+# data in CDA (cwms-overview.md §6.1). Canonical home for this map (#69):
+# previously triplicated across `core.catalog`, `core.locations`, and
+# `mcp.resources` — those now import it from here.
+NW_STUBS: frozenset[str] = frozenset({"NWO", "NWK", "NWS", "NWP", "NWW"})
+NW_ROLLUP_TARGETS: dict[str, str] = {
+    "NWO": "NWDM",
+    "NWK": "NWDM",
+    "NWS": "NWDP",
+    "NWP": "NWDP",
+    "NWW": "NWDP",
+}
+
+
+def nw_rollup_target(office_id: str) -> str:
+    """The regional rollup office that publishes data for an NW district stub."""
+    return NW_ROLLUP_TARGETS.get(office_id, "NWDM")
+
+
+def ghost_office_repair(office_id: str, *, tool: str, args: dict[str, Any]) -> RepairHint:
+    """Build a same-call retry repair hint: `office` swapped to the rollup target.
+
+    `tool`/`args` are the FAILING call's own name and original (wire-format)
+    arguments minus `office` — the caller (an MCP tool handler or CLI command)
+    is the only thing that knows which surface call is retrying, so it
+    supplies its own identity here rather than this being hardcoded to a
+    single fallback tool (#69: the repair no longer silently switches from,
+    say, `cwms_get_value` to `cwms_browse_region`, discarding the agent's
+    `name`/`parameter` and forcing re-orchestration)."""
+    return RepairHint(tool=tool, args={**args, "office": nw_rollup_target(office_id)})
+
 
 # Documented degraded fallback. Used only when the upstream offices fetch
 # fails — never as the default scope for fanout. Mirrors the candidate set
@@ -198,8 +231,12 @@ def _parse_office_records(raw: Any) -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "NW_ROLLUP_TARGETS",
+    "NW_STUBS",
     "cached_offices_for_locations",
     "discovery_office_candidates",
+    "ghost_office_repair",
     "list_office_ids",
     "list_offices",
+    "nw_rollup_target",
 ]

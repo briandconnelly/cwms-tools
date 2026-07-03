@@ -26,11 +26,11 @@ from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import (
     CwmsToolsError,
     ErrorCode,
-    RepairHint,
     retry_after_ms_from_response,
     upstream_error_from_status,
 )
 from cwms_tools.core.geo import GeoPoint, co_located
+from cwms_tools.core.offices import NW_STUBS
 from cwms_tools.core.session import current_config
 
 
@@ -61,19 +61,13 @@ def _wrap_api_error(exc: ApiError, *, endpoint: str) -> CwmsToolsError:
 # truncated rather than hitting the upstream with a too-large request.
 MAX_TS_LIKE_BYTES: int = 2048
 
-# NW Division district stubs — short-circuit with a repair hint (§6.1).
-_NW_STUBS: frozenset[str] = frozenset({"NWO", "NWK", "NWS", "NWP", "NWW"})
-_NW_REPAIR_TARGETS: dict[str, str] = {
-    "NWO": "NWDM",
-    "NWK": "NWDM",
-    "NWS": "NWDP",
-    "NWP": "NWDP",
-    "NWW": "NWDP",
-}
-
 
 def _raise_ghost_office(office_id: str) -> None:
-    target = _NW_REPAIR_TARGETS.get(office_id, "NWDM")
+    """Raise `ghost_office` with no `repair` — a same-tool retry needs the
+    calling surface's own tool name and original arguments (which core
+    doesn't have), so the surface boundary (`mcp.tools._safe`,
+    `cli.render`) attaches the repair via `core.offices.ghost_office_repair`
+    instead of this hardcoding a single fallback tool (#69)."""
     raise CwmsToolsError.of(
         ErrorCode.GHOST_OFFICE,
         f"Office {office_id} publishes no operational data; use the regional rollup.",
@@ -84,7 +78,6 @@ def _raise_ghost_office(office_id: str) -> None:
             "Use NWDM (Missouri) or NWDP (Pacific NW) instead. The "
             "`cwms://offices` resource lists every valid office code."
         ),
-        repair=RepairHint(tool="cwms_browse_region", args={"office": target}),
     )
 
 
@@ -95,7 +88,7 @@ def get_locations_catalog(
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """Return the paginated locations catalog for an office. Cached for 6 h."""
-    if office_id in _NW_STUBS:
+    if office_id in NW_STUBS:
         _raise_ghost_office(office_id)
     cache = get_cache()
     ttl = cache.ttl_for("location_catalog")
@@ -131,7 +124,7 @@ def get_timeseries_catalog(
     larger for big offices), so flipping this for queries that don't
     need it is what made `value get` unusable in evaluation.
     """
-    if office_id in _NW_STUBS:
+    if office_id in NW_STUBS:
         _raise_ghost_office(office_id)
     cache = get_cache()
     ttl = cache.ttl_for("ts_catalog")
