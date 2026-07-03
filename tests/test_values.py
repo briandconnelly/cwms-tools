@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import cwms
 import pytest
@@ -386,6 +386,73 @@ def test_get_history_rejects_unknown_rollup(configured) -> None:
 
 
 # --------------------------------------------------------------------------
+# #66: raw-point response cap
+# --------------------------------------------------------------------------
+
+
+def test_get_history_raw_caps_response_points(configured) -> None:
+    """`rollup='raw'` (the default) caps `values` at MAX_RAW_HISTORY_POINTS
+    even when the upstream fetch returns more, so a long window over a
+    high-frequency series can't return unbounded rows. `summary`/
+    `value_count` still reflect the FULL fetched window, not just the
+    capped `values` (#66)."""
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 500
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    pts = [(start + timedelta(minutes=i), float(i)) for i in range(total)]
+    payload = _history(
+        points=pts,
+        begin=start,
+        end=start + timedelta(minutes=total),
+    )
+    assert payload["value_count"] == total
+    assert len(payload["values"]) == cap
+    assert payload["truncated"] is True
+    assert payload["truncation_hint"] is not None
+    assert "begin_iso" in payload["truncation_hint"]
+    assert payload["summary"]["count"] == total  # not affected by the response cap
+
+    last_returned = payload["values"][-1]["timestamp"]
+    assert payload["next_begin"] is not None
+    last_dt = datetime.fromisoformat(last_returned.replace("Z", "+00:00"))
+    next_dt = datetime.fromisoformat(payload["next_begin"].replace("Z", "+00:00"))
+    assert next_dt == last_dt + timedelta(milliseconds=1)  # continuation seam, not window end
+
+
+def test_get_history_raw_under_cap_is_not_truncated(configured) -> None:
+    """A window under the cap is unaffected: no truncation, full `values`."""
+    pts = [(datetime(2026, 5, 17, 18, i, tzinfo=UTC), float(i)) for i in range(10)]
+    payload = _history(
+        points=pts,
+        begin=datetime(2026, 5, 17, 18, tzinfo=UTC),
+        end=datetime(2026, 5, 17, 19, tzinfo=UTC),
+    )
+    assert len(payload["values"]) == 10
+    assert payload["truncated"] is False
+    assert payload["next_begin"] is None
+    assert payload["truncation_hint"] is None
+
+
+def test_get_history_rollup_bucket_mode_not_subject_to_raw_cap(configured) -> None:
+    """`rollup='hourly'/'daily'` isn't subject to the raw-point response cap —
+    it already returns compact per-bucket aggregates instead of raw points."""
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 200
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    pts = [(start + timedelta(minutes=i), float(i)) for i in range(total)]
+    payload = _history(
+        "daily",
+        points=pts,
+        begin=start,
+        end=start + timedelta(minutes=total),
+    )
+    assert payload["value_count"] == total
+    assert payload["values"] == []
+    assert payload["truncated"] is False
+    assert len(payload["buckets"]) > 0
+
+
+# --------------------------------------------------------------------------
 # #26/#27: get_profile (whole-string depth read)
 # --------------------------------------------------------------------------
 
@@ -480,7 +547,6 @@ def test_get_profile_rejects_non_positive_window(configured, hours) -> None:
     """A non-positive look-back window (negative inverts begin/end; zero is an
     empty window) is rejected up front as a deterministic usage_error, before
     any catalog call — matching the 'must be positive' contract."""
-    from datetime import timedelta
 
     with pytest.raises(CwmsToolsError) as exc:
         values.get_profile("NWDP", "GWLW_S1", "Temp-Water", window=timedelta(hours=hours))

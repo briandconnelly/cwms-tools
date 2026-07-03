@@ -511,12 +511,14 @@ def register_value_tools(mcp: FastMCP) -> None:
         rollup: Annotated[
             Rollup,
             "Server-side downsample. 'raw' (default) returns every point in "
-            "`values`. 'hourly'/'daily' return per-bucket {min,max,mean,count} "
-            "in `buckets` (and an empty `values`) — far fewer rows for a trend "
-            "question. Buckets are UTC hour/day intervals. Regardless of rollup, "
-            "the response carries a `summary` key (first/last/min/max/mean/"
-            "delta/count) so you don't pull and hand-reduce every point; its "
-            "value is null only when the window has no numeric observations.",
+            "`values`, up to a server-side cap (currently 5,000 — see "
+            "`truncated`/`truncation_hint`). 'hourly'/'daily' return per-bucket "
+            "{min,max,mean,count} in `buckets` (and an empty `values`) — far "
+            "fewer rows for a trend question, and not subject to that cap. "
+            "Buckets are UTC hour/day intervals. Regardless of rollup, the "
+            "response carries a `summary` key (first/last/min/max/mean/delta/"
+            "count) so you don't pull and hand-reduce every point; its value "
+            "is null only when the window has no numeric observations.",
         ] = Rollup.RAW,
         detail: Detail = Detail.SUMMARY,
     ) -> HistoryResponse | ErrorRef:
@@ -531,11 +533,16 @@ def register_value_tools(mcp: FastMCP) -> None:
         or set `rollup='hourly'`/`'daily'` for compact per-bucket aggregates
         instead of every raw point. Raw mode returns the values array
         (timestamp + value, plus quality codes at `detail=full`) along with
-        the resolved canonical timeseries id. `truncated: true` with a
-        `truncation_hint` is set when the upstream page cap (300,000 points)
-        clipped the requested window — and in that case `summary` and `buckets`
-        are computed from the returned (clipped) points only, NOT the full
-        requested window; continue via `next_begin` to cover the rest.
+        the resolved canonical timeseries id, capped at 5,000 points per call
+        so a long window over a high-frequency series can't return tens of
+        thousands of rows unbounded. `truncated: true` with a
+        `truncation_hint` is set either when that response cap trims `values`
+        or when the upstream page cap (300,000 points) clipped the requested
+        window; in the upstream case `summary` and `buckets` are computed
+        from the returned (clipped) points only, NOT the full requested
+        window. Either way, continue via `next_begin`, or switch to
+        `rollup='hourly'`/`'daily'` for a compact summary of the full window
+        in one call.
         """
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))

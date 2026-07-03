@@ -175,10 +175,12 @@ def history(
         typer.Option(
             "--rollup",
             help=(
-                "'raw' returns every point; 'hourly'/'daily' return per-bucket "
-                "min/max/mean/count (UTC buckets) for compact trends. The `summary` "
-                "key is always present regardless of rollup (null only when the "
-                "window has no numeric observations)."
+                "'raw' returns every point, up to a server-side cap (currently "
+                "5,000 — see `truncated`); 'hourly'/'daily' return per-bucket "
+                "min/max/mean/count (UTC buckets) for compact trends and are not "
+                "subject to that cap. The `summary` key is always present "
+                "regardless of rollup (null only when the window has no numeric "
+                "observations)."
             ),
         ),
     ] = Rollup.RAW,
@@ -192,10 +194,12 @@ def history(
 ) -> None:
     """Read a windowed history of one parameter at one place.
 
-    Sets `truncated: true` with a `truncation_hint` when the upstream
-    page cap (300,000 points) clipped the requested window. For trend
-    questions, read the always-present `summary` block or pass
-    `--rollup hourly|daily` for compact per-bucket aggregates.
+    Sets `truncated: true` with a `truncation_hint` when either the raw-point
+    response cap (5,000 points under `--rollup raw`) trims `values`, or the
+    upstream page cap (300,000 points) clipped the requested window. For
+    trend questions, read the always-present `summary` block or pass
+    `--rollup hourly|daily` for compact per-bucket aggregates over the full
+    window in one call.
     """
     office, name, parameter = _parse_id(id_spec)
     begin_dt = _parse_iso(begin, field="begin")

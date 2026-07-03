@@ -64,13 +64,13 @@ def fetch_window(
         truncation_hint = None
     elif next_begin is not None:
         truncation_hint = (
-            "hit upstream page cap of 300000; continue the window from `next_begin`, "
-            "or narrow --begin/--end"
+            f"hit upstream page cap of {_UPSTREAM_PAGE_SIZE_CAP}; retry with "
+            "begin_iso=<next_begin> to continue, or narrow the window."
         )
     else:
         truncation_hint = (
-            "hit upstream page cap of 300000 but could not derive a continuation "
-            "timestamp; narrow --begin/--end and re-request"
+            f"hit upstream page cap of {_UPSTREAM_PAGE_SIZE_CAP} but could not derive a "
+            "continuation timestamp; narrow the window and re-request."
         )
     return {
         "ts_id": ts_id,

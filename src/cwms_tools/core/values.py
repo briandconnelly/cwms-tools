@@ -20,6 +20,14 @@ from cwms_tools.core.models import Rollup
 #: point; `hourly`/`daily` return per-bucket min/max/mean/count instead.
 ROLLUP_MODES: tuple[str, ...] = tuple(r.value for r in Rollup)
 
+#: Hard cap on raw points returned in `values` under `rollup='raw'` (the
+#: default). The upstream 300 000-point page cap (`core.timeseries`) only
+#: bounds upstream fetch size, not response size — a naive default call over
+#: a long window on a 15-minute series can still return tens of thousands of
+#: rows, a context bomb for the caller (#66). `value_count` still reports the
+#: true (uncapped) count fetched; only the `values` array is capped.
+MAX_RAW_HISTORY_POINTS = 5_000
+
 _threading = threading  # keep import live in case the formatter strips it
 
 # How long the threshold/status lookup is allowed to take before the caller
@@ -219,11 +227,12 @@ def get_history(
     """Windowed history for one (office, location, parameter).
 
     `rollup` controls the value shape (token cost): `raw` (default) returns
-    every point; `hourly`/`daily` server-side downsample to per-bucket
-    min/max/mean/count, so a trend question over a long window costs a handful
-    of rows instead of hundreds. A `summary` block (first/last/min/max/mean/
-    delta/count over the window) is always included so the most common
-    "how has X changed?" question needs no client-side reduction.
+    every point up to `MAX_RAW_HISTORY_POINTS`; `hourly`/`daily` server-side
+    downsample to per-bucket min/max/mean/count, so a trend question over a
+    long window costs a handful of rows instead of hundreds. A `summary`
+    block (first/last/min/max/mean/delta/count over the window) is always
+    included so the most common "how has X changed?" question needs no
+    client-side reduction.
     """
     if rollup not in ROLLUP_MODES:
         raise CwmsToolsError.of(
@@ -254,13 +263,56 @@ def get_history(
         "next_begin": series.get("next_begin"),
     }
     if rollup == "raw":
-        response["values"] = values
+        capped, cap_truncated, cap_next_begin = _cap_raw_points(values)
+        response["values"] = capped
+        if cap_truncated:
+            # The local response cap is always tighter than the upstream
+            # page cap (MAX_RAW_HISTORY_POINTS << 300 000), so it takes
+            # precedence over series["truncated"]/next_begin when it fires:
+            # the caller needs to resume right after the last point actually
+            # returned, not after whatever the upstream fetch covered.
+            response["truncated"] = True
+            response["next_begin"] = cap_next_begin
+            response["truncation_hint"] = (
+                f"response capped at {MAX_RAW_HISTORY_POINTS} raw points; retry with "
+                "begin_iso=<next_begin> to continue, or set rollup='hourly'/'daily' "
+                "for a compact per-bucket summary of the full window."
+            )
     else:
         # Rolled-up: omit the raw points (the whole point is fewer rows) and
         # return the per-bucket aggregates instead.
         response["values"] = []
         response["buckets"] = _bucketize(values, rollup)
     return response
+
+
+def _cap_raw_points(
+    values: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool, str | None]:
+    """Cap raw points to `MAX_RAW_HISTORY_POINTS`, oldest-first.
+
+    Returns `(points, was_capped, next_begin)`. `next_begin` is one
+    millisecond after the last *returned* point's timestamp (mirroring
+    `core.timeseries._next_begin`'s seam-avoidance), so a follow-up call
+    with `begin_iso=next_begin` has no duplicate or skipped point.
+    """
+    if len(values) <= MAX_RAW_HISTORY_POINTS:
+        return values, False, None
+    capped = values[:MAX_RAW_HISTORY_POINTS]
+    return capped, True, _next_begin_from_points(capped)
+
+
+def _next_begin_from_points(points: list[dict[str, Any]]) -> str | None:
+    for point in reversed(points):
+        timestamp = point.get("timestamp")
+        if not isinstance(timestamp, str):
+            continue
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        return (parsed + timedelta(milliseconds=1)).isoformat().replace("+00:00", "Z")
+    return None
 
 
 def _summarize(values: list[dict[str, Any]]) -> dict[str, Any] | None:
