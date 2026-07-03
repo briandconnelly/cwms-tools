@@ -83,8 +83,9 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
     # of an error.code in normal operation.
     "cwms_publishers_for_parameter": [],
     "cwms_get_overview_section": ["not_found", "usage_error"],
-    # offices_payload() never raises (catches upstream failure and degrades to
-    # the documented fallback slice with partial: true instead), so this tool
+    # offices_payload() never raises: core.offices.list_offices() catches both
+    # upstream fetch failure and cache init/read/write failure, degrading to
+    # the documented fallback slice with partial: true instead. So this tool
     # has no live error path today.
     "cwms_list_offices": [],
 }

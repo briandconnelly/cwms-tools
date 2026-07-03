@@ -73,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resource. The capability summary no longer claims a
   `$defs/ErrorEnvelope` schema path that deployed schemas don't have (they
   inline all definitions). Closes #65.
+- `core.offices.list_offices()` (backing the `cwms://offices` resource, the
+  CLI `offices` command, and the new `cwms_list_offices` tool) now treats
+  cache init/read/write failures as best-effort instead of letting them
+  escape as unstructured errors — a broken cache directory or corrupted
+  store previously bypassed the documented "degrades to a fallback slice"
+  behavior that only guarded the upstream fetch. Closes #78.
 
 ## [0.5.0] - 2026-06-16
 
