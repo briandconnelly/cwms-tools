@@ -440,14 +440,31 @@ def test_list_offices_tool_is_registered_and_matches_resource(server) -> None:
     assert sc is not None
     branch = sc.get("result", sc)
     resource_payload = _read_json(server, "cwms://offices")
-    assert branch["count"] == resource_payload["count"]
-    assert (
-        branch["guidance"]["nw_regional_rollup"]
-        == resource_payload["guidance"]["nw_regional_rollup"]
+    assert branch == resource_payload
+
+
+def test_list_offices_tool_omits_absent_fields_on_fallback_records(
+    server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#65 review: the tool must match the resource's convention of omitting
+    absent optional fields rather than sending them as explicit null — the
+    degraded name-only fallback path is the sharpest case (every optional
+    field on `OfficeRecord` is absent)."""
+    from cwms_tools.mcp import resources as resources_module
+
+    monkeypatch.setattr(
+        resources_module.offices,
+        "list_offices",
+        lambda **_: ([{"name": "NWDM"}], True),
     )
-    assert {o["name"] for o in branch["offices"]} == {
-        o["name"] for o in resource_payload["offices"]
-    }
+
+    async def go():
+        return await server.call_tool("cwms_list_offices", arguments={})
+
+    result = asyncio.run(go())
+    branch = result.structured_content.get("result", result.structured_content)
+    assert branch["offices"] == [{"name": "NWDM"}]
+    assert branch["partial"] is True
 
 
 def test_capabilities_advertise_list_offices_tool(server) -> None:

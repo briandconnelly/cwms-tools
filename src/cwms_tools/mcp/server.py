@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from cwms_tools import __version__ as PKG_VERSION
 from cwms_tools.core import overview
+from cwms_tools.core._compact import CompactDumpMixin
 from cwms_tools.core.concurrency import run_sync
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
 from cwms_tools.core.models import Detail, ErrorRef
@@ -84,7 +85,7 @@ class OverviewSectionResponse(BaseModel):
     next_chunk_id: str | None = None
 
 
-class OverviewIndexEntry(BaseModel):
+class OverviewIndexEntry(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     section_id: str
@@ -95,14 +96,14 @@ class OverviewIndexEntry(BaseModel):
     chunk_count: int
 
 
-class OverviewIndexResponse(BaseModel):
+class OverviewIndexResponse(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     document_sha256: str
     sections: list[OverviewIndexEntry]
 
 
-class OfficeRecord(BaseModel):
+class OfficeRecord(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="allow")
 
     name: str
@@ -112,7 +113,7 @@ class OfficeRecord(BaseModel):
     reports_to: str | None = None
 
 
-class OfficesGuidance(BaseModel):
+class OfficesGuidance(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     nw_regional_rollup: str
@@ -120,7 +121,7 @@ class OfficesGuidance(BaseModel):
     nw_rollup_targets: dict[str, str]
 
 
-class OfficesResponse(BaseModel):
+class OfficesResponse(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="allow")
 
     count: int
