@@ -32,6 +32,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ghost_office` errors no longer discard the agent's original call intent.
+  Previously every ghost-office repair pointed at `cwms_browse_region`
+  regardless of which tool actually failed — e.g. `cwms_get_value(office=NWO,
+  name=FTPK, parameter=Elev)` told the agent to call
+  `cwms_browse_region(office=NWDM)` instead, dropping `name`/`parameter` and
+  forcing re-orchestration (browse, re-find the place, re-call `get_value`).
+  The repair now retries the SAME failing tool/CLI command with the SAME
+  original arguments, only `office` swapped to the NW rollup target
+  (`core.offices.ghost_office_repair`, wired at each MCP tool handler and
+  CLI command). CLI commands with no `--office` flag (`place
+  describe`/`parameters`, `value get`/`history`/`profile` — these take a
+  combined `OFFICE/NAME[/PARAMETER]` positional instead) get a repair
+  naming the actual CLI invocation (e.g. `cwms-tools value history`) with
+  CLI-native argument names (e.g. `begin`/`end`, not the MCP tool's
+  `begin_iso`/`end_iso`), not the MCP tool name — a repair combining an
+  MCP tool name with CLI-only argument names would be callable on neither
+  surface. Consolidated the NW-stub/rollup map, previously triplicated
+  across `core.catalog`, `core.locations`, and `mcp.resources`, into a
+  single canonical `core.offices` home. Core no longer builds this repair
+  itself (it doesn't know which tool/command is calling); a core-level
+  `ghost_office` error now carries `repair: null`, unaffected by this
+  change. Closes #69.
 - Error envelope `field` now names a real, retryable tool parameter or CLI
   flag instead of a producer-internal or synthetic name. `ghost_office`
   errors reported `field: "office_id"` (the CDA-facing name `core.catalog`/

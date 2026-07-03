@@ -14,7 +14,14 @@ from typing import Any, NoReturn
 
 import typer
 
-from cwms_tools.core.errors import CwmsToolsError, exit_code_for, surface_field_name
+from cwms_tools.core.errors import (
+    CwmsToolsError,
+    ErrorCode,
+    RepairHint,
+    exit_code_for,
+    surface_field_name,
+)
+from cwms_tools.core.offices import ghost_office_repair, nw_rollup_target
 from cwms_tools.core.rounding import round_floats
 
 # Per `agent-friendly-cli` §"Agent-Safe Invocation": machine mode is forced on
@@ -119,6 +126,43 @@ def rewrite_error_field(error: CwmsToolsError, *, when: str, to: str) -> CwmsToo
     return error
 
 
+def attach_ghost_office_repair(
+    error: CwmsToolsError, *, tool: str, args: dict[str, Any]
+) -> CwmsToolsError:
+    """If `error` is `ghost_office`, attach a same-command retry repair.
+
+    `tool`/`args` are THIS command's own name and original (wire-format,
+    `--flag`-ready) arguments minus `office` — core no longer hardcodes a
+    same-tool-switching repair (it doesn't know which command is calling),
+    so each CLI command supplies its own identity here, mirroring
+    `mcp.tools._safe`'s `_repair_call` (#69). No-op for any other error code.
+    Call this BEFORE `emit_error`/`rewrite_error_field`.
+    """
+    office_id = error.envelope.offending_value
+    if error.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
+        error.envelope.repair = ghost_office_repair(office_id, tool=tool, args=args)
+    return error
+
+
+def attach_ghost_office_spec_repair(
+    error: CwmsToolsError, *, tool: str, spec_key: str, spec_suffix: str, args: dict[str, Any]
+) -> CwmsToolsError:
+    """Like `attach_ghost_office_repair`, but for commands with a combined
+    `OFFICE/...` positional instead of a separate `--office` flag (`place
+    describe`/`parameters`'s `spec`; `value get`/`history`/`profile`'s
+    `id_specs`/`id_spec`) — `spec_key` names that positional and
+    `spec_suffix` is everything after `OFFICE/` (e.g. `NAME` or
+    `NAME/PARAMETER`); the repaired value becomes `{target}/{spec_suffix}`.
+    """
+    office_id = error.envelope.offending_value
+    if error.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
+        target = nw_rollup_target(office_id)
+        error.envelope.repair = RepairHint(
+            tool=tool, args={**args, spec_key: f"{target}/{spec_suffix}"}
+        )
+    return error
+
+
 def isolated() -> bool:
     """Return True if the caller asked to bypass on-disk cache + env reads."""
     return _state["isolated"] or os.environ.get("_CWMS_TOOLS_ISOLATED") == "1"
@@ -131,6 +175,8 @@ def no_cache() -> bool:
 
 __all__ = [
     "OutputMode",
+    "attach_ghost_office_repair",
+    "attach_ghost_office_spec_repair",
     "diagnostic",
     "emit",
     "emit_error",

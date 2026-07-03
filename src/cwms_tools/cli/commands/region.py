@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 
-from cwms_tools.cli.render import emit, emit_error
+from cwms_tools.cli.render import attach_ghost_office_repair, emit, emit_error
 from cwms_tools.core import places, shaping
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox, first_missing_bbox_field
@@ -140,7 +140,15 @@ def browse(
             cursor=cursor,
         )
     except CwmsToolsError as err:
-        emit_error(err)
+        repair_args: dict[str, object] = {}
+        if bbox is not None:
+            repair_args.update(south=south, west=west, north=north, east=east)
+        if state is not None:
+            repair_args["state"] = state
+        repair_args["limit"] = limit
+        if cursor is not None:
+            repair_args["cursor"] = cursor
+        emit_error(attach_ghost_office_repair(err, tool="cwms_browse_region", args=repair_args))
     # `region browse` has no `--detail` toggle; it always emits the summary
     # shape, routed through the shared shaper so it stays in lockstep with the
     # `cwms_browse_region` MCP tool (e.g. both strip `raw` from results).
