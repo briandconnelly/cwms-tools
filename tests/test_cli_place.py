@@ -87,7 +87,9 @@ def test_place_search_emits_machine_json(configured) -> None:
 
 def test_place_search_respects_limit_flag(configured) -> None:
     """`--limit N` caps the response at N rows. Beyond the cap, results
-    are dropped (data-bearing rows sort first so the useful ones stay)."""
+    are dropped (data-bearing rows sort first so the useful ones stay).
+    `truncated` stays False — the cap is pageable via `next_cursor`, so
+    `has_more` is the signal to page, not `truncated` (#73)."""
     locations_payload = {
         "locations": [
             {
@@ -115,7 +117,8 @@ def test_place_search_respects_limit_flag(configured) -> None:
         result = runner.invoke(app, ["place", "search", "Site", "--office", "SWT", "--limit", "3"])
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
-    assert payload["truncated"] is True
+    assert payload["truncated"] is False
+    assert payload["has_more"] is True
     assert payload["total_count"] == 10
     assert len(payload["results"]) == 3
 

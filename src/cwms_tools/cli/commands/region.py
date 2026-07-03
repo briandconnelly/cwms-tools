@@ -76,8 +76,8 @@ def browse(
                 "Cap on the number of results (default 50). A no-filter browse of "
                 "a large office can return thousands of rows; the cap keeps the "
                 "response bounded. Pass `0` for no cap. When the cap kicks in the "
-                "response carries `truncated: true`, `total_count`, and a "
-                "`truncation_hint`."
+                "response carries `has_more: true`, `total_count`, and a "
+                "`truncation_hint` (fully pageable — `truncated` stays false)."
             ),
         ),
     ] = places.DEFAULT_BROWSE_LIMIT,

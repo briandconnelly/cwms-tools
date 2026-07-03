@@ -92,7 +92,8 @@ def search(
                 "like 'Temp String' on a big office can match hundreds of "
                 "rows; the cap keeps responses small. Pass `0` to return "
                 "every match (no cap). When the cap kicks in the response "
-                "carries `truncated: true` and `total_count`."
+                "carries `has_more: true`, `next_cursor`, and `total_count` "
+                "(fully pageable — `truncated` stays false)."
             ),
         ),
     ] = places.DEFAULT_SEARCH_LIMIT,

@@ -188,7 +188,8 @@ def _commands() -> list[dict[str, Any]]:
             "notes": (
                 "Default --limit=50 caps result count to keep responses small "
                 "on broad queries; pass --limit=0 for no cap. Response carries "
-                "`truncated`/`total_count` when the cap is reached."
+                "`has_more`/`next_cursor`/`total_count` when the cap is reached "
+                "(fully pageable — `truncated` stays false)."
             ),
         },
         {
@@ -240,7 +241,8 @@ def _commands() -> list[dict[str, Any]]:
             ),
             "notes": (
                 "Default --limit=50 caps result count; pass --limit=0 for no cap. "
-                "Response carries `truncated`/`total_count`/`truncation_hint` when capped."
+                "Response carries `has_more`/`total_count`/`truncation_hint` when "
+                "capped (fully pageable — `truncated` stays false)."
             ),
         },
         # Value tools (M5).

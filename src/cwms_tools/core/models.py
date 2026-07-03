@@ -236,7 +236,12 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     offices_searched: list[str] = Field(default_factory=list)
     offices_skipped_for_budget: list[str] = Field(
         default_factory=list,
-        description="Offices over the per-call fanout budget; pass back in `office` to widen.",
+        description=(
+            "Offices over the per-call fanout budget; pass back in `office` to "
+            "widen. Signals scope incompleteness — orthogonal to `truncated`/"
+            "`has_more`, which only describe row completeness within offices "
+            "already searched."
+        ),
     )
     parameter: str | None = None
     nearby_non_matching_count: int | None = Field(
@@ -259,7 +264,10 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     )
     truncated: bool = Field(
         default=False,
-        description="True when `limit` clipped the results; `total_count` holds the full size.",
+        description=(
+            "Always false: `limit` never makes rows unrecoverable here — page "
+            "through the rest via `has_more`/`next_cursor` instead."
+        ),
     )
     limit: int | None = Field(
         default=None,
@@ -362,7 +370,10 @@ class BrowseRegionResponse(CompactDumpMixin, BaseModel):
     )
     truncated: bool = Field(
         default=False,
-        description="True when `limit` clipped the results; `total_count` holds the full size.",
+        description=(
+            "Always false: `limit` never makes rows unrecoverable here — page "
+            "through the rest via `has_more`/`next_cursor` instead."
+        ),
     )
     limit: int | None = Field(
         default=None,
@@ -370,7 +381,7 @@ class BrowseRegionResponse(CompactDumpMixin, BaseModel):
     )
     truncation_hint: str | None = Field(
         default=None,
-        description="How to narrow or widen the browse when `truncated` is true.",
+        description="How to narrow the browse or page further when `has_more` is true.",
     )
     has_more: bool = Field(
         default=False,
