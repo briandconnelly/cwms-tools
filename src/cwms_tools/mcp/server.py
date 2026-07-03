@@ -23,7 +23,8 @@ from cwms_tools.core import overview
 from cwms_tools.core._compact import CompactDumpMixin
 from cwms_tools.core.concurrency import run_sync
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
-from cwms_tools.core.models import Detail, ErrorRef
+from cwms_tools.core.models import Detail, ErrorRef, SourceMeta
+from cwms_tools.mcp.contract import canonical_fingerprint
 from cwms_tools.mcp.output_schema import iserror_output_schema
 from cwms_tools.mcp.resources import (
     SERVER_NAME,
@@ -84,6 +85,7 @@ class OverviewSectionResponse(BaseModel):
     chunks: list[OverviewChunkRef]
     body: str | None = None
     next_chunk_id: str | None = None
+    source: SourceMeta
 
 
 class OverviewIndexEntry(CompactDumpMixin, BaseModel):
@@ -102,6 +104,7 @@ class OverviewIndexResponse(CompactDumpMixin, BaseModel):
 
     document_sha256: str
     sections: list[OverviewIndexEntry]
+    source: SourceMeta
 
 
 class OfficeRecord(CompactDumpMixin, BaseModel):
@@ -131,6 +134,13 @@ class OfficesResponse(CompactDumpMixin, BaseModel):
     partial: bool = Field(
         description="True when a cold-start upstream failure served a fallback slice."
     )
+
+
+def _overview_source() -> SourceMeta:
+    """Provenance for `cwms_get_overview_section`'s success responses (#70) —
+    this tool predates the M9 envelope rework and was the one success path
+    not carrying `source.fingerprint`, despite this module's own contract."""
+    return SourceMeta(fingerprint=canonical_fingerprint())
 
 
 # JSON-RPC error code for "resource not found" (MCP convention).
@@ -335,7 +345,9 @@ def build_server() -> FastMCP:
                         hint="Pass section_id along with chunk_id, or omit both to get the index.",
                     )
                 )
-            return OverviewIndexResponse.model_validate(overview_index_payload())
+            return OverviewIndexResponse.model_validate(
+                {**overview_index_payload(), "source": _overview_source()}
+            )
 
         if chunk_id is not None:
             chunk = overview_chunk_payload(section_id, chunk_id)
@@ -368,6 +380,7 @@ def build_server() -> FastMCP:
                 ],
                 body=chunk["body"],
                 next_chunk_id=None,
+                source=_overview_source(),
             )
 
         payload = overview_section_payload(section_id, detail=detail.value)
@@ -382,7 +395,7 @@ def build_server() -> FastMCP:
                     repair=RepairHint(tool="cwms_get_overview_section", args={}),
                 )
             )
-        return OverviewSectionResponse.model_validate(payload)
+        return OverviewSectionResponse.model_validate({**payload, "source": _overview_source()})
 
     @mcp.tool(
         annotations={

@@ -32,6 +32,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed `source.endpoints_called`/`source.cached` from successful tool
+  responses — they were never populated (`mcp.tools._source()` had no path
+  to set them) and always reported `[]`/`false`, even on network-hitting or
+  cache-served calls, so agents could be misled into treating fabricated
+  negative values as real signal. A single tool call can span multiple
+  independently cached-or-not sub-calls against different upstream
+  endpoints, so a flat list/bool is either silently incomplete or ambiguous
+  once real — worse than not advertising it. Error-envelope provenance
+  (`error.source.endpoints_called`, which records the one endpoint that
+  actually failed) is unaffected — that one has no such ambiguity and was
+  already populated correctly. Also fixed `cwms_get_overview_section`,
+  the one tool whose success responses carried no `source` at all despite
+  the module's own "every successful tool response carries
+  `source.fingerprint`" contract — all three of its success branches
+  (index, section, chunk) now carry it. Closes #70.
 - `ghost_office` errors no longer discard the agent's original call intent.
   Previously every ghost-office repair pointed at `cwms_browse_region`
   regardless of which tool actually failed — e.g. `cwms_get_value(office=NWO,

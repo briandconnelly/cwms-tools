@@ -189,11 +189,39 @@ def test_every_task_tool_response_carries_source_fingerprint(server) -> None:
             arguments={"section_id": sid, "detail": "summary"},
         )
 
-    # Overview tool is the only one that doesn't include `source` (it
-    # predates the M9 envelope rework). This test pins one of the M4-M6
-    # task tools instead — exercised indirectly via the schemas test above.
     result = asyncio.run(go())
     assert result.structured_content is not None
+
+
+def test_overview_section_tool_carries_source_fingerprint_on_every_branch(server) -> None:
+    """#70: `cwms_get_overview_section` was the one tool whose success
+    responses carried no `source` at all, despite the module's own contract
+    ("every successful tool response carries source.fingerprint") — fixed
+    on all three success branches: index, section, and chunk."""
+    from cwms_tools.core import overview
+
+    sid = overview.section_ids()[0]
+
+    def _branch(structured):
+        return (structured or {}).get("result", structured or {})
+
+    async def go():
+        index_result = await server.call_tool("cwms_get_overview_section", arguments={})
+        section_result = await server.call_tool(
+            "cwms_get_overview_section", arguments={"section_id": sid, "detail": "summary"}
+        )
+        section_payload = _branch(section_result.structured_content)
+        chunk_id = section_payload["chunks"][0]["chunk_id"]
+        chunk_result = await server.call_tool(
+            "cwms_get_overview_section",
+            arguments={"section_id": sid, "chunk_id": chunk_id},
+        )
+        return index_result, section_result, chunk_result
+
+    index_result, section_result, chunk_result = asyncio.run(go())
+    assert _branch(index_result.structured_content)["source"]["fingerprint"]
+    assert _branch(section_result.structured_content)["source"]["fingerprint"]
+    assert _branch(chunk_result.structured_content)["source"]["fingerprint"]
 
 
 def test_overview_section_tool_returns_not_found_payload_for_bad_slug(server) -> None:
