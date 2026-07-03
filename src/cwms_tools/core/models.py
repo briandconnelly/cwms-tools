@@ -530,9 +530,9 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     end: str
     rollup: Rollup = Field(
         description=(
-            "Applied downsample mode: 'raw' (every point in `values`), or "
-            "'hourly'/'daily' (per-bucket aggregates in `buckets`; `values` is empty). "
-            "Always present (required)."
+            "Applied downsample mode: 'raw' (every point in `values`, up to the "
+            "response cap — see `truncated`), or 'hourly'/'daily' (per-bucket "
+            "aggregates in `buckets`; `values` is empty). Always present (required)."
         ),
     )
     summary: HistorySummary | None = Field(
@@ -545,7 +545,8 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     values: list[HistoryPoint] = Field(
         description=(
             "Raw points (timestamp + value). Always present (required) but empty "
-            "under 'hourly'/'daily' rollup, where the aggregates are in `buckets`."
+            "under 'hourly'/'daily' rollup, where the aggregates are in `buckets`. "
+            "Under 'raw', capped at a server-side maximum; see `truncated`."
         ),
     )
     buckets: list[HistoryBucket] | None = Field(
@@ -555,8 +556,9 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     value_count: int = Field(
         description=(
             "Number of raw points in the window. This is always the raw count, "
-            "even under `rollup='hourly'/'daily'` where `values` is empty and the "
-            "aggregates are in `buckets` — so `value_count` may exceed `len(values)`."
+            "even when `values` doesn't hold every point — under `rollup='hourly'/"
+            "'daily'` (aggregates are in `buckets` instead) or when the raw-point "
+            "response cap truncated `values` — so `value_count` may exceed `len(values)`."
         ),
     )
     truncated: bool = False

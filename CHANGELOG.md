@@ -18,6 +18,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `cwms_get_history`/`cwms-tools value history` now cap raw points returned
+  under the default `rollup='raw'` at `MAX_RAW_HISTORY_POINTS` (5,000). The
+  only prior bound was the upstream 300,000-point page cap, so a naive
+  default call over a long window on a high-frequency series (e.g. 90 days
+  of 15-minute data) could return tens of thousands of rows — a context
+  bomb the tool's own docs warned about without preventing it. Points are
+  sorted by timestamp before capping (defensive against an out-of-order
+  upstream response) so the kept prefix and derived `next_begin` can't skip
+  a point. Capped responses set `truncated: true` and a `truncation_hint`
+  that either points at `next_begin` (to continue) and `rollup='hourly'/
+  'daily'` (for a compact summary of the full window in one call), or, when
+  the upstream page cap *also* fired before reaching the requested window
+  end, clarifies that `summary`/`buckets` only cover the fetched prefix —
+  switching `rollup` does not recover full-window coverage in that case.
+  `summary` and `value_count` are otherwise unaffected by the local cap —
+  both still reflect the full fetched window, not just the capped `values`.
+  Also reworded the upstream-page-cap `truncation_hint` to name the actual
+  callable parameter (`begin_iso`) instead of the opaque `next_begin`/
+  `--begin`/`--end` phrasing. Closes #66.
 - `cwms_get_profile` now sets protocol `isError: true` on failure like every
   other tool — it was the only tool missing the `@iserror_aware` decorator, so
   its `{ok: false, error: {...}}` envelope previously came back as a plain

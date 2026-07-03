@@ -20,6 +20,14 @@ from cwms_tools.core.models import Rollup
 #: point; `hourly`/`daily` return per-bucket min/max/mean/count instead.
 ROLLUP_MODES: tuple[str, ...] = tuple(r.value for r in Rollup)
 
+#: Hard cap on raw points returned in `values` under `rollup='raw'` (the
+#: default). The upstream 300 000-point page cap (`core.timeseries`) only
+#: bounds upstream fetch size, not response size — a naive default call over
+#: a long window on a 15-minute series can still return tens of thousands of
+#: rows, a context bomb for the caller (#66). `value_count` still reports the
+#: true (uncapped) count fetched; only the `values` array is capped.
+MAX_RAW_HISTORY_POINTS = 5_000
+
 _threading = threading  # keep import live in case the formatter strips it
 
 # How long the threshold/status lookup is allowed to take before the caller
@@ -219,11 +227,12 @@ def get_history(
     """Windowed history for one (office, location, parameter).
 
     `rollup` controls the value shape (token cost): `raw` (default) returns
-    every point; `hourly`/`daily` server-side downsample to per-bucket
-    min/max/mean/count, so a trend question over a long window costs a handful
-    of rows instead of hundreds. A `summary` block (first/last/min/max/mean/
-    delta/count over the window) is always included so the most common
-    "how has X changed?" question needs no client-side reduction.
+    every point up to `MAX_RAW_HISTORY_POINTS`; `hourly`/`daily` server-side
+    downsample to per-bucket min/max/mean/count, so a trend question over a
+    long window costs a handful of rows instead of hundreds. A `summary`
+    block (first/last/min/max/mean/delta/count over the window) is always
+    included so the most common "how has X changed?" question needs no
+    client-side reduction.
     """
     if rollup not in ROLLUP_MODES:
         raise CwmsToolsError.of(
@@ -254,13 +263,119 @@ def get_history(
         "next_begin": series.get("next_begin"),
     }
     if rollup == "raw":
-        response["values"] = values
+        upstream_truncated = series.get("truncated", False)
+        capped, cap_truncated, cap_next_begin = _cap_raw_points(values)
+        response["values"] = capped
+        if cap_truncated:
+            # The local response cap is always tighter than the upstream
+            # page cap (MAX_RAW_HISTORY_POINTS << 300 000), so it takes
+            # precedence over series["truncated"]/next_begin when it fires:
+            # the caller needs to resume right after the last point actually
+            # returned, not after whatever the upstream fetch covered.
+            response["truncated"] = True
+            response["next_begin"] = cap_next_begin
+            response["truncation_hint"] = _raw_cap_truncation_hint(
+                upstream_truncated=upstream_truncated, next_begin=cap_next_begin
+            )
     else:
         # Rolled-up: omit the raw points (the whole point is fewer rows) and
         # return the per-bucket aggregates instead.
         response["values"] = []
         response["buckets"] = _bucketize(values, rollup)
     return response
+
+
+def _cap_raw_points(
+    values: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool, str | None]:
+    """Cap raw points to `MAX_RAW_HISTORY_POINTS`, oldest-first.
+
+    Points are sorted by timestamp before capping — the upstream fetch is
+    normally already chronological, but sorting defensively guarantees the
+    kept prefix really is the earliest N points, so `next_begin` (derived
+    from the last *kept* point) can't skip an out-of-order point that would
+    otherwise have sorted past the naive slice boundary. Points with a
+    missing/unparseable timestamp sort last (can't be ordered), so they
+    don't displace genuinely-earliest data ahead of the cap.
+
+    Returns `(points, was_capped, next_begin)`. `next_begin` is one
+    millisecond after the last *returned* point's timestamp (mirroring
+    `core.timeseries._next_begin`'s seam-avoidance), so a follow-up call
+    with `begin_iso=next_begin` has no duplicate or skipped point. It is
+    `None` only when every kept point lacks a parseable timestamp.
+    """
+    if len(values) <= MAX_RAW_HISTORY_POINTS:
+        return values, False, None
+    ordered = sorted(values, key=_timestamp_sort_key)
+    capped = ordered[:MAX_RAW_HISTORY_POINTS]
+    return capped, True, _next_begin_from_points(capped)
+
+
+def _timestamp_sort_key(point: dict[str, Any]) -> tuple[int, str]:
+    """Sort key for `_cap_raw_points`: parseable timestamps sort first
+    (chronologically); missing or unparseable timestamps sort last."""
+    timestamp = point.get("timestamp")
+    if isinstance(timestamp, str):
+        try:
+            datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return (1, "")
+        return (0, timestamp)
+    return (1, "")
+
+
+def _next_begin_from_points(points: list[dict[str, Any]]) -> str | None:
+    for point in reversed(points):
+        timestamp = point.get("timestamp")
+        if not isinstance(timestamp, str):
+            continue
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        return (parsed + timedelta(milliseconds=1)).isoformat().replace("+00:00", "Z")
+    return None
+
+
+def _raw_cap_truncation_hint(*, upstream_truncated: bool, next_begin: str | None) -> str:
+    """Build the `truncation_hint` for a raw-mode response the local cap trimmed.
+
+    Three cases: the upstream fetch was also clipped (rollup can't recover
+    full-window coverage — see `get_history`'s docstring); a continuation
+    timestamp is available (the common case); or, only when every kept point
+    lacked a parseable timestamp, no continuation timestamp exists at all.
+    """
+    if upstream_truncated:
+        # The upstream fetch itself was clipped at its page cap before
+        # reaching the requested window end, so `summary` (and any
+        # `rollup='hourly'/'daily'` retry) can only ever cover that fetched
+        # prefix, not the full requested window — don't claim otherwise.
+        base = (
+            f"response capped at {MAX_RAW_HISTORY_POINTS} raw points, and the "
+            "upstream fetch itself hit its page cap before reaching the "
+            "requested window end — `summary` reflects only the fetched "
+            "prefix, not the full requested window."
+        )
+        continuation = (
+            "Retry with begin_iso=<next_begin> and repeat until `truncated` "
+            "is false to cover the rest."
+            if next_begin is not None
+            else "No continuation timestamp could be derived; narrow the window and re-request."
+        )
+        return f"{base} {continuation}"
+    if next_begin is not None:
+        return (
+            f"response capped at {MAX_RAW_HISTORY_POINTS} raw points; retry "
+            "with begin_iso=<next_begin> to continue, or set "
+            "rollup='hourly'/'daily' for a compact per-bucket summary of the "
+            "full requested window in one call."
+        )
+    return (
+        f"response capped at {MAX_RAW_HISTORY_POINTS} raw points but no "
+        "continuation timestamp could be derived; narrow the window and "
+        "re-request, or set rollup='hourly'/'daily' for a compact per-bucket "
+        "summary of the full requested window in one call."
+    )
 
 
 def _summarize(values: list[dict[str, Any]]) -> dict[str, Any] | None:

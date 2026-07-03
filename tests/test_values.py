@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import cwms
 import pytest
@@ -386,6 +386,224 @@ def test_get_history_rejects_unknown_rollup(configured) -> None:
 
 
 # --------------------------------------------------------------------------
+# #66: raw-point response cap
+# --------------------------------------------------------------------------
+
+
+def test_get_history_raw_caps_response_points(configured) -> None:
+    """`rollup='raw'` (the default) caps `values` at MAX_RAW_HISTORY_POINTS
+    even when the upstream fetch returns more, so a long window over a
+    high-frequency series can't return unbounded rows. `summary`/
+    `value_count` still reflect the FULL fetched window, not just the
+    capped `values` (#66)."""
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 500
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    pts = [(start + timedelta(minutes=i), float(i)) for i in range(total)]
+    payload = _history(
+        points=pts,
+        begin=start,
+        end=start + timedelta(minutes=total),
+    )
+    assert payload["value_count"] == total
+    assert len(payload["values"]) == cap
+    assert payload["truncated"] is True
+    assert payload["truncation_hint"] is not None
+    assert "begin_iso" in payload["truncation_hint"]
+    assert payload["summary"]["count"] == total  # not affected by the response cap
+
+    last_returned = payload["values"][-1]["timestamp"]
+    assert payload["next_begin"] is not None
+    last_dt = datetime.fromisoformat(last_returned.replace("Z", "+00:00"))
+    next_dt = datetime.fromisoformat(payload["next_begin"].replace("Z", "+00:00"))
+    assert next_dt == last_dt + timedelta(milliseconds=1)  # continuation seam, not window end
+
+
+def test_get_history_raw_under_cap_is_not_truncated(configured) -> None:
+    """A window under the cap is unaffected: no truncation, full `values`."""
+    pts = [(datetime(2026, 5, 17, 18, i, tzinfo=UTC), float(i)) for i in range(10)]
+    payload = _history(
+        points=pts,
+        begin=datetime(2026, 5, 17, 18, tzinfo=UTC),
+        end=datetime(2026, 5, 17, 19, tzinfo=UTC),
+    )
+    assert len(payload["values"]) == 10
+    assert payload["truncated"] is False
+    assert payload["next_begin"] is None
+    assert payload["truncation_hint"] is None
+
+
+def test_get_history_rollup_bucket_mode_not_subject_to_raw_cap(configured) -> None:
+    """`rollup='hourly'/'daily'` isn't subject to the raw-point response cap —
+    it already returns compact per-bucket aggregates instead of raw points."""
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 200
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    pts = [(start + timedelta(minutes=i), float(i)) for i in range(total)]
+    payload = _history(
+        "daily",
+        points=pts,
+        begin=start,
+        end=start + timedelta(minutes=total),
+    )
+    assert payload["value_count"] == total
+    assert payload["values"] == []
+    assert payload["truncated"] is False
+    assert len(payload["buckets"]) > 0
+
+
+def test_get_history_local_cap_does_not_overclaim_when_upstream_also_truncated(
+    configured, monkeypatch
+) -> None:
+    """When the upstream fetch itself was already clipped at its page cap
+    (before reaching the requested window end), the local response cap also
+    fires (5,000 << 300,000) and takes precedence for `next_begin` — but the
+    hint must NOT claim that switching to `rollup='hourly'/'daily'` would
+    cover the full requested window, since `summary`/`buckets` are computed
+    from that same upstream-clipped fetch, not the full window (#66)."""
+    monkeypatch.setattr(
+        values.timeseries,
+        "require_canonical_ts_id",
+        lambda *a, **k: "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+    )
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 500
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    fetched_values = [
+        {
+            "timestamp": (start + timedelta(minutes=i)).isoformat().replace("+00:00", "Z"),
+            "value": float(i),
+            "quality": 0,
+        }
+        for i in range(total)
+    ]
+    fake_series = {
+        "unit": "ft",
+        "begin": start.isoformat(),
+        "end": (start + timedelta(days=365)).isoformat(),
+        "values": fetched_values,
+        "truncated": True,  # upstream page cap fired before reaching requested end
+        "next_begin": "2099-01-01T00:00:00Z",  # upstream's own (less precise) continuation
+        "truncation_hint": "hit upstream page cap of 300000; retry with begin_iso=<next_begin>.",
+    }
+    monkeypatch.setattr(values.timeseries, "fetch_window", lambda *a, **k: fake_series)
+
+    payload = values.get_history(
+        "SWT", "FOSS", "Elev", begin=start, end=start + timedelta(days=365)
+    )
+
+    assert payload["truncated"] is True
+    assert len(payload["values"]) == cap
+    assert payload["value_count"] == total
+    # The local cap's next_begin (right after the last RETURNED point) takes
+    # precedence over the upstream fetch's own (coarser) next_begin.
+    assert payload["next_begin"] != "2099-01-01T00:00:00Z"
+    hint = payload["truncation_hint"]
+    assert hint is not None
+    assert "not the full requested window" in hint
+    assert "rollup" not in hint  # must not promise a rollup retry recovers full coverage
+
+
+def test_get_history_raw_cap_sorts_out_of_order_points_before_capping(
+    configured, monkeypatch
+) -> None:
+    """`_cap_raw_points` sorts by timestamp before slicing, so an
+    out-of-order upstream response still keeps the genuinely-earliest N
+    points and derives `next_begin` from the true last-kept point — a naive
+    positional slice could otherwise skip a point permanently (#66)."""
+    monkeypatch.setattr(
+        values.timeseries,
+        "require_canonical_ts_id",
+        lambda *a, **k: "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+    )
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 500
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    chronological = [
+        {
+            "timestamp": (start + timedelta(minutes=i)).isoformat().replace("+00:00", "Z"),
+            "value": float(i),
+        }
+        for i in range(total)
+    ]
+    # Shuffle: move the point that belongs right at the cap boundary to the
+    # very front of the list, out of order.
+    boundary = chronological.pop(cap - 1)
+    shuffled = [boundary, *chronological]
+    fake_series = {
+        "unit": "ft",
+        "begin": start.isoformat(),
+        "end": (start + timedelta(minutes=total)).isoformat(),
+        "values": shuffled,
+        "truncated": False,
+        "next_begin": None,
+        "truncation_hint": None,
+    }
+    monkeypatch.setattr(values.timeseries, "fetch_window", lambda *a, **k: fake_series)
+
+    payload = values.get_history(
+        "SWT", "FOSS", "Elev", begin=start, end=start + timedelta(minutes=total)
+    )
+
+    returned_timestamps = {v["timestamp"] for v in payload["values"]}
+    assert boundary["timestamp"] in returned_timestamps  # not skipped despite being out of order
+    assert len(payload["values"]) == cap
+    # Points are returned chronologically after the defensive sort.
+    assert [v["timestamp"] for v in payload["values"]] == sorted(returned_timestamps)
+
+
+def test_get_history_raw_cap_hint_has_no_next_begin_when_timestamps_unparseable(
+    configured, monkeypatch
+) -> None:
+    """If every capped point lacks a parseable timestamp, `next_begin` is
+    `None` — the hint must not reference it and should fall back to
+    'narrow the window' instead (#66)."""
+    monkeypatch.setattr(
+        values.timeseries,
+        "require_canonical_ts_id",
+        lambda *a, **k: "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+    )
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 500
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    fetched_values = [{"timestamp": None, "value": float(i)} for i in range(total)]
+    fake_series = {
+        "unit": "ft",
+        "begin": start.isoformat(),
+        "end": (start + timedelta(days=1)).isoformat(),
+        "values": fetched_values,
+        "truncated": False,
+        "next_begin": None,
+        "truncation_hint": None,
+    }
+    monkeypatch.setattr(values.timeseries, "fetch_window", lambda *a, **k: fake_series)
+
+    payload = values.get_history("SWT", "FOSS", "Elev", begin=start, end=start + timedelta(days=1))
+
+    assert payload["truncated"] is True
+    assert payload["next_begin"] is None
+    assert payload["truncation_hint"] is not None
+    assert "begin_iso" not in payload["truncation_hint"]
+    assert "narrow the window" in payload["truncation_hint"]
+
+
+def test_timestamp_sort_key_pushes_malformed_string_timestamps_last() -> None:
+    """A timestamp that IS a string but doesn't parse as RFC3339 (e.g. a
+    garbage/malformed value) must sort last like a missing timestamp, not by
+    its raw string value — otherwise it could sort ahead of genuinely-earlier
+    valid points and get kept over them by `_cap_raw_points` (#66)."""
+    valid_early = {"timestamp": "2026-05-01T00:00:00Z", "value": 1.0}
+    valid_late = {"timestamp": "2026-05-02T00:00:00Z", "value": 2.0}
+    malformed = {"timestamp": "not-a-timestamp", "value": 3.0}
+    missing = {"timestamp": None, "value": 4.0}
+
+    ordered = sorted([malformed, valid_late, missing, valid_early], key=values._timestamp_sort_key)
+    assert ordered[0] is valid_early
+    assert ordered[1] is valid_late
+    assert {id(ordered[2]), id(ordered[3])} == {id(malformed), id(missing)}
+
+
+# --------------------------------------------------------------------------
 # #26/#27: get_profile (whole-string depth read)
 # --------------------------------------------------------------------------
 
@@ -480,7 +698,6 @@ def test_get_profile_rejects_non_positive_window(configured, hours) -> None:
     """A non-positive look-back window (negative inverts begin/end; zero is an
     empty window) is rejected up front as a deterministic usage_error, before
     any catalog call — matching the 'must be positive' contract."""
-    from datetime import timedelta
 
     with pytest.raises(CwmsToolsError) as exc:
         values.get_profile("NWDP", "GWLW_S1", "Temp-Water", window=timedelta(hours=hours))
