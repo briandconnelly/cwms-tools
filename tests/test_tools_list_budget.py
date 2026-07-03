@@ -59,11 +59,12 @@ async def test_tools_list_total_size_under_budget() -> None:
 
 
 async def test_tools_list_component_budget() -> None:
-    """Break the total down by input schema / output schema / description.
+    """Enforce looser per-component ceilings, and print the breakdown.
 
-    Not a pass/fail gate on its own (the total test above is) — printed so a
-    future regression's culprit surface is visible in CI output immediately,
-    instead of requiring a follow-up bisect.
+    These ceilings are individually looser than the combined total the
+    test above enforces, but still real, failing gates — the printed
+    breakdown is what makes a future regression's culprit surface visible
+    in CI output immediately, instead of requiring a follow-up bisect.
     """
     tools = await _tools()
     input_total = output_total = desc_total = 0
