@@ -57,6 +57,13 @@ class Rollup(StrEnum):
     DAILY = "daily"
 
 
+# No `endpoints_called`/`cached` here (#70, deliberate — see #67 on why this
+# docstring stays terse: it's serialized into every tool's outputSchema). A
+# single tool call can span multiple sub-calls, each independently cached or
+# not against a different upstream endpoint, so a flat list/bool would be
+# either silently incomplete or ambiguous — worse than not advertising it.
+# `core.errors.SourceInfo` (the error-envelope's `source`) is unaffected: it
+# records the one endpoint that actually failed, with no such ambiguity.
 class SourceMeta(CompactDumpMixin, BaseModel):
     """Provenance attached to every successful tool response."""
 
@@ -64,8 +71,6 @@ class SourceMeta(CompactDumpMixin, BaseModel):
 
     fingerprint: str
     workaround: str | None = None
-    endpoints_called: list[str] = Field(default_factory=list)
-    cached: bool = False
     upstream_status: int | None = Field(
         default=None,
         description="Set on a recovered partial-success sub-call; omitted otherwise.",
