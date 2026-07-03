@@ -497,23 +497,6 @@ ERROR_PROVOCATIONS = [
     ),
 ]
 
-# Every tool registered with @iserror_aware (#64's F1 fix makes cwms_get_profile
-# the ninth). Kept as an explicit list — rather than introspecting decorators at
-# runtime — so a newly-registered tool that forgets the decorator, or a tool
-# whose return annotation stops needing `x-fastmcp-wrap-result`, fails a named
-# assertion instead of silently falling out of coverage.
-ISERROR_AWARE_TOOLS = [
-    "cwms_search_places",
-    "cwms_describe_place",
-    "cwms_list_parameters",
-    "cwms_browse_region",
-    "cwms_get_value",
-    "cwms_get_history",
-    "cwms_get_profile",
-    "cwms_publishers_for_parameter",
-    "cwms_get_overview_section",
-]
-
 
 @pytest.mark.parametrize(("tool", "args"), ERROR_PROVOCATIONS)
 def test_tool_failures_set_protocol_iserror_with_envelope(configured, tool, args) -> None:
@@ -558,21 +541,37 @@ def test_publishers_for_parameter_handler_sets_protocol_iserror_with_envelope(
     assert payload["error"]["code"] == "upstream_error"
 
 
-def test_iserror_aware_tools_declare_wrap_result_schema() -> None:
-    """Regression guard for the invariant `_error_tool_result` relies on: every
-    `iserror_aware` tool returns a `SomeResponse | ErrorRef` union, so FastMCP
-    always flags its outputSchema `x-fastmcp-wrap-result: true`. If a future tool
-    stops needing the wrap, `_error_tool_result`'s hardcoded `{"result": ...}`
-    would silently double-wrap it — this test fails loudly instead."""
+def test_every_inventoried_tool_is_iserror_aware_and_wrap_flagged() -> None:
+    """Regression guard closing #64's root cause directly, not just its symptom.
+
+    `TOOL_INVENTORY` (`mcp/resources.py`) is the single authoritative tool list —
+    every currently-registered tool happens to need error handling, so it is
+    also the complete `iserror_aware` set. This test asserts three things a
+    future tool could otherwise violate silently:
+
+    1. The registered tool set matches `TOOL_INVENTORY` exactly (catches a tool
+       added to one but not the other).
+    2. Every tool's underlying callable actually carries the `iserror_aware`
+       decorator's runtime marker — the direct check for the #64 bug (a tool
+       whose *schema* looks fine but whose *handler* forgot the decorator, so
+       its failures never set protocol `isError:true`).
+    3. Every tool's outputSchema is `x-fastmcp-wrap-result` flagged — the
+       invariant `_error_tool_result` relies on to safely hardcode wrapping
+       structured error content as `{"result": ...}` instead of double- or
+       under-wrapping it.
+    """
+    from cwms_tools.mcp.resources import TOOL_INVENTORY
 
     async def go():
         mcp = build_server()
         return {t.name: t for t in await mcp.list_tools()}
 
     registered = asyncio.run(go())
-    assert set(ISERROR_AWARE_TOOLS) <= set(registered)
-    for name in ISERROR_AWARE_TOOLS:
-        schema = registered[name].to_mcp_tool().outputSchema
+    assert set(registered) == set(TOOL_INVENTORY)
+    for name in TOOL_INVENTORY:
+        tool = registered[name]
+        assert getattr(tool.fn, "__iserror_aware__", False) is True, name
+        schema = tool.to_mcp_tool().outputSchema
         assert schema is not None
         assert schema.get("x-fastmcp-wrap-result") is True, name
 

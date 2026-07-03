@@ -146,6 +146,10 @@ def iserror_aware(fn):
             return _error_tool_result(result)
         return result
 
+    # Runtime marker so tests can assert every registered tool actually has this
+    # decorator applied (#64: cwms_get_profile was silently missing it — a gap
+    # `functools.wraps`-preserved signatures can't otherwise detect from outside).
+    setattr(wrapper, "__iserror_aware__", True)  # noqa: B010
     return wrapper
 
 

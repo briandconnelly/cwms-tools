@@ -36,10 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cwms_get_overview_section` already returns for the identical failure)
   instead of the resource-only `section_not_found`/`chunk_not_found` strings.
   Agents branching on those specific strings need to switch to `not_found` +
-  the `field` value (`section_id` or `chunk_id`). Closes #64. The deeper
-  envelope field-shape migration (`temporary`, `details`, `repair.next_step`)
-  this repo's own `agent-friendly-mcp` skill now mandates is deliberately out
-  of scope here — tracked separately in #76.
+  the `field` value (`section_id` or `chunk_id`). Each `cwms://` resource's
+  possible error codes are now also listed alongside its entry in
+  `RESOURCE_INVENTORY`/the `cwms://capabilities` `resources` list (mirroring
+  `tool_error_codes`) and are part of the capability fingerprint, so this
+  change (and any future resource error-contract change) moves the
+  fingerprint. Closes #64. The deeper envelope field-shape migration
+  (`temporary`, `details`, `repair.next_step`) this repo's own
+  `agent-friendly-mcp` skill now mandates is deliberately out of scope here —
+  tracked separately in #76.
 - `cwms-tools publisher for-parameter` no longer leaks the internal
   `_observed_publishers_by_office` diagnostic field in its default output. The
   CLI now matches the `cwms_publishers_for_parameter` MCP tool: summary mode
