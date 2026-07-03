@@ -504,6 +504,89 @@ def test_get_history_local_cap_does_not_overclaim_when_upstream_also_truncated(
     assert "rollup" not in hint  # must not promise a rollup retry recovers full coverage
 
 
+def test_get_history_raw_cap_sorts_out_of_order_points_before_capping(
+    configured, monkeypatch
+) -> None:
+    """`_cap_raw_points` sorts by timestamp before slicing, so an
+    out-of-order upstream response still keeps the genuinely-earliest N
+    points and derives `next_begin` from the true last-kept point — a naive
+    positional slice could otherwise skip a point permanently (#66)."""
+    monkeypatch.setattr(
+        values.timeseries,
+        "require_canonical_ts_id",
+        lambda *a, **k: "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+    )
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 500
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    chronological = [
+        {
+            "timestamp": (start + timedelta(minutes=i)).isoformat().replace("+00:00", "Z"),
+            "value": float(i),
+        }
+        for i in range(total)
+    ]
+    # Shuffle: move the point that belongs right at the cap boundary to the
+    # very front of the list, out of order.
+    boundary = chronological.pop(cap - 1)
+    shuffled = [boundary, *chronological]
+    fake_series = {
+        "unit": "ft",
+        "begin": start.isoformat(),
+        "end": (start + timedelta(minutes=total)).isoformat(),
+        "values": shuffled,
+        "truncated": False,
+        "next_begin": None,
+        "truncation_hint": None,
+    }
+    monkeypatch.setattr(values.timeseries, "fetch_window", lambda *a, **k: fake_series)
+
+    payload = values.get_history(
+        "SWT", "FOSS", "Elev", begin=start, end=start + timedelta(minutes=total)
+    )
+
+    returned_timestamps = {v["timestamp"] for v in payload["values"]}
+    assert boundary["timestamp"] in returned_timestamps  # not skipped despite being out of order
+    assert len(payload["values"]) == cap
+    # Points are returned chronologically after the defensive sort.
+    assert [v["timestamp"] for v in payload["values"]] == sorted(returned_timestamps)
+
+
+def test_get_history_raw_cap_hint_has_no_next_begin_when_timestamps_unparseable(
+    configured, monkeypatch
+) -> None:
+    """If every capped point lacks a parseable timestamp, `next_begin` is
+    `None` — the hint must not reference it and should fall back to
+    'narrow the window' instead (#66)."""
+    monkeypatch.setattr(
+        values.timeseries,
+        "require_canonical_ts_id",
+        lambda *a, **k: "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+    )
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 500
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    fetched_values = [{"timestamp": None, "value": float(i)} for i in range(total)]
+    fake_series = {
+        "unit": "ft",
+        "begin": start.isoformat(),
+        "end": (start + timedelta(days=1)).isoformat(),
+        "values": fetched_values,
+        "truncated": False,
+        "next_begin": None,
+        "truncation_hint": None,
+    }
+    monkeypatch.setattr(values.timeseries, "fetch_window", lambda *a, **k: fake_series)
+
+    payload = values.get_history("SWT", "FOSS", "Elev", begin=start, end=start + timedelta(days=1))
+
+    assert payload["truncated"] is True
+    assert payload["next_begin"] is None
+    assert payload["truncation_hint"] is not None
+    assert "begin_iso" not in payload["truncation_hint"]
+    assert "narrow the window" in payload["truncation_hint"]
+
+
 # --------------------------------------------------------------------------
 # #26/#27: get_profile (whole-string depth read)
 # --------------------------------------------------------------------------
