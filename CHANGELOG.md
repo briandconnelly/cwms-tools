@@ -18,6 +18,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `cwms_get_profile` now sets protocol `isError: true` on failure like every
+  other tool — it was the only tool missing the `@iserror_aware` decorator, so
+  its `{ok: false, error: {...}}` envelope previously came back as a plain
+  (non-error) tool result. Closes #64.
+- Every tool's error response now matches its own published `outputSchema`:
+  `_error_tool_result` was constructing `structuredContent` directly and
+  bypassing FastMCP's automatic `{"result": ...}` wrap that every tool's Union
+  return type (`SomeResponse | ErrorRef`) requires, so error payloads didn't
+  conform to the schema success payloads do. Closes #64.
+- The `cwms://overview/{section_id}` and `.../chunk/{chunk_id}` resource
+  read failures now carry the *same* `ErrorEnvelope` shape tool failures use
+  in `error.data`, with only the two renames the JSON-RPC carrier requires
+  (`code`→`machine_code`, `message`→`human_message`). This is a breaking
+  change to that JSON-RPC `error.data` shape: the bespoke `recoverable` flag is
+  gone, and `machine_code` is now the generic `not_found` (matching the code
+  `cwms_get_overview_section` already returns for the identical failure)
+  instead of the resource-only `section_not_found`/`chunk_not_found` strings.
+  Agents branching on those specific strings need to switch to `not_found` +
+  the `field` value (`section_id` or `chunk_id`). Closes #64. The deeper
+  envelope field-shape migration (`temporary`, `details`, `repair.next_step`)
+  this repo's own `agent-friendly-mcp` skill now mandates is deliberately out
+  of scope here — tracked separately in #76.
 - `cwms-tools publisher for-parameter` no longer leaks the internal
   `_observed_publishers_by_office` diagnostic field in its default output. The
   CLI now matches the `cwms_publishers_for_parameter` MCP tool: summary mode

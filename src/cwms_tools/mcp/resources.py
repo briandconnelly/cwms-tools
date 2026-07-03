@@ -193,9 +193,11 @@ def capabilities_payload() -> dict[str, Any]:
                 "source."
             ),
             "resources": (
-                "resources/read failures surface as JSON-RPC errors; the repair "
-                "contract (machine_code, human_message, repair, recoverable) rides in "
-                "error.data."
+                "resources/read failures surface as JSON-RPC errors carrying the "
+                "SAME ErrorEnvelope tool failures use in error.data, with only two "
+                "renames (code->machine_code, message->human_message, since native "
+                "code/message already occupy those keys) — no separate resource-side "
+                "vocabulary, and no `recoverable` flag."
             ),
             "code_lists": (
                 "error_codes lists codes emittable today; error_codes_reserved are "

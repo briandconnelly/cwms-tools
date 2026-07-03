@@ -488,20 +488,93 @@ ERROR_PROVOCATIONS = [
     ("cwms_describe_place", {"office": "NWO", "name": "BECR"}),
     ("cwms_list_parameters", {"office": "NWO", "name": "BECR"}),
     ("cwms_get_value", {"office": "NWO", "name": "BECR", "parameter": "Elev"}),
+    # window_hours<=0 is a local usage-error guard in core.values.get_profile,
+    # so this needs no HTTP mock either (#64: cwms_get_profile was the one tool
+    # missing @iserror_aware).
+    (
+        "cwms_get_profile",
+        {"office": "SWT", "name": "FOSS", "parameter": "Temp-Water", "window_hours": 0},
+    ),
+]
+
+# Every tool registered with @iserror_aware (#64's F1 fix makes cwms_get_profile
+# the ninth). Kept as an explicit list — rather than introspecting decorators at
+# runtime — so a newly-registered tool that forgets the decorator, or a tool
+# whose return annotation stops needing `x-fastmcp-wrap-result`, fails a named
+# assertion instead of silently falling out of coverage.
+ISERROR_AWARE_TOOLS = [
+    "cwms_search_places",
+    "cwms_describe_place",
+    "cwms_list_parameters",
+    "cwms_browse_region",
+    "cwms_get_value",
+    "cwms_get_history",
+    "cwms_get_profile",
+    "cwms_publishers_for_parameter",
+    "cwms_get_overview_section",
 ]
 
 
 @pytest.mark.parametrize(("tool", "args"), ERROR_PROVOCATIONS)
 def test_tool_failures_set_protocol_iserror_with_envelope(configured, tool, args) -> None:
-    """#19: tool failures set protocol-level isError:true while still carrying the
-    structured `{ok: false, error: {...}}` envelope in structuredContent. The
-    envelope stays the stable, branchable contract; native isError is additive."""
+    """#19/#64: tool failures set protocol-level isError:true while still carrying
+    the structured `{ok: false, error: {...}}` envelope, wrapped exactly the way
+    the tool's own outputSchema declares (`{"result": {...}}` + the matching
+    `_meta.fastmcp.wrap_result` flag FastMCP itself sets on the success path).
+    The envelope stays the stable, branchable contract; native isError is
+    additive."""
     server = build_server()
     result = _call(server, tool, args)
     assert result.is_error is True
-    payload = _branch(result.structured_content)
+    assert set(result.structured_content or {}) == {"result"}
+    assert result.meta == {"fastmcp": {"wrap_result": True}}
+    payload = result.structured_content["result"]
     assert payload["ok"] is False
     assert payload["error"]["code"]
+
+
+def test_publishers_for_parameter_handler_sets_protocol_iserror_with_envelope(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#64: `cwms_publishers_for_parameter` has no naturally-reachable error path
+    today (`core.publishers_index.publishers_for_parameter` degrades ghost/upstream
+    failures per-office into `error_skipped` rather than raising) — force one via
+    monkeypatch so this tool gets the same isError/wrap-shape coverage as the
+    other eight."""
+    from cwms_tools.core.errors import CwmsToolsError, ErrorCode
+    from cwms_tools.mcp import tools as tools_module
+
+    def _boom(*args, **kwargs):
+        raise CwmsToolsError.of(ErrorCode.UPSTREAM_ERROR, "forced failure for #64 coverage")
+
+    monkeypatch.setattr(tools_module.publishers_index, "publishers_for_parameter", _boom)
+    server = build_server()
+    result = _call(server, "cwms_publishers_for_parameter", {"parameter": "Elev"})
+    assert result.is_error is True
+    assert set(result.structured_content or {}) == {"result"}
+    assert result.meta == {"fastmcp": {"wrap_result": True}}
+    payload = result.structured_content["result"]
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "upstream_error"
+
+
+def test_iserror_aware_tools_declare_wrap_result_schema() -> None:
+    """Regression guard for the invariant `_error_tool_result` relies on: every
+    `iserror_aware` tool returns a `SomeResponse | ErrorRef` union, so FastMCP
+    always flags its outputSchema `x-fastmcp-wrap-result: true`. If a future tool
+    stops needing the wrap, `_error_tool_result`'s hardcoded `{"result": ...}`
+    would silently double-wrap it — this test fails loudly instead."""
+
+    async def go():
+        mcp = build_server()
+        return {t.name: t for t in await mcp.list_tools()}
+
+    registered = asyncio.run(go())
+    assert set(ISERROR_AWARE_TOOLS) <= set(registered)
+    for name in ISERROR_AWARE_TOOLS:
+        schema = registered[name].to_mcp_tool().outputSchema
+        assert schema is not None
+        assert schema.get("x-fastmcp-wrap-result") is True, name
 
 
 def test_tool_success_does_not_set_protocol_iserror(configured) -> None:
