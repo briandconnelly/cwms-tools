@@ -70,6 +70,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `user_agent`, the `fastmcp` installed-version/drift diagnostics, and
   `active_workarounds` (all already covered, where relevant, by the existing
   version/runtime-baseline fingerprint inputs). Closes #71.
+- `cwms_search_places` pagination cursors are unkeyed base64url(JSON), and the
+  `req` field is an unkeyed hash of the query/parameter — anyone can
+  construct a valid-looking cursor without ever having called the tool.
+  Previously the continuation path trusted a forged cursor's embedded office
+  list (up to 200 offices) directly, bypassing the per-call uncached-office
+  fan-out budget the fresh-request path enforces — a hand-crafted cursor
+  could drive up to 200 real upstream calls in one continuation instead of
+  the small per-call cap. The cursor's office list is now re-run through the
+  same budget check (`_run_fanout`) on every continuation, not just the
+  first call: a legitimate multi-page search pays no extra cost (the locked
+  offices are normally still cache-hot moments later), while a forged cursor
+  naming many never-cached offices — or, rarely, a legitimate cursor whose
+  locked offices fell out of cache between pages — is rejected outright as
+  `invalid_cursor` (no upstream calls spent) rather than silently searching
+  a smaller office set than the cursor promised. Closes #72.
 - `ghost_office` errors no longer discard the agent's original call intent.
   Previously every ghost-office repair pointed at `cwms_browse_region`
   regardless of which tool actually failed — e.g. `cwms_get_value(office=NWO,
