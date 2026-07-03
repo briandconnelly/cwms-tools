@@ -9,6 +9,10 @@ Two model tiers:
    DTOs (`Location`, `Project`, `LocationLevel`, ...). `extra="allow"` so
    unknown upstream fields pass through unchanged; new upstream fields are
    non-breaking. Surface only at `detail=full` under a nested `raw` field.
+
+Every class/field docstring here is serialized verbatim into every tool's
+outputSchema an MCP client preloads (#67) — keep them wire-appropriate (short,
+agent-facing) and put maintainer-only rationale in a regular comment instead.
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ if TYPE_CHECKING:
 
 
 class Detail(StrEnum):
-    """Response density: 'summary' is the compact default; 'full' includes verbose upstream fields and per-point quality codes where applicable."""  # noqa: E501
+    """'summary' (compact, default) or 'full' (verbose fields + quality codes)."""
 
     SUMMARY = "summary"
     FULL = "full"
@@ -58,24 +62,13 @@ class SourceMeta(CompactDumpMixin, BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    fingerprint: str = Field(description="Capability fingerprint at call time.")
-    workaround: str | None = Field(
-        default=None,
-        description="Identifier of any active cwms-python bug workaround invoked.",
-    )
+    fingerprint: str
+    workaround: str | None = None
     endpoints_called: list[str] = Field(default_factory=list)
-    cached: bool = Field(
-        default=False,
-        description="True if the response was served wholly from cache.",
-    )
+    cached: bool = False
     upstream_status: int | None = Field(
         default=None,
-        description=(
-            "Upstream HTTP status code from a recovered partial-success path. "
-            "Set on responses where a sub-call returned a non-2xx that we "
-            "handled into a partial response (e.g. project lookup 404 for a "
-            "non-project location). Omitted on normal success paths."
-        ),
+        description="Set on a recovered partial-success sub-call; omitted otherwise.",
     )
 
 
@@ -176,11 +169,10 @@ class TsIdParts(BaseModel):
 # --------------------------------------------------------------------------
 
 
+# Parses depth-tagged sensor ids (#27), e.g. `GWLW_S1-D3,0ft` (comma is a
+# decimal point: 3.0 ft, not 0 ft) and `BECR-D042,5m` (42.5 m).
 class SensorDepth(CompactDumpMixin, BaseModel):
-    """Structured depth parsed from a depth-tagged sensor id (issue #27).
-
-    Removes the guesswork in ids like `GWLW_S1-D3,0ft` (the comma is a decimal
-    point, so this is 3.0 ft, not 0 ft) and `BECR-D042,5m` (42.5 m)."""
+    """Structured depth parsed from a depth-tagged sensor id."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -201,18 +193,12 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
     longitude: float | None = None
     depth: SensorDepth | None = Field(
         default=None,
-        description=(
-            "Parsed sensor depth when `name` is a depth-tagged WQ sensor "
-            "(e.g. GWLW_S1-D3,0ft → {value: 3.0, unit: 'ft'}). Omitted otherwise."
-        ),
+        description="Parsed sensor depth (e.g. GWLW_S1-D3,0ft → 3.0 ft); omitted otherwise.",
     )
     parameter_count: int = 0
     parameters: list[str] = Field(
         default_factory=list,
-        description=(
-            "Distinct CWMS parameter codes published at this location "
-            "(e.g. Temp-Water, Stage, Elev). Empty for barren/ghost rows."
-        ),
+        description="Parameter codes published here (e.g. Temp-Water, Elev). Empty for ghosts.",
     )
     publishers: list[str] = Field(default_factory=list)
     last_data_timestamp: str | None = None
@@ -220,30 +206,23 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
     data_at: list[str] = Field(
         default_factory=list,
         description=(
-            "Repair hint. Names of co-located siblings that publish data when "
-            "this row is barren (parameter_count == 0). Try `cwms_list_parameters` "
-            "on each. Empty when this row already has data or when no data-bearing "
-            "sibling exists."
+            "Co-located siblings with data, when this row is a ghost; try "
+            "`cwms_list_parameters` on each."
         ),
     )
 
 
+# Distinct from `cwms_tools.core.errors.RepairHint` (the `{tool, args}` shape
+# inside error envelopes, #24) so the two never collide in imports or typing.
 class SearchRepairHint(CompactDumpMixin, BaseModel):
-    """A copy-paste-retryable next call an agent can make to recover from a
-    dead-end search response (e.g. a bare-name search with no office in scope, #24).
-
-    Named distinctly from `cwms_tools.core.errors.RepairHint` (the `{tool, args}`
-    shape carried inside error envelopes) so the two never collide in imports or
-    typing — this one is a richer, response-level recovery hint."""
+    """A retryable next call to recover from a dead-end search (e.g. no office in scope)."""
 
     model_config = ConfigDict(extra="allow")
 
-    reason: str = Field(description="Machine code for why the call could not be served.")
-    message: str = Field(description="Human-readable guidance for the retry.")
-    tool: str = Field(description="The tool to call next.")
-    args: dict[str, Any] = Field(
-        description="Concrete, ready-to-use arguments for the retry call.",
-    )
+    reason: str
+    message: str
+    tool: str
+    args: dict[str, Any]
 
 
 class SearchPlacesResponse(CompactDumpMixin, BaseModel):
@@ -257,27 +236,20 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     offices_searched: list[str] = Field(default_factory=list)
     offices_skipped_for_budget: list[str] = Field(
         default_factory=list,
-        description=(
-            "Offices in the requested list that exceeded the per-call fanout "
-            "budget. Pass these back in `office` to widen the search."
-        ),
+        description="Offices over the per-call fanout budget; pass back in `office` to widen.",
     )
     parameter: str | None = None
     nearby_non_matching_count: int | None = Field(
         default=None,
-        description=(
-            "When `parameter` is set, the number of data-bearing rows dropped "
-            "because they don't publish that parameter. Omitted otherwise."
-        ),
+        description="Rows dropped for not publishing `parameter`, when set. Omitted otherwise.",
     )
     partial: bool = False
     partial_reasons: list[str] = Field(default_factory=list)
     repair_hint: SearchRepairHint | None = Field(
         default=None,
         description=(
-            "Present only when the search could not be served as asked (e.g. no "
-            "office in scope). Names a concrete retry call — pass `args.office` "
-            "back to widen the search. Omitted on a normal result."
+            "Set when the call couldn't be served (e.g. no office in scope); "
+            "names a concrete retry — pass `args.office` back to widen."
         ),
     )
     results: list[PlaceSummary]
@@ -299,10 +271,7 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     )
     next_cursor: str | None = Field(
         default=None,
-        description=(
-            "Opaque cursor for the next page. Pass back as `cursor`. "
-            "Omitted when has_more is false."
-        ),
+        description="Opaque next-page cursor; pass back as `cursor`. Omitted when has_more=false.",
     )
     source: SourceMeta
 
@@ -360,9 +329,8 @@ class ListParametersResponse(CompactDumpMixin, BaseModel):
     data_at: list[str] | None = Field(
         default=None,
         description=(
-            "Repair hint. Names of co-located siblings that publish data when "
-            "this location is barren (ts_count == 0). Omitted when the location is "
-            "data-bearing (no repair needed)."
+            "Repair hint: co-located siblings that publish data, when this "
+            "location is a ghost (ts_count == 0). Omitted otherwise."
         ),
     )
     source: SourceMeta
@@ -384,10 +352,8 @@ class BrowseRegionResponse(CompactDumpMixin, BaseModel):
     ghost_count: int = Field(
         default=0,
         description=(
-            "Ghost rows (parameter_count == 0) among the FULL match set, i.e. out of "
-            "`total_count` — not just the returned rows. Data-bearing rows sort first, "
-            "so a capped browse may return zero ghosts while this stays > 0. Do not "
-            "compute `result_count - ghost_count`."
+            "Ghost rows (parameter_count == 0) in the full match set (`total_count`), "
+            "not just returned rows; do not compute as `result_count - ghost_count`."
         ),
     )
     total_count: int = Field(
@@ -412,10 +378,7 @@ class BrowseRegionResponse(CompactDumpMixin, BaseModel):
     )
     next_cursor: str | None = Field(
         default=None,
-        description=(
-            "Opaque cursor for the next page. Pass back as `cursor`. "
-            "Omitted when has_more is false."
-        ),
+        description="Opaque next-page cursor; pass back as `cursor`. Omitted when has_more=false.",
     )
     results: list[PlaceSummary]
     source: SourceMeta
@@ -480,10 +443,7 @@ class HistorySummary(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="allow")
 
     count: int = Field(
-        description=(
-            "Number of observations with a numeric value AND a timestamp considered "
-            "for the summary (timestamp-less numeric points are excluded)."
-        ),
+        description="Observations with both a numeric value and a timestamp (others excluded).",
     )
     first: float = Field(description="Earliest observation by timestamp.")
     last: float = Field(description="Latest observation by timestamp.")
@@ -503,10 +463,7 @@ class HistoryBucket(CompactDumpMixin, BaseModel):
     max: float
     mean: float
     count: int = Field(
-        description=(
-            "Observations aggregated into this bucket — each with a numeric value and "
-            "a parseable RFC3339 timestamp (others are skipped)."
-        ),
+        description="Observations in this bucket (numeric value + parseable timestamp).",
     )
 
 
@@ -530,23 +487,20 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     end: str
     rollup: Rollup = Field(
         description=(
-            "Applied downsample mode: 'raw' (every point in `values`, up to the "
-            "response cap — see `truncated`), or 'hourly'/'daily' (per-bucket "
-            "aggregates in `buckets`; `values` is empty). Always present (required)."
+            "Applied downsample: 'raw' (points in `values`, capped — see "
+            "`truncated`) or 'hourly'/'daily' (aggregates in `buckets`)."
         ),
     )
     summary: HistorySummary | None = Field(
         description=(
-            "Window-level first/last/min/max/mean/delta/count over non-null "
-            "observations. The key is always present (required); its value is null "
-            "only when the window holds no numeric observations."
+            "First/last/min/max/mean/delta/count over the window; null only when "
+            "no numeric observations exist."
         ),
     )
     values: list[HistoryPoint] = Field(
         description=(
-            "Raw points (timestamp + value). Always present (required) but empty "
-            "under 'hourly'/'daily' rollup, where the aggregates are in `buckets`. "
-            "Under 'raw', capped at a server-side maximum; see `truncated`."
+            "Raw points; empty under 'hourly'/'daily' rollup (see `buckets`). "
+            "Capped under 'raw' — see `truncated`."
         ),
     )
     buckets: list[HistoryBucket] | None = Field(
@@ -555,10 +509,8 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     )
     value_count: int = Field(
         description=(
-            "Number of raw points in the window. This is always the raw count, "
-            "even when `values` doesn't hold every point — under `rollup='hourly'/"
-            "'daily'` (aggregates are in `buckets` instead) or when the raw-point "
-            "response cap truncated `values` — so `value_count` may exceed `len(values)`."
+            "Raw point count for the window; may exceed `len(values)` when "
+            "rollup buckets or truncation apply."
         ),
     )
     truncated: bool = False
@@ -566,9 +518,8 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     next_begin: str | None = Field(
         default=None,
         description=(
-            "When `truncated` is true, the RFC3339 timestamp to use as `begin` on the "
-            "next request to continue the window with no duplicate/skipped point. "
-            "Omitted otherwise."
+            "When `truncated`, the RFC3339 `begin` for the next request to "
+            "continue with no gap/dup. Omitted otherwise."
         ),
     )
     source: SourceMeta
@@ -606,9 +557,8 @@ class ProfileResponse(CompactDumpMixin, BaseModel):
     parameter: str
     unit: str = Field(
         description=(
-            "Actual measurement unit of the sensor readings (e.g. degF, ft) — taken "
-            "from the first successfully-read sensor, NOT the requested EN/SI system. "
-            "Falls back to the requested unit system only if every sensor read fails."
+            "Actual unit of the sensor readings (e.g. degF), from the first "
+            "successful sensor — not the requested EN/SI system unless all fail."
         ),
     )
     sensor_count: int
@@ -638,17 +588,13 @@ class PublishersCoverage(CompactDumpMixin, BaseModel):
     offices_indexed: list[str]
     offices_skipped_for_budget: list[str] = Field(
         default_factory=list,
-        description=(
-            "Offices not indexed because the per-call fanout budget was exhausted. "
-            "Re-run with these in `offices` to continue the index deterministically."
-        ),
+        description="Offices skipped by the fanout budget; re-run with these in `offices`.",
     )
     offices_error_skipped: list[str] = Field(
         default_factory=list,
         description=(
-            "Offices skipped because their catalog fetch errored (e.g. upstream_error, "
-            "rate_limited). Distinct from budget skips: retrying may help, but these "
-            "did not simply hit the budget."
+            "Offices skipped by a catalog fetch error (distinct from budget "
+            "skips); retrying may help."
         ),
     )
     complete: bool

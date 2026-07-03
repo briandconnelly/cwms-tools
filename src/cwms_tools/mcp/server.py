@@ -16,7 +16,7 @@ from typing import Annotated, Any, NoReturn
 from fastmcp import FastMCP
 from mcp import McpError
 from mcp.types import ErrorData
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from cwms_tools import __version__ as PKG_VERSION
 from cwms_tools.core import overview
@@ -24,6 +24,7 @@ from cwms_tools.core._compact import CompactDumpMixin
 from cwms_tools.core.concurrency import run_sync
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
 from cwms_tools.core.models import Detail, ErrorRef
+from cwms_tools.mcp.output_schema import iserror_output_schema
 from cwms_tools.mcp.resources import (
     SERVER_NAME,
     SERVER_TITLE,
@@ -127,7 +128,9 @@ class OfficesResponse(CompactDumpMixin, BaseModel):
     count: int
     offices: list[OfficeRecord]
     guidance: OfficesGuidance
-    partial: bool
+    partial: bool = Field(
+        description="True when a cold-start upstream failure served a fallback slice."
+    )
 
 
 # JSON-RPC error code for "resource not found" (MCP convention).
@@ -292,40 +295,34 @@ def build_server() -> FastMCP:
             "openWorldHint": False,
             "idempotentHint": True,
             "title": "Get overview section",
-        }
+        },
+        output_schema=iserror_output_schema(OverviewSectionResponse, OverviewIndexResponse),
     )
     @iserror_aware
     async def cwms_get_overview_section(
         section_id: Annotated[
             str | None,
             "Stable slug from the `cwms://overview` index (e.g. 'orientation', "
-            "'core-entities', 'gotchas'). Omit to get the index itself — the "
-            "same content as the `cwms://overview` resource.",
+            "'gotchas'). Omit to get the index itself.",
         ] = None,
         detail: Annotated[
             Detail,
-            "`summary` returns metadata and the chunk list; `full` returns the "
-            "section body (or its first chunk when chunked). Ignored when "
-            "`section_id` is omitted.",
+            "`summary`: metadata + chunk list. `full`: section body (or first "
+            "chunk). Ignored when `section_id` is omitted.",
         ] = Detail.SUMMARY,
         chunk_id: Annotated[
             str | None,
-            "When set, returns just that chunk's body. Chunk ids come from the "
-            "`chunks` list on a prior section read. Requires `section_id`.",
+            "Returns just that chunk's body; ids come from a prior section "
+            "read's `chunks` list. Requires `section_id`.",
         ] = None,
     ) -> OverviewSectionResponse | OverviewIndexResponse | ErrorRef:
         """Read the bundled CWMS orientation document, or one section of it.
 
-        Call with no arguments to get the index of section ids (the same
-        content as the `cwms://overview` resource) — the primary escape
-        hatch for clients that cannot browse MCP resources. Pass
-        `section_id` to read one section; without `chunk_id` the response
-        matches the `cwms://overview/{section_id}` resource, with
-        `chunk_id` it returns that single chunk's body (with
-        `title`/`summary` empty since they apply to the section, not the
-        chunk). On a missing section/chunk it returns the standard
-        `{ok: false, error: {...}}` envelope (code `not_found`), the same
-        shape every task tool uses.
+        The primary escape hatch for clients that can't browse MCP resources:
+        no args = the `cwms://overview` index; `section_id` = that section
+        (matches `cwms://overview/{section_id}`); + `chunk_id` = one chunk's
+        body. Missing section/chunk returns `{ok: false, error: {...}}`
+        (code `not_found`).
         """
         if section_id is None:
             if chunk_id is not None:
@@ -393,19 +390,16 @@ def build_server() -> FastMCP:
             "openWorldHint": True,
             "idempotentHint": True,
             "title": "List USACE offices",
-        }
+        },
+        output_schema=iserror_output_schema(OfficesResponse),
     )
     @iserror_aware
     async def cwms_list_offices() -> OfficesResponse | ErrorRef:
         """List USACE office codes for the `office` argument, with NW regional-rollup guidance.
 
-        Fallback for clients that cannot browse MCP resources — returns the
-        same content as the `cwms://offices` resource (every office's name,
-        long name, type, reporting parent, plus the NW regional-rollup
-        guidance: query NWDM/NWDP, not the NWO/NWK/NWS/NWP/NWW district
-        stubs). Network-backed (cached 7 days); degrades to a documented
-        fallback slice with `partial: true` when upstream is unreachable on
-        a cold start.
+        Fallback for clients that can't browse MCP resources — same content
+        as `cwms://offices`, including NW rollup guidance (query NWDM/NWDP,
+        not the NWO/NWK/NWS/NWP/NWW stubs).
         """
         payload = await run_sync(offices_payload)
         return OfficesResponse.model_validate(payload)
