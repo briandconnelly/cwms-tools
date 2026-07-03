@@ -69,6 +69,68 @@ def test_list_offices_falls_back_when_upstream_fails(configured) -> None:
     assert all(set(r) == {"name"} for r in records)
 
 
+def test_list_offices_degrades_gracefully_when_cache_read_fails(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#78: a broken cache (unwritable dir, corrupted store) must not turn a
+    working upstream fetch into an unstructured crash — the cwms_list_offices
+    tool, the cwms://offices resource, and the CLI offices command all rely
+    on this path never raising."""
+    from cwms_tools.core.cache import get_cache
+
+    def boom(*_args, **_kwargs):
+        raise OSError("cache read exploded")
+
+    monkeypatch.setattr(get_cache(), "get", boom)
+
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+        records, used_fallback = offices.list_offices()
+
+    assert used_fallback is False
+    assert [r["name"] for r in records] == ["HQ", "NWDM", "NWO"]
+
+
+def test_list_offices_degrades_gracefully_when_cache_write_fails(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#78: a cache-write failure (e.g. disk full) must not fail an otherwise
+    successful fetch."""
+    from cwms_tools.core.cache import get_cache
+
+    def boom(*_args, **_kwargs):
+        raise OSError("cache write exploded")
+
+    monkeypatch.setattr(get_cache(), "set", boom)
+
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+        records, used_fallback = offices.list_offices()
+
+    assert used_fallback is False
+    assert [r["name"] for r in records] == ["HQ", "NWDM", "NWO"]
+
+
+def test_list_offices_degrades_gracefully_when_get_cache_itself_fails(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#78: `get_cache()` can raise too (e.g. cache-dir creation failure on a
+    cold start) — must fall through to the upstream fetch, not crash."""
+    import cwms_tools.core.offices as offices_module
+
+    def boom():
+        raise OSError("cache dir creation exploded")
+
+    monkeypatch.setattr(offices_module, "get_cache", boom)
+
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+        records, used_fallback = offices.list_offices()
+
+    assert used_fallback is False
+    assert [r["name"] for r in records] == ["HQ", "NWDM", "NWO"]
+
+
 def test_list_offices_falls_back_on_empty_payload(configured) -> None:
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         mocked.add(responses.GET, f"{API_ROOT}offices", json=[], status=200)

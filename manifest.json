@@ -76,7 +76,11 @@
   "tools": [
     {
       "name": "cwms_get_overview_section",
-      "description": "Read one section of the bundled CWMS orientation document."
+      "description": "Read the bundled CWMS orientation document, or one section of it."
+    },
+    {
+      "name": "cwms_list_offices",
+      "description": "List USACE office codes for the `office` argument, with NW regional-rollup guidance."
     },
     {
       "name": "cwms_search_places",

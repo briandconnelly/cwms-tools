@@ -17,11 +17,12 @@ pattern from `core/publishers_index.py` so we never expand to the full
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Any
 
 from cwms import api as cwms_api
 
-from cwms_tools.core.cache import build_cache_key, get_cache
+from cwms_tools.core.cache import Cache, build_cache_key, get_cache
 from cwms_tools.core.session import current_config
 
 # Documented degraded fallback. Used only when the upstream offices fetch
@@ -78,15 +79,27 @@ def list_offices(*, use_cache: bool = True) -> tuple[list[dict[str, Any]], bool]
     namespace (7-day TTL, see `core/cache.py`). On upstream failure or an
     empty/unrecognized payload, returns the documented degraded fallback as
     name-only records with `used_fallback=True`, so a caller can surface
-    `partial: true` to the agent.
+    `partial: true` to the agent. Cache access (init, read, write) is
+    best-effort: a broken cache (unwritable directory, corrupted store) must
+    not turn a working upstream fetch into an unstructured crash for callers
+    that advertise this as a never-raises path (#78) — `cwms_list_offices`,
+    the `cwms://offices` resource, and the CLI `offices` command all rely on
+    it degrading gracefully instead.
     """
-    cache = get_cache()
     cfg = current_config()
-    key = build_cache_key("offices", "records", api_root=cfg.api_root)
+    cache: Cache | None = None
+    key: str | None = None
     if use_cache:
-        hit = cache.get(key)
-        if isinstance(hit, list) and hit:
-            return [dict(r) for r in hit], False
+        try:
+            cache = get_cache()
+            key = build_cache_key("offices", "records", api_root=cfg.api_root)
+            hit = cache.get(key)
+        except Exception:
+            cache = None
+            key = None
+        else:
+            if isinstance(hit, list) and hit:
+                return [dict(r) for r in hit], False
     try:
         raw = cwms_api.get("offices")
     except Exception:
@@ -95,7 +108,9 @@ def list_offices(*, use_cache: bool = True) -> tuple[list[dict[str, Any]], bool]
     if not records:
         return _fallback_records(), True
     records.sort(key=lambda r: r["name"])
-    cache.set(key, records, ttl=cache.ttl_for("offices"))
+    if cache is not None and key is not None:
+        with suppress(Exception):
+            cache.set(key, records, ttl=cache.ttl_for("offices"))
     return [dict(r) for r in records], False
 
 
