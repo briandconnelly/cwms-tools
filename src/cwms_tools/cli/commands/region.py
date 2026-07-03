@@ -9,7 +9,7 @@ import typer
 from cwms_tools.cli.render import emit, emit_error
 from cwms_tools.core import places, shaping
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
-from cwms_tools.core.geo import BBox
+from cwms_tools.core.geo import BBox, first_missing_bbox_field
 from cwms_tools.core.models import Detail
 
 app = typer.Typer(
@@ -121,7 +121,7 @@ def browse(
                 ErrorCode.USAGE_ERROR,
                 "When specifying a bounding box, --south, --west, --north, "
                 "--east must all be provided.",
-                field="bbox",
+                field=first_missing_bbox_field(south, west, north, east),
                 offending_value={"south": south, "west": west, "north": north, "east": east},
                 hint="Pass all four bbox edges or omit bbox entirely.",
             )

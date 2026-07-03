@@ -27,8 +27,8 @@ from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
 from cwms_tools.core import concurrency, places, publishers_index, shaping, values
-from cwms_tools.core.errors import CwmsToolsError, ErrorCode, ErrorEnvelope
-from cwms_tools.core.geo import BBox
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode, ErrorEnvelope, surface_field_name
+from cwms_tools.core.geo import BBox, first_missing_bbox_field
 from cwms_tools.core.models import (
     BrowseRegionResponse,
     DescribePlaceResponse,
@@ -86,7 +86,11 @@ def stamp_envelope(envelope: ErrorEnvelope) -> ErrorEnvelope:
     in-band tool envelope via `error_ref()` below, and the JSON-RPC `error.data`
     envelope for resource failures in `mcp/server.py`. Keeping this in one place
     means both carriers carry identical `source.fingerprint`/`protocol_request_id`
-    provenance rather than each surface growing its own stamping logic.
+    provenance rather than each surface growing its own stamping logic. Also the
+    single place both carriers get `field` translated to the surface parameter
+    name (#68) — core producers emit whatever internal name suits their own
+    domain (e.g. `office_id`); `surface_field_name()` maps it to what an agent
+    would actually retry with (e.g. `office`).
 
     When called from inside a live FastMCP request context, `protocol_request_id`
     is populated with the JSON-RPC message id so agents can correlate the error
@@ -95,6 +99,7 @@ def stamp_envelope(envelope: ErrorEnvelope) -> ErrorEnvelope:
     invocation via `server.call_tool`).
     """
     envelope.source.fingerprint = canonical_fingerprint()
+    envelope.field = surface_field_name(envelope.field)
     try:
         from fastmcp.server.dependencies import get_context  # noqa: PLC0415
 
@@ -328,7 +333,7 @@ def register_place_tools(mcp: FastMCP) -> None:
                     ErrorCode.USAGE_ERROR,
                     "When specifying a bounding box, all four of south, west, "
                     "north, east must be provided.",
-                    field="bbox",
+                    field=first_missing_bbox_field(south, west, north, east),
                     offending_value={
                         "south": south,
                         "west": west,

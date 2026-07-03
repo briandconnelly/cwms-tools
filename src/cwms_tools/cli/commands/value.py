@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from cwms_tools.cli.exit_codes import from_error_code
-from cwms_tools.cli.render import emit, emit_error
+from cwms_tools.cli.render import emit, emit_error, rewrite_error_field
 from cwms_tools.core import shaping, values
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail, Rollup, Unit
@@ -122,6 +122,11 @@ def get(
             results.append({"id": spec, "ok": True, "data": payload})
             ok_count += 1
         except CwmsToolsError as err:
+            # #68: per-item errors here bypass `emit_error()` (this is the
+            # success-shaped batch envelope, not a whole-command failure). No
+            # `--office` flag on this command — `id_specs` (the declared CLI
+            # argument, per `cli/commands/schema.py`) is the retryable arg.
+            rewrite_error_field(err, when="office_id", to="id_specs")
             results.append({"id": spec, "ok": False, "error": err.envelope.model_dump(mode="json")})
             failed_count += 1
             last_exit_code = from_error_code(err.envelope.code)
@@ -219,7 +224,9 @@ def history(
         )
         emit(shaping.shape_history_detail(payload, detail))
     except CwmsToolsError as err:
-        emit_error(err)
+        # No `--office` flag on this command — `id_spec` (the declared CLI
+        # argument, per `cli/commands/schema.py`) is the retryable arg.
+        emit_error(rewrite_error_field(err, when="office_id", to="id_spec"))
 
 
 @app.command("profile")
@@ -271,7 +278,11 @@ def profile(
         )
         emit(shaping.shape_profile_detail(payload, detail))
     except CwmsToolsError as err:
-        emit_error(err)
+        # No `--office` flag on this command — `id_spec` (this command's
+        # actual positional argument, matching `history`'s) is the retryable
+        # arg. NOTE: `value profile` itself is missing from the machine
+        # schema in `cli/commands/schema.py` (#84, found during #68 review).
+        emit_error(rewrite_error_field(err, when="office_id", to="id_spec"))
 
 
 def _parse_iso(value: str, *, field: str) -> datetime:

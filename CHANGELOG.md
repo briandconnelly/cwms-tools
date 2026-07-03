@@ -32,6 +32,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Error envelope `field` now names a real, retryable tool parameter or CLI
+  flag instead of a producer-internal or synthetic name. `ghost_office`
+  errors reported `field: "office_id"` (the CDA-facing name `core.catalog`/
+  `core.locations` use internally), but every MCP tool's actual parameter
+  is `office`; an agent applying mechanical field-level repair would retry
+  with a rejected argument name. Bounding-box validation errors reported
+  `field: "bbox"`, which isn't a real argument on any surface — the four
+  corners are separate params/flags. `field` is now translated at every
+  output boundary (`mcp.tools.stamp_envelope`, `cli.render.emit_error`, and
+  the `value get` bulk per-item path) via a small internal→surface name
+  map (`core.errors.surface_field_name`); bbox errors now name the first
+  missing corner in canonical south/west/north/east order. `place
+  describe`/`parameters` and `value get`/`history`/`profile` have no
+  `--office` flag (they take a combined `OFFICE/NAME[/PARAMETER]`
+  positional instead), so those five commands redirect the same
+  `office_id` producer field to their own actual positional argument
+  (`spec` for `place describe`/`parameters`; `id_specs`/`id_spec` for
+  `value get`/`history`/`profile`) instead of the (nonexistent, for them)
+  `office`. Scoped to the `ghost_office`/bbox mismatches this issue
+  reported: `value.py`'s pre-existing `_parse_id` malformed-spec-shape
+  error (a separate site, shared across all three `value` commands) still
+  emits its own established `field: "id"` convention unchanged. Core-level
+  tests still assert the internal producer name unaffected. Closes #68.
 - `cwms_search_places`/`cwms_browse_region` (and their CLI equivalents) no
   longer set `truncated: true` when a `limit` cap is hit. `truncated` is
   meant for genuinely unrecoverable caps (as `cwms_get_history` already
