@@ -220,9 +220,12 @@ def test_overview_section_tool_returns_not_found_payload_for_bad_slug(server) ->
 
 
 def test_overview_section_resource_miss_raises_structured_jsonrpc_error(server) -> None:
-    """M3: a missing overview section read via the resource URI raises a JSON-RPC
-    error carrying the repair contract in error.data — not an error-shaped 200
-    body that doesn't match the section schema."""
+    """M3/#64: a missing overview section read via the resource URI raises a
+    JSON-RPC error carrying error.data in the SAME ErrorEnvelope shape the tool
+    carrier uses (only the two permitted renames) — not a bespoke resource-only
+    vocabulary, and no `recoverable` flag. `machine_code` is `not_found`, matching
+    the code `cwms_get_overview_section` returns for the identical failure — one
+    error, one code, regardless of carrier."""
     from mcp import McpError
 
     async def go():
@@ -232,9 +235,38 @@ def test_overview_section_resource_miss_raises_structured_jsonrpc_error(server) 
         asyncio.run(go())
     data = ex.value.error.data
     assert isinstance(data, dict)
-    assert data["machine_code"] == "section_not_found"
+    assert data["machine_code"] == "not_found"
+    assert data["human_message"]
+    assert data["field"] == "section_id"
+    assert data["offending_value"] == "does-not-exist"
     assert data["repair"]["tool"] == "cwms_get_overview_section"
-    assert data["recoverable"] is False
+    assert data["retryable"] is False
+    assert data["request_id"]
+    assert "recoverable" not in data
+    assert "code" not in data
+    assert "message" not in data
+
+
+def test_overview_chunk_resource_miss_raises_structured_jsonrpc_error(server) -> None:
+    """#64: the chunk resource's miss path uses the same envelope/carrier as the
+    section miss path above — same code, same field names, no `recoverable`."""
+    from mcp import McpError
+
+    sid = overview.section_ids()[0]
+
+    async def go():
+        return await server.read_resource(f"cwms://overview/{sid}/chunk/does-not-exist")
+
+    with pytest.raises(McpError) as ex:
+        asyncio.run(go())
+    data = ex.value.error.data
+    assert isinstance(data, dict)
+    assert data["machine_code"] == "not_found"
+    assert data["field"] == "chunk_id"
+    assert data["offending_value"] == "does-not-exist"
+    assert data["repair"]["tool"] == "cwms_get_overview_section"
+    assert data["repair"]["args"]["section_id"] == sid
+    assert "recoverable" not in data
 
 
 def test_place_tools_register_with_read_only_hint(server) -> None:

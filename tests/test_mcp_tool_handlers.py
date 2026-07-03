@@ -488,20 +488,92 @@ ERROR_PROVOCATIONS = [
     ("cwms_describe_place", {"office": "NWO", "name": "BECR"}),
     ("cwms_list_parameters", {"office": "NWO", "name": "BECR"}),
     ("cwms_get_value", {"office": "NWO", "name": "BECR", "parameter": "Elev"}),
+    # window_hours<=0 is a local usage-error guard in core.values.get_profile,
+    # so this needs no HTTP mock either (#64: cwms_get_profile was the one tool
+    # missing @iserror_aware).
+    (
+        "cwms_get_profile",
+        {"office": "SWT", "name": "FOSS", "parameter": "Temp-Water", "window_hours": 0},
+    ),
 ]
 
 
 @pytest.mark.parametrize(("tool", "args"), ERROR_PROVOCATIONS)
 def test_tool_failures_set_protocol_iserror_with_envelope(configured, tool, args) -> None:
-    """#19: tool failures set protocol-level isError:true while still carrying the
-    structured `{ok: false, error: {...}}` envelope in structuredContent. The
-    envelope stays the stable, branchable contract; native isError is additive."""
+    """#19/#64: tool failures set protocol-level isError:true while still carrying
+    the structured `{ok: false, error: {...}}` envelope, wrapped exactly the way
+    the tool's own outputSchema declares (`{"result": {...}}` + the matching
+    `_meta.fastmcp.wrap_result` flag FastMCP itself sets on the success path).
+    The envelope stays the stable, branchable contract; native isError is
+    additive."""
     server = build_server()
     result = _call(server, tool, args)
     assert result.is_error is True
-    payload = _branch(result.structured_content)
+    assert set(result.structured_content or {}) == {"result"}
+    assert result.meta == {"fastmcp": {"wrap_result": True}}
+    payload = result.structured_content["result"]
     assert payload["ok"] is False
     assert payload["error"]["code"]
+
+
+def test_publishers_for_parameter_handler_sets_protocol_iserror_with_envelope(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#64: `cwms_publishers_for_parameter` has no naturally-reachable error path
+    today (`core.publishers_index.publishers_for_parameter` degrades ghost/upstream
+    failures per-office into `error_skipped` rather than raising) — force one via
+    monkeypatch so this tool gets the same isError/wrap-shape coverage as the
+    other eight."""
+    from cwms_tools.core.errors import CwmsToolsError, ErrorCode
+    from cwms_tools.mcp import tools as tools_module
+
+    def _boom(*args, **kwargs):
+        raise CwmsToolsError.of(ErrorCode.UPSTREAM_ERROR, "forced failure for #64 coverage")
+
+    monkeypatch.setattr(tools_module.publishers_index, "publishers_for_parameter", _boom)
+    server = build_server()
+    result = _call(server, "cwms_publishers_for_parameter", {"parameter": "Elev"})
+    assert result.is_error is True
+    assert set(result.structured_content or {}) == {"result"}
+    assert result.meta == {"fastmcp": {"wrap_result": True}}
+    payload = result.structured_content["result"]
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "upstream_error"
+
+
+def test_every_inventoried_tool_is_iserror_aware_and_wrap_flagged() -> None:
+    """Regression guard closing #64's root cause directly, not just its symptom.
+
+    `TOOL_INVENTORY` (`mcp/resources.py`) is the single authoritative tool list —
+    every currently-registered tool happens to need error handling, so it is
+    also the complete `iserror_aware` set. This test asserts three things a
+    future tool could otherwise violate silently:
+
+    1. The registered tool set matches `TOOL_INVENTORY` exactly (catches a tool
+       added to one but not the other).
+    2. Every tool's underlying callable actually carries the `iserror_aware`
+       decorator's runtime marker — the direct check for the #64 bug (a tool
+       whose *schema* looks fine but whose *handler* forgot the decorator, so
+       its failures never set protocol `isError:true`).
+    3. Every tool's outputSchema is `x-fastmcp-wrap-result` flagged — the
+       invariant `_error_tool_result` relies on to safely hardcode wrapping
+       structured error content as `{"result": ...}` instead of double- or
+       under-wrapping it.
+    """
+    from cwms_tools.mcp.resources import TOOL_INVENTORY
+
+    async def go():
+        mcp = build_server()
+        return {t.name: t for t in await mcp.list_tools()}
+
+    registered = asyncio.run(go())
+    assert set(registered) == set(TOOL_INVENTORY)
+    for name in TOOL_INVENTORY:
+        tool = registered[name]
+        assert getattr(tool.fn, "__iserror_aware__", False) is True, name
+        schema = tool.to_mcp_tool().outputSchema
+        assert schema is not None
+        assert schema.get("x-fastmcp-wrap-result") is True, name
 
 
 def test_tool_success_does_not_set_protocol_iserror(configured) -> None:

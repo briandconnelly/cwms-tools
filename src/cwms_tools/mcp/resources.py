@@ -107,12 +107,26 @@ TOOL_LATENCY: dict[str, str] = {
 #: (office-code discovery) is now registered. The companion `cwms://parameters`
 #: is still deferred — tracked separately (different data semantics, cache
 #: behavior, and payload size).
-RESOURCE_INVENTORY: list[dict[str, str]] = [
-    {"uri": "cwms://capabilities", "mime_type": "application/json"},
-    {"uri": "cwms://offices", "mime_type": "application/json"},
-    {"uri": "cwms://overview", "mime_type": "application/json"},
-    {"uri": "cwms://overview/{section_id}{?detail}", "mime_type": "application/json"},
-    {"uri": "cwms://overview/{section_id}/chunk/{chunk_id}", "mime_type": "application/json"},
+#:
+#: `error_codes` mirrors `TOOL_ERROR_CODES` for the resource-side JSON-RPC
+#: carrier (`error.data.machine_code`) — part of the capability fingerprint
+#: (folded in directly since `canonical_fingerprint()` hashes this list), so a
+#: change to a resource's error contract (e.g. #64's `section_not_found`/
+#: `chunk_not_found` -> `not_found` unification) is a fingerprint-bumping change.
+RESOURCE_INVENTORY: list[dict[str, Any]] = [
+    {"uri": "cwms://capabilities", "mime_type": "application/json", "error_codes": []},
+    {"uri": "cwms://offices", "mime_type": "application/json", "error_codes": []},
+    {"uri": "cwms://overview", "mime_type": "application/json", "error_codes": []},
+    {
+        "uri": "cwms://overview/{section_id}{?detail}",
+        "mime_type": "application/json",
+        "error_codes": ["not_found"],
+    },
+    {
+        "uri": "cwms://overview/{section_id}/chunk/{chunk_id}",
+        "mime_type": "application/json",
+        "error_codes": ["not_found"],
+    },
 ]
 
 #: NW Division district stubs publish no operational data in CDA; data lands at
@@ -193,9 +207,11 @@ def capabilities_payload() -> dict[str, Any]:
                 "source."
             ),
             "resources": (
-                "resources/read failures surface as JSON-RPC errors; the repair "
-                "contract (machine_code, human_message, repair, recoverable) rides in "
-                "error.data."
+                "resources/read failures surface as JSON-RPC errors carrying the "
+                "SAME ErrorEnvelope tool failures use in error.data, with only two "
+                "renames (code->machine_code, message->human_message, since native "
+                "code/message already occupy those keys) — no separate resource-side "
+                "vocabulary, and no `recoverable` flag."
             ),
             "code_lists": (
                 "error_codes lists codes emittable today; error_codes_reserved are "

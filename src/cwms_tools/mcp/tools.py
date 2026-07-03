@@ -27,7 +27,7 @@ from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
 from cwms_tools.core import concurrency, places, publishers_index, shaping, values
-from cwms_tools.core.errors import CwmsToolsError, ErrorCode
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode, ErrorEnvelope
 from cwms_tools.core.geo import BBox
 from cwms_tools.core.models import (
     BrowseRegionResponse,
@@ -66,43 +66,65 @@ def _source(
     )
 
 
-def error_ref(err: CwmsToolsError) -> ErrorRef:
-    """Build the in-band error envelope with the capability fingerprint stamped.
+def stamp_envelope(envelope: ErrorEnvelope) -> ErrorEnvelope:
+    """Stamp the capability fingerprint and JSON-RPC request id onto an error envelope.
 
-    Mirrors `_source()` on the success path: every response — success or
-    failure — carries `source.fingerprint` so agents can correlate against a
-    cached contract after a failure too.
+    The single provenance-stamping path for *both* error carriers (#64): the
+    in-band tool envelope via `error_ref()` below, and the JSON-RPC `error.data`
+    envelope for resource failures in `mcp/server.py`. Keeping this in one place
+    means both carriers carry identical `source.fingerprint`/`protocol_request_id`
+    provenance rather than each surface growing its own stamping logic.
 
     When called from inside a live FastMCP request context, `protocol_request_id`
     is populated with the JSON-RPC message id so agents can correlate the error
     envelope against their client-side logs. The field is absent (None, stripped by
-    CompactDumpMixin) when `error_ref` is called outside a request context (e.g.
-    direct unit-test invocation via `server.call_tool`).
+    CompactDumpMixin) when called outside a request context (e.g. direct unit-test
+    invocation via `server.call_tool`).
     """
-    ref = ErrorRef.from_error(err)
-    ref.error.source.fingerprint = canonical_fingerprint()
+    envelope.source.fingerprint = canonical_fingerprint()
     try:
         from fastmcp.server.dependencies import get_context  # noqa: PLC0415
 
-        ref.error.protocol_request_id = str(get_context().request_id)
+        envelope.protocol_request_id = str(get_context().request_id)
     except (ImportError, RuntimeError, AttributeError):
         pass  # not in a request context (e.g. direct unit-test invocation)
+    return envelope
+
+
+def error_ref(err: CwmsToolsError) -> ErrorRef:
+    """Build the in-band error envelope with provenance stamped (see `stamp_envelope`)."""
+    ref = ErrorRef.from_error(err)
+    stamp_envelope(ref.error)
     return ref
 
 
 def _error_tool_result(ref: ErrorRef) -> ToolResult:
     """Wrap an in-band `{ok: false}` envelope so the failure also sets the
-    protocol-level `isError: true` flag (#19).
+    protocol-level `isError: true` flag (#19), and matches the schema-declared
+    `x-fastmcp-wrap-result` carrier shape (#64).
 
     The structured envelope remains the stable, branchable contract — agents
     discriminate on the `ok` field — and `isError` is an additive signal layered
     on top via FastMCP 3.4.x's `ToolResult(is_error=...)`. The text content
-    mirrors the JSON envelope so non-structured clients see the same payload.
+    mirrors the (unwrapped) JSON envelope so non-structured clients see the same
+    payload without needing to know about the wrap convention.
+
+    Every `iserror_aware`-decorated tool declares a `SomeResponse | ErrorRef`
+    return annotation, a Union FastMCP cannot flatten into a single top-level
+    object schema — so FastMCP always sets `x-fastmcp-wrap-result: true` on
+    these tools' outputSchema and wraps *success* responses as
+    `{"result": ...}`. `ToolResult(structured_content=...)` bypasses that
+    automatic wrapping, so this mirrors it explicitly on the error path too
+    (FastMCP 3.4.x's own `Tool._convert_result`, `tools/base.py`). A parametrized
+    test (`test_mcp_tool_handlers.py`) guards the invariant that every
+    `iserror_aware` tool's outputSchema is wrap-flagged, so this assumption
+    fails loudly rather than silently if it ever stops holding.
     """
     envelope = ref.model_dump(mode="json")
     return ToolResult(
         content=[TextContent(type="text", text=json.dumps(envelope))],
-        structured_content=envelope,
+        structured_content={"result": envelope},
+        meta={"fastmcp": {"wrap_result": True}},
         is_error=True,
     )
 
@@ -124,6 +146,10 @@ def iserror_aware(fn):
             return _error_tool_result(result)
         return result
 
+    # Runtime marker so tests can assert every registered tool actually has this
+    # decorator applied (#64: cwms_get_profile was silently missing it — a gap
+    # `functools.wraps`-preserved signatures can't otherwise detect from outside).
+    setattr(wrapper, "__iserror_aware__", True)  # noqa: B010
     return wrapper
 
 
@@ -559,6 +585,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             "title": "Depth profile (whole string)",
         },
     )
+    @iserror_aware
     async def cwms_get_profile(
         office: Annotated[
             str,
@@ -685,7 +712,9 @@ async def _safe(fn, *args, **kwargs) -> dict[str, Any] | ErrorRef:
 
 __all__ = [
     "error_ref",
+    "iserror_aware",
     "register_place_tools",
     "register_publisher_tools",
     "register_value_tools",
+    "stamp_envelope",
 ]

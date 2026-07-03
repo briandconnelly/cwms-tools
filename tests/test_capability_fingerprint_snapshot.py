@@ -66,6 +66,25 @@ def test_fingerprint_changes_when_resource_added() -> None:
     assert base != extended
 
 
+def test_fingerprint_changes_when_a_resources_error_codes_change() -> None:
+    """#64: a resource's error contract (`error_codes` per `RESOURCE_INVENTORY`
+    entry) is part of the fingerprint, same as `TOOL_ERROR_CODES` is for tools —
+    so a breaking change like the overview resource's `section_not_found`/
+    `chunk_not_found` -> `not_found` unification moves the fingerprint instead
+    of leaving cached clients none the wiser."""
+    base = fingerprint.compute(
+        tools={name: {"name": name} for name in TOOL_INVENTORY},
+        resources=RESOURCE_INVENTORY,
+    )
+    changed = [dict(r) for r in RESOURCE_INVENTORY]
+    changed[0]["error_codes"] = [*changed[0]["error_codes"], "hypothetical_code"]
+    mutated = fingerprint.compute(
+        tools={name: {"name": name} for name in TOOL_INVENTORY},
+        resources=changed,
+    )
+    assert base != mutated
+
+
 def test_capabilities_cli_and_tool_source_share_canonical_fingerprint() -> None:
     """SC1: the fingerprint an agent sees must be identical across every
     surface — the `cwms://capabilities` resource, the CLI `fingerprint`

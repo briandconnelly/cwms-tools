@@ -37,6 +37,7 @@ from cwms_tools.mcp.tools import (
     register_place_tools,
     register_publisher_tools,
     register_value_tools,
+    stamp_envelope,
 )
 
 INSTRUCTIONS = (
@@ -87,26 +88,31 @@ _RESOURCE_NOT_FOUND = -32002
 
 
 def _raise_resource_not_found(
-    *, machine_code: str, human_message: str, repair: dict[str, Any]
+    *, field: str, offending_value: str, message: str, repair: RepairHint
 ) -> NoReturn:
-    """Resource-side failure: a JSON-RPC error carrying repair fields in `error.data`.
+    """Resource-side failure: a JSON-RPC error carrying the same envelope tools use.
 
     `resources/read` is a non-tool RPC method, so its semantic failures surface
-    through the JSON-RPC envelope (not an error-shaped success body). The repair
-    contract rides in `error.data` so agents can branch without parsing prose.
+    through the JSON-RPC envelope rather than an error-shaped success body — but
+    `error.data` carries the identical `ErrorEnvelope` tool failures use in
+    `structuredContent`, with only the two renames the JSON-RPC carrier requires
+    (`code`->`machine_code`, `message`->`human_message`, since native `code`/
+    `message` already occupy those keys). One error, one shape, regardless of
+    which carrier surfaces it (#64).
     """
-    raise McpError(
-        ErrorData(
-            code=_RESOURCE_NOT_FOUND,
-            message=human_message,
-            data={
-                "machine_code": machine_code,
-                "human_message": human_message,
-                "repair": repair,
-                "recoverable": False,
-            },
-        )
+    envelope = stamp_envelope(
+        CwmsToolsError.of(
+            ErrorCode.NOT_FOUND,
+            message,
+            field=field,
+            offending_value=offending_value,
+            repair=repair,
+        ).envelope
     )
+    data = envelope.model_dump(mode="json")
+    data["machine_code"] = data.pop("code")
+    data["human_message"] = data.pop("message")
+    raise McpError(ErrorData(code=_RESOURCE_NOT_FOUND, message=message, data=data))
 
 
 def build_server() -> FastMCP:
@@ -189,14 +195,13 @@ def build_server() -> FastMCP:
         payload = overview_section_payload(section_id, detail=detail)
         if payload is None:
             _raise_resource_not_found(
-                machine_code="section_not_found",
-                human_message=(
-                    f"No overview section {section_id!r}; read cwms://overview for slugs."
+                field="section_id",
+                offending_value=section_id,
+                message=f"No overview section {section_id!r}; read cwms://overview for slugs.",
+                repair=RepairHint(
+                    tool="cwms_get_overview_section",
+                    args={"section_id": "<one of the listed slugs>"},
                 ),
-                repair={
-                    "tool": "cwms_get_overview_section",
-                    "args": {"section_id": "<one of the listed slugs>"},
-                },
             )
         return payload
 
@@ -217,15 +222,16 @@ def build_server() -> FastMCP:
         payload = overview_chunk_payload(section_id, chunk_id)
         if payload is None:
             _raise_resource_not_found(
-                machine_code="chunk_not_found",
-                human_message=(
+                field="chunk_id",
+                offending_value=chunk_id,
+                message=(
                     f"No chunk {chunk_id!r} in section {section_id!r}; re-read the "
                     "section for current chunk ids."
                 ),
-                repair={
-                    "tool": "cwms_get_overview_section",
-                    "args": {"section_id": section_id, "detail": "summary"},
-                },
+                repair=RepairHint(
+                    tool="cwms_get_overview_section",
+                    args={"section_id": section_id, "detail": "summary"},
+                ),
             )
         return payload
 
