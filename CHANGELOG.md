@@ -61,6 +61,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thousands of cfs, volts ~12). Coordinates (`latitude`/`longitude`, bbox
   bounds) and cost fields are carved out to preserve citation-grade precision.
   Applies uniformly to the MCP and CLI surfaces. Closes #45.
+- `cwms_get_overview_section` no longer requires `section_id` — omitted, it
+  now returns the same index as the `cwms://overview` resource, so
+  resource-blind clients have a real discovery path instead of hitting a
+  tool that required a slug only the resource could teach them. Added
+  `cwms_list_offices`, the matching tool fallback for `cwms://offices`
+  office-code discovery. The `not_found` repair hint on a missing overview
+  section is now an actually-callable `{}` args set (was a non-callable
+  placeholder string) and the error message enumerates the real section
+  slugs — fixed on both the tool and the `cwms://overview/{section_id}`
+  resource. The capability summary no longer claims a
+  `$defs/ErrorEnvelope` schema path that deployed schemas don't have (they
+  inline all definitions). Closes #65.
 
 ## [0.5.0] - 2026-06-16
 

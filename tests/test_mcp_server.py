@@ -98,7 +98,7 @@ def test_capabilities_include_per_tool_error_codes(server) -> None:
     assert set(per_tool) == set(payload["tools"])
     # Spot-check a few accurate mappings.
     assert "usage_error" in per_tool["cwms_browse_region"]  # partial bbox
-    assert per_tool["cwms_get_overview_section"] == ["not_found"]
+    assert per_tool["cwms_get_overview_section"] == ["not_found", "usage_error"]
     assert "invalid_field" in per_tool["cwms_get_history"]  # bad begin/end
     # Per-tool codes are a subset of the global enum.
     global_codes = set(payload["error_codes"])
@@ -142,6 +142,7 @@ def test_every_task_tool_publishes_a_real_output_schema(server) -> None:
         "cwms_get_history",
         "cwms_publishers_for_parameter",
         "cwms_get_overview_section",
+        "cwms_list_offices",
     }
     for name in task_tools:
         schema = schemas.get(name)
@@ -247,6 +248,24 @@ def test_overview_section_resource_miss_raises_structured_jsonrpc_error(server) 
     assert "message" not in data
 
 
+def test_overview_section_resource_miss_repair_hint_is_callable(server) -> None:
+    """#65 F2: the not_found repair hint must be a real, callable arg set —
+    not a placeholder like `{"section_id": "<one of the listed slugs>"}` — and
+    the message must enumerate the actual valid slugs (small, static set)."""
+    from mcp import McpError
+
+    async def go():
+        return await server.read_resource("cwms://overview/does-not-exist")
+
+    with pytest.raises(McpError) as ex:
+        asyncio.run(go())
+    data = ex.value.error.data
+    assert isinstance(data, dict)
+    assert data["repair"]["args"] == {}
+    for sid in overview.section_ids():
+        assert sid in data["human_message"]
+
+
 def test_overview_chunk_resource_miss_raises_structured_jsonrpc_error(server) -> None:
     """#64: the chunk resource's miss path uses the same envelope/carrier as the
     section miss path above — same code, same field names, no `recoverable`."""
@@ -310,6 +329,24 @@ def test_overview_section_tool_returns_section_for_good_slug(server) -> None:
     branch = sc.get("result", sc)
     assert branch["section_id"] == sid
     assert "body" in branch
+
+
+def test_overview_tool_without_section_id_returns_the_index(server) -> None:
+    """#65: the only fallback tool for resource-blind clients must itself be
+    discoverable without first reading the `cwms://overview` resource."""
+
+    async def go():
+        return await server.call_tool("cwms_get_overview_section", arguments={})
+
+    result = asyncio.run(go())
+    sc = result.structured_content
+    assert sc is not None
+    branch = sc.get("result", sc)
+    assert "sections" in branch
+    assert "document_sha256" in branch
+    section_ids = {s["section_id"] for s in branch["sections"]}
+    assert section_ids == set(overview.section_ids())
+    assert "body" not in branch["sections"][0]
 
 
 def test_resource_names_are_explicit_not_handler_function_names() -> None:
@@ -379,3 +416,50 @@ def test_capabilities_document_completion_fallback():
     comp = capabilities_payload()["completions"]
     assert comp["supported"] is False
     assert comp["discover_section_ids_via"] == "cwms://overview"
+
+
+def test_list_offices_tool_is_registered_and_matches_resource(server) -> None:
+    """#65 F2: office-code discovery needs a tool fallback for clients that
+    cannot browse MCP resources — mirrors `cwms://offices` field-for-field."""
+
+    async def go_tools():
+        tools = await server.list_tools()
+        return {t.name: t for t in tools}
+
+    async def go_call():
+        return await server.call_tool("cwms_list_offices", arguments={})
+
+    tools = asyncio.run(go_tools())
+    assert "cwms_list_offices" in tools
+    tool = tools["cwms_list_offices"]
+    assert tool.annotations.readOnlyHint is True
+    assert tool.output_schema is not None
+
+    result = asyncio.run(go_call())
+    sc = result.structured_content
+    assert sc is not None
+    branch = sc.get("result", sc)
+    resource_payload = _read_json(server, "cwms://offices")
+    assert branch["count"] == resource_payload["count"]
+    assert (
+        branch["guidance"]["nw_regional_rollup"]
+        == resource_payload["guidance"]["nw_regional_rollup"]
+    )
+    assert {o["name"] for o in branch["offices"]} == {
+        o["name"] for o in resource_payload["offices"]
+    }
+
+
+def test_capabilities_advertise_list_offices_tool(server) -> None:
+    payload = _read_json(server, "cwms://capabilities")
+    assert "cwms_list_offices" in payload["tools"]
+    assert payload["tool_error_codes"]["cwms_list_offices"] == []
+    assert payload["tool_latency"]["cwms_list_offices"] == "cached"
+
+
+def test_capabilities_error_handling_text_does_not_promise_defs_path(server) -> None:
+    """#65 F14: deployed schemas inline all definitions — there is no literal
+    `$defs/ErrorEnvelope` path in an agent's actual outputSchema, so the
+    capability summary must not claim one exists."""
+    payload = _read_json(server, "cwms://capabilities")
+    assert "$defs" not in payload["error_handling"]["tools"]

@@ -125,6 +125,10 @@ PROVOCATIONS[("cwms_get_overview_section", "not_found")] = (
     {"section_id": "no-such-section"},
     None,
 )
+PROVOCATIONS[("cwms_get_overview_section", "usage_error")] = (
+    {"chunk_id": "no-such-chunk"},  # chunk_id without section_id
+    None,
+)
 
 
 def test_every_advertised_code_has_a_provocation() -> None:

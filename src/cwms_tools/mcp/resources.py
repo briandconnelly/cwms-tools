@@ -38,6 +38,7 @@ TOOL_INVENTORY: list[str] = [
     "cwms_browse_region",
     "cwms_publishers_for_parameter",
     "cwms_get_overview_section",
+    "cwms_list_offices",
 ]
 
 #: Codes that exist in the enum as planned contract but have no emission path
@@ -81,7 +82,11 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
     # than failing the call, so this tool returns a result (with coverage) instead
     # of an error.code in normal operation.
     "cwms_publishers_for_parameter": [],
-    "cwms_get_overview_section": ["not_found"],
+    "cwms_get_overview_section": ["not_found", "usage_error"],
+    # offices_payload() never raises (catches upstream failure and degrades to
+    # the documented fallback slice with partial: true instead), so this tool
+    # has no live error path today.
+    "cwms_list_offices": [],
 }
 
 #: Per-tool latency class (local | cached | network | slow). `slow` flags paths
@@ -99,6 +104,7 @@ TOOL_LATENCY: dict[str, str] = {
     "cwms_browse_region": "network",
     "cwms_publishers_for_parameter": "network",
     "cwms_get_overview_section": "local",
+    "cwms_list_offices": "cached",
 }
 
 #: Resource inventory — also kept here for the capability summary. Only resources
@@ -201,7 +207,7 @@ def capabilities_payload() -> dict[str, Any]:
                 "errors rejected by the protocol/schema layer BEFORE a handler runs "
                 "(wrong type, missing required arg, out-of-enum value) surface as plain "
                 "protocol errors without this envelope. The error object's full field "
-                "set is documented in each tool's outputSchema ($defs/ErrorEnvelope); "
+                "set is documented in the error branch of each tool's outputSchema; "
                 "key repair fields: code, message, field, offending_value, hint, "
                 "repair, retryable, retry_after_ms, request_id, protocol_request_id, "
                 "source."
