@@ -1,8 +1,9 @@
 """Name resolution + co-located variant grouping over the locations catalog.
 
 Wraps `cwms.locations.physical_locations.get_location` and the enriched
-catalog browse in `core.catalog`. Surfaces NW-stub repair hints via
-`cwms_browse_region` and the canonical PlaceSummary shape used by
+catalog browse in `core.catalog`. Raises the structured `ghost_office`
+error for NW-stub offices (the calling surface attaches a same-tool retry
+repair, #69) and produces the canonical PlaceSummary shape used by
 `cwms_search_places` / `cwms_describe_place`.
 """
 
@@ -24,8 +25,10 @@ from cwms_tools.core.offices import NW_STUBS
 
 # NW Division district stubs — publish no data in CDA. Documented in
 # cwms-overview.md §6.1. Mirror the short-circuit from `core.catalog` so
-# single-location reads (place describe, place parameters) surface the
-# same agent-friendly repair hint instead of a database-internals 404.
+# single-location reads (place describe, place parameters) raise the same
+# structured `ghost_office` error instead of a database-internals 404. The
+# surface boundary (mcp.tools._safe, cli.render), not this module, attaches
+# the same-tool retry repair (#69) — see core.offices.ghost_office_repair.
 
 
 def _ghost_office_error(office_id: str) -> CwmsToolsError:

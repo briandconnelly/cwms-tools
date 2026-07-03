@@ -136,7 +136,9 @@ def attach_ghost_office_repair(
     same-tool-switching repair (it doesn't know which command is calling),
     so each CLI command supplies its own identity here, mirroring
     `mcp.tools._safe`'s `_repair_call` (#69). No-op for any other error code.
-    Call this BEFORE `emit_error`/`rewrite_error_field`.
+    Independent of `rewrite_error_field` (that touches `field`; this touches
+    `repair`) — call in either order, but before `emit_error`, which
+    serializes the envelope and exits.
     """
     office_id = error.envelope.offending_value
     if error.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
