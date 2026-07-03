@@ -537,12 +537,14 @@ def register_value_tools(mcp: FastMCP) -> None:
         so a long window over a high-frequency series can't return tens of
         thousands of rows unbounded. `truncated: true` with a
         `truncation_hint` is set either when that response cap trims `values`
-        or when the upstream page cap (300,000 points) clipped the requested
-        window; in the upstream case `summary` and `buckets` are computed
-        from the returned (clipped) points only, NOT the full requested
-        window. Either way, continue via `next_begin`, or switch to
-        `rollup='hourly'`/`'daily'` for a compact summary of the full window
-        in one call.
+        or when the upstream page cap (300,000 points) clipped the fetch
+        itself before it reached the requested window end. In the latter
+        case `summary`/`buckets` cover only the fetched prefix, NOT the full
+        requested window — switching `rollup` does not recover the rest;
+        continue via `next_begin` and repeat until `truncated` is false. When
+        only the local 5,000-point cap fired (the fetch itself covered the
+        whole window), switching to `rollup='hourly'`/`'daily'` DOES give a
+        compact summary of the full window in one call.
         """
         try:
             begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))

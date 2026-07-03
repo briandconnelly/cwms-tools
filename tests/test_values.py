@@ -452,6 +452,58 @@ def test_get_history_rollup_bucket_mode_not_subject_to_raw_cap(configured) -> No
     assert len(payload["buckets"]) > 0
 
 
+def test_get_history_local_cap_does_not_overclaim_when_upstream_also_truncated(
+    configured, monkeypatch
+) -> None:
+    """When the upstream fetch itself was already clipped at its page cap
+    (before reaching the requested window end), the local response cap also
+    fires (5,000 << 300,000) and takes precedence for `next_begin` — but the
+    hint must NOT claim that switching to `rollup='hourly'/'daily'` would
+    cover the full requested window, since `summary`/`buckets` are computed
+    from that same upstream-clipped fetch, not the full window (#66)."""
+    monkeypatch.setattr(
+        values.timeseries,
+        "require_canonical_ts_id",
+        lambda *a, **k: "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+    )
+    cap = values.MAX_RAW_HISTORY_POINTS
+    total = cap + 500
+    start = datetime(2026, 5, 1, tzinfo=UTC)
+    fetched_values = [
+        {
+            "timestamp": (start + timedelta(minutes=i)).isoformat().replace("+00:00", "Z"),
+            "value": float(i),
+            "quality": 0,
+        }
+        for i in range(total)
+    ]
+    fake_series = {
+        "unit": "ft",
+        "begin": start.isoformat(),
+        "end": (start + timedelta(days=365)).isoformat(),
+        "values": fetched_values,
+        "truncated": True,  # upstream page cap fired before reaching requested end
+        "next_begin": "2099-01-01T00:00:00Z",  # upstream's own (less precise) continuation
+        "truncation_hint": "hit upstream page cap of 300000; retry with begin_iso=<next_begin>.",
+    }
+    monkeypatch.setattr(values.timeseries, "fetch_window", lambda *a, **k: fake_series)
+
+    payload = values.get_history(
+        "SWT", "FOSS", "Elev", begin=start, end=start + timedelta(days=365)
+    )
+
+    assert payload["truncated"] is True
+    assert len(payload["values"]) == cap
+    assert payload["value_count"] == total
+    # The local cap's next_begin (right after the last RETURNED point) takes
+    # precedence over the upstream fetch's own (coarser) next_begin.
+    assert payload["next_begin"] != "2099-01-01T00:00:00Z"
+    hint = payload["truncation_hint"]
+    assert hint is not None
+    assert "not the full requested window" in hint
+    assert "rollup" not in hint  # must not promise a rollup retry recovers full coverage
+
+
 # --------------------------------------------------------------------------
 # #26/#27: get_profile (whole-string depth read)
 # --------------------------------------------------------------------------

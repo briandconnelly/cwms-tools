@@ -196,10 +196,13 @@ def history(
 
     Sets `truncated: true` with a `truncation_hint` when either the raw-point
     response cap (5,000 points under `--rollup raw`) trims `values`, or the
-    upstream page cap (300,000 points) clipped the requested window. For
-    trend questions, read the always-present `summary` block or pass
-    `--rollup hourly|daily` for compact per-bucket aggregates over the full
-    window in one call.
+    upstream page cap (300,000 points) clipped the fetch itself before
+    reaching the requested window end — in that case `summary`/`buckets`
+    cover only the fetched prefix, not the full window, and switching
+    `--rollup` doesn't recover the rest; continue via `next_begin` and
+    repeat until `truncated` is false. Otherwise, for trend questions, read
+    the always-present `summary` block or pass `--rollup hourly|daily` for a
+    compact per-bucket summary of the full window in one call.
     """
     office, name, parameter = _parse_id(id_spec)
     begin_dt = _parse_iso(begin, field="begin")

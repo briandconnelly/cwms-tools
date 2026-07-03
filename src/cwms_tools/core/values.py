@@ -263,6 +263,7 @@ def get_history(
         "next_begin": series.get("next_begin"),
     }
     if rollup == "raw":
+        upstream_truncated = series.get("truncated", False)
         capped, cap_truncated, cap_next_begin = _cap_raw_points(values)
         response["values"] = capped
         if cap_truncated:
@@ -273,11 +274,27 @@ def get_history(
             # returned, not after whatever the upstream fetch covered.
             response["truncated"] = True
             response["next_begin"] = cap_next_begin
-            response["truncation_hint"] = (
-                f"response capped at {MAX_RAW_HISTORY_POINTS} raw points; retry with "
-                "begin_iso=<next_begin> to continue, or set rollup='hourly'/'daily' "
-                "for a compact per-bucket summary of the full window."
-            )
+            if upstream_truncated:
+                # The upstream fetch itself was clipped at its page cap before
+                # reaching the requested window end, so `summary` (and any
+                # `rollup='hourly'/'daily'` retry) can only ever cover that
+                # fetched prefix, not the full requested window — don't claim
+                # otherwise.
+                response["truncation_hint"] = (
+                    f"response capped at {MAX_RAW_HISTORY_POINTS} raw points, and the "
+                    "upstream fetch itself hit its page cap before reaching the "
+                    "requested window end — `summary` reflects only the fetched "
+                    "prefix, not the full requested window. Retry with "
+                    "begin_iso=<next_begin> and repeat until `truncated` is false to "
+                    "cover the rest."
+                )
+            else:
+                response["truncation_hint"] = (
+                    f"response capped at {MAX_RAW_HISTORY_POINTS} raw points; retry "
+                    "with begin_iso=<next_begin> to continue, or set "
+                    "rollup='hourly'/'daily' for a compact per-bucket summary of the "
+                    "full requested window in one call."
+                )
     else:
         # Rolled-up: omit the raw points (the whole point is fewer rows) and
         # return the per-bucket aggregates instead.
