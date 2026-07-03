@@ -12,7 +12,7 @@ from typing import Annotated
 
 import typer
 
-from cwms_tools.cli.render import emit, emit_error
+from cwms_tools.cli.render import emit, emit_error, rewrite_error_field
 from cwms_tools.core import places, shaping
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail
@@ -197,7 +197,8 @@ def describe(
     try:
         payload = places.describe_place(office, name)
     except CwmsToolsError as err:
-        emit_error(err)
+        # No `--office` flag on this command — `spec` is the retryable arg.
+        emit_error(rewrite_error_field(err, when="office_id", to="spec"))
     emit(shaping.shape_place_detail(payload, detail))
 
 
@@ -218,7 +219,8 @@ def parameters(
     try:
         payload = places.list_parameters(office, name)
     except CwmsToolsError as err:
-        emit_error(err)
+        # No `--office` flag on this command — `spec` is the retryable arg.
+        emit_error(rewrite_error_field(err, when="office_id", to="spec"))
     # No `--detail` toggle here; routed through the shared shaper (a no-op for
     # this response shape) to stay structurally in lockstep with the
     # `cwms_list_parameters` MCP tool, which applies the same place shaper.

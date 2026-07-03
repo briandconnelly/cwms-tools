@@ -237,6 +237,26 @@ def test_place_describe_rejects_bad_spec_shape() -> None:
     assert payload["error"]["code"] == "usage_error"
 
 
+def test_place_describe_ghost_office_names_spec_not_office() -> None:
+    """#68 review: `place describe` has no `--office` flag — the retryable
+    arg for a ghost_office error is the combined `spec`, not the nonexistent
+    "office" (the default MCP-facing translation for this producer-internal
+    `office_id` field)."""
+    result = runner.invoke(app, ["place", "describe", "NWO/FTPK"])
+    assert result.exit_code == 12  # GHOST exit
+    payload = json.loads(result.stderr)
+    assert payload["error"]["code"] == "ghost_office"
+    assert payload["error"]["field"] == "spec"
+
+
+def test_place_parameters_ghost_office_names_spec_not_office() -> None:
+    result = runner.invoke(app, ["place", "parameters", "NWO/FTPK"])
+    assert result.exit_code == 12  # GHOST exit
+    payload = json.loads(result.stderr)
+    assert payload["error"]["code"] == "ghost_office"
+    assert payload["error"]["field"] == "spec"
+
+
 def test_place_parameters_lists_grouped_by_publisher(configured) -> None:
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm(mocked)
@@ -301,8 +321,22 @@ def test_region_browse_returns_ghost_office_error_for_nwo() -> None:
     assert result.stdout == ""
     payload = json.loads(result.stderr)
     assert payload["error"]["code"] == "ghost_office"
+    # #68: `--office` is the flag; `office_id` (the producer-internal name
+    # `core.locations`/`core.catalog` raise with) is never a real CLI flag.
+    assert payload["error"]["field"] == "office"
     assert payload["error"]["repair"]["tool"] == "cwms_browse_region"
     assert payload["error"]["repair"]["args"]["office"] == "NWDM"
+
+
+def test_region_browse_rejects_partial_bbox_naming_first_missing_corner() -> None:
+    """#68: `field` must name a real `--<flag>`, not the synthetic "bbox"."""
+    result = runner.invoke(
+        app, ["region", "browse", "--office", "SWT", "--south", "30.0", "--north", "40.0"]
+    )
+    assert result.exit_code == 2  # USAGE_ERROR
+    payload = json.loads(result.stderr)
+    assert payload["error"]["code"] == "usage_error"
+    assert payload["error"]["field"] == "west"
 
 
 def test_place_search_accepts_cursor(monkeypatch):

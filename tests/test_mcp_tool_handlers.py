@@ -164,6 +164,9 @@ def test_list_parameters_handler(configured) -> None:
 
 
 def test_browse_region_handler_rejects_partial_bbox(configured) -> None:
+    """#68: `field` must name a real, retryable arg — not the synthetic
+    "bbox" (not an actual parameter of this tool). `south`/`north` are
+    provided; `west` is the first missing corner in canonical order."""
     server = build_server()
     result = _call(
         server,
@@ -174,7 +177,7 @@ def test_browse_region_handler_rejects_partial_bbox(configured) -> None:
     assert payload["ok"] is False
     err = payload["error"]
     assert err["code"] == "usage_error"
-    assert err["field"] == "bbox"
+    assert err["field"] == "west"
     # Pre-`_safe` manual branches now flow through the full envelope.
     assert err["offending_value"] == {
         "south": 30.0,
@@ -194,6 +197,9 @@ def test_browse_region_handler_returns_ghost_office_for_nwo(configured) -> None:
     payload = _branch(result.structured_content)
     assert payload["ok"] is False
     assert payload["error"]["code"] == "ghost_office"
+    # #68: the tool's actual parameter is `office`, not the producer-internal
+    # `office_id` `core.locations`/`core.catalog` raise with.
+    assert payload["error"]["field"] == "office"
 
 
 def test_browse_region_handler_rejects_negative_limit(configured) -> None:
@@ -399,6 +405,7 @@ def test_search_places_handler_returns_ghost_office_for_nwo(configured) -> None:
     payload = _branch(result.structured_content)
     assert payload["ok"] is False
     assert payload["error"]["code"] == "ghost_office"
+    assert payload["error"]["field"] == "office"
 
 
 def test_search_places_handler_surfaces_repair_hint_for_empty_scope(configured) -> None:
