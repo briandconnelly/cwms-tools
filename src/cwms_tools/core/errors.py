@@ -58,6 +58,27 @@ def exit_code_for(code: ErrorCode) -> int:
     return _EXIT_CODE_MAP.get(code, 1)
 
 
+#: Producer-internal `field` names that don't match the callable parameter
+#: name on either surface (MCP tool arg / CLI flag) an agent would retry
+#: with. Core producers (`core/catalog.py`, `core/locations.py`, ...) are
+#: free to use whatever internal name makes sense for their own domain
+#: (e.g. `office_id`, the CDA field name); this map translates to the
+#: surface-facing name ONLY at output boundaries (`mcp.tools.error_ref`,
+#: `cli.render.emit_error`) so mechanical field-level repair retries with a
+#: name the call actually accepts (#68). Core-level tests may still assert
+#: the untranslated internal name.
+_FIELD_SURFACE_NAMES: dict[str, str] = {
+    "office_id": "office",
+}
+
+
+def surface_field_name(field: str | None) -> str | None:
+    """Translate a producer-internal `field` name to its surface parameter name."""
+    if field is None:
+        return field
+    return _FIELD_SURFACE_NAMES.get(field, field)
+
+
 class RepairHint(BaseModel):
     """A pointer at a real callable surface that should succeed where this call failed."""
 
@@ -236,5 +257,6 @@ __all__ = [
     "RepairHint",
     "SourceInfo",
     "exit_code_for",
+    "surface_field_name",
     "upstream_error_from_status",
 ]

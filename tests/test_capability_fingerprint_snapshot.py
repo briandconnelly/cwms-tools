@@ -1,14 +1,18 @@
 """Snapshot test for the capability fingerprint.
 
-The fingerprint covers: cwms-tools/cwms-python versions, tool list +
-schemas, resource catalog, error codes, bundled overview SHA-256, session
-config, active workarounds. Editing internal-only files must NOT change
-the fingerprint; adding a tool, error code, or resource MUST.
+The fingerprint covers: cwms-tools/cwms-python versions, tool list + schemas +
+descriptions, resource/template catalog + names/descriptions, error codes,
+bundled overview SHA-256, session config, active workarounds, the static
+capability-summary prose (`capability_contract`), and the FastMCP server
+`instructions` string (#71). Editing internal-only files must NOT change the
+fingerprint; adding a tool/resource/error code, or rewriting any
+agent-visible description/instructions prose, MUST.
 
 This test pins the **shape** (a 64-hex SHA-256) and the **invariants**
-(tools/resources/error_codes are part of the fingerprint inputs). The
-actual digest is volatile across sessions because the session config
-depends on the resolved User-Agent (which embeds cwms-tools version).
+(tools/resources/error_codes/descriptions/instructions are part of the
+fingerprint inputs). The actual digest is volatile across sessions because
+the session config depends on the resolved User-Agent (which embeds
+cwms-tools version).
 """
 
 from __future__ import annotations
@@ -21,8 +25,21 @@ from typer.testing import CliRunner
 from cwms_tools.cli.app import app
 from cwms_tools.core import fingerprint
 from cwms_tools.core.errors import ErrorCode
-from cwms_tools.mcp.contract import canonical_fingerprint, tool_definitions
-from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_INVENTORY, capabilities_payload
+from cwms_tools.mcp import contract as contract_module
+from cwms_tools.mcp import resources as resources_module
+from cwms_tools.mcp.contract import (
+    canonical_fingerprint,
+    resource_definitions,
+    server_instructions,
+    tool_definitions,
+)
+from cwms_tools.mcp.resources import (
+    RESOURCE_INVENTORY,
+    TOOL_INVENTORY,
+    TOOL_LATENCY,
+    capabilities_payload,
+    capability_contract_payload,
+)
 from cwms_tools.mcp.tools import _source
 
 
@@ -245,3 +262,167 @@ def test_dead_error_codes_removed_and_reserved_codes_declared() -> None:
     assert "ghost_location" not in payload["error_codes"]
     assert "publisher_unavailable" not in payload["error_codes"]
     assert "wrapper_bug" not in payload["error_codes"]
+
+
+def test_tool_definitions_include_description_and_title() -> None:
+    """#71: tool `description` is the primary agent-selection input — it must
+    be live-introspected alongside the input/output schemas, not omitted."""
+    defs = tool_definitions()
+    sample = defs["cwms_search_places"]
+    assert isinstance(sample["description"], str)
+    assert len(sample["description"]) > 0
+    assert sample["title"] is None or isinstance(sample["title"], str)
+
+
+def test_fingerprint_changes_when_a_tool_description_changes() -> None:
+    """#71: a description rewrite that changes which tool an agent picks must
+    move the fingerprint, same as an input/output schema change already does."""
+    base_tools = {name: {"name": name, "description": "original"} for name in TOOL_INVENTORY}
+    base = fingerprint.compute(tools=base_tools, resources=RESOURCE_INVENTORY)
+    changed_tools = {
+        **base_tools,
+        "cwms_search_places": {"name": "cwms_search_places", "description": "rewritten"},
+    }
+    changed = fingerprint.compute(tools=changed_tools, resources=RESOURCE_INVENTORY)
+    assert base != changed
+
+
+def test_resource_definitions_are_live_introspected() -> None:
+    """#71: resource `name`/`title`/`description` come from the real FastMCP
+    registration (server.py decorators + docstrings), not a hand-maintained
+    inventory that can drift from what the server actually emits."""
+    defs = resource_definitions()
+    capabilities = defs["cwms://capabilities"]
+    assert capabilities["name"] == "capabilities"
+    assert isinstance(capabilities["description"], str)
+    assert len(capabilities["description"]) > 0
+
+    overview_section = defs["cwms://overview/{section_id}{?detail}"]
+    assert overview_section["name"] == "overview-section"
+    assert isinstance(overview_section["description"], str)
+    # error_codes has no FastMCP introspection point — merged in from the
+    # hand-maintained RESOURCE_INVENTORY, matched by URI.
+    assert "not_found" in overview_section["error_codes"]
+
+
+def test_resource_inventory_matches_registered_resources() -> None:
+    """#71 (Codex review, round 2): the hand-maintained `RESOURCE_INVENTORY`
+    (what `capabilities_payload()` advertises) and the live-introspected
+    `resource_definitions()` (what the fingerprint hashes) must agree not
+    just on URIs but on `mime_type` too — a hand-edited `mime_type` that
+    drifts from the actual FastMCP registration would change what
+    `capabilities_payload()` advertises without moving the fingerprint,
+    since the fingerprint reads `mime_type` live. `error_codes` is exempt
+    from this check: `resource_definitions()` sources it FROM
+    `RESOURCE_INVENTORY` by construction, so it can never disagree.
+
+    Duplicate-URI detection and URI-set parity are checked separately
+    (Copilot review) so a failure points at the actual cause instead of a
+    generic length mismatch that could equally mean a missing/extra entry.
+    """
+    uris = [r["uri"] for r in RESOURCE_INVENTORY]
+    assert len(uris) == len(set(uris)), "RESOURCE_INVENTORY has a duplicate URI"
+
+    live = resource_definitions()
+    assert set(uris) == set(live.keys()), (
+        "RESOURCE_INVENTORY and resource_definitions() disagree on URIs"
+    )
+
+    for entry in RESOURCE_INVENTORY:
+        assert entry["mime_type"] == live[entry["uri"]]["mime_type"], (
+            f"{entry['uri']}: RESOURCE_INVENTORY mime_type has drifted from the live registration"
+        )
+
+
+def test_fingerprint_changes_when_a_resource_description_changes() -> None:
+    """#71: same invariant as tool descriptions, for resources."""
+    base_resources = [{"uri": "cwms://capabilities", "description": "original"}]
+    base = fingerprint.compute(tools={}, resources=base_resources)
+    changed = fingerprint.compute(
+        tools={}, resources=[{"uri": "cwms://capabilities", "description": "rewritten"}]
+    )
+    assert base != changed
+
+
+def test_fingerprint_changes_when_capability_contract_changes() -> None:
+    """#71: the static capability-summary prose (what the server does/does not
+    do, error-handling and response-shape guidance, deprecation policy) is a
+    fingerprint input — a prose rewrite that changes agent behavior must move
+    the digest even though no schema changed."""
+    base = fingerprint.compute(capability_contract={"does_not": ["a"]})
+    changed = fingerprint.compute(capability_contract={"does_not": ["a", "b"]})
+    assert base != changed
+
+
+def test_fingerprint_changes_when_server_instructions_change() -> None:
+    """#71: the FastMCP server `instructions` string is client-visible
+    agent-selection guidance and must move the fingerprint on rewrite."""
+    base = fingerprint.compute(server_instructions="Read cwms://capabilities first.")
+    changed = fingerprint.compute(server_instructions="Read cwms://offices first.")
+    assert base != changed
+
+
+def test_capability_contract_payload_excludes_circular_and_volatile_fields() -> None:
+    """#71: `capability_contract_payload()` must stay non-circular (no
+    `fingerprint`/`fingerprint_scope`) and exclude runtime-volatile values
+    (`api_root`, `user_agent`, installed-version diagnostics) that would make
+    the fingerprint depend on the caller's environment rather than the code."""
+    contract = capability_contract_payload()
+    assert "fingerprint" not in contract
+    assert "fingerprint_scope" not in contract
+    assert "api_root" not in contract
+    assert "fastmcp" not in contract
+    assert "active_workarounds" not in contract
+
+
+def test_capability_contract_payload_includes_tool_latency() -> None:
+    """#71 (Codex review): latency class (cached/local/network/slow) is
+    agent-selection guidance same as description — a tool moving from cached
+    to network changes whether an agent should call it eagerly, so it must be
+    a fingerprint input too, not left out of `capability_contract_payload()`."""
+    assert capability_contract_payload()["tool_latency"] == TOOL_LATENCY
+
+
+def test_canonical_fingerprint_moves_with_tool_definitions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Integration-level proof (not just `fingerprint.compute()` in isolation)
+    that `canonical_fingerprint()` is actually wired to the new inputs."""
+    base = canonical_fingerprint()
+    original = dict(tool_definitions())
+    mutated = {
+        **original,
+        "cwms_search_places": {**original["cwms_search_places"], "description": "MUTATED"},
+    }
+    monkeypatch.setattr(contract_module, "tool_definitions", lambda: mutated)
+    assert contract_module.canonical_fingerprint() != base
+
+
+def test_canonical_fingerprint_moves_with_resource_definitions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = canonical_fingerprint()
+    original = dict(resource_definitions())
+    mutated = {
+        **original,
+        "cwms://capabilities": {**original["cwms://capabilities"], "description": "MUTATED"},
+    }
+    monkeypatch.setattr(contract_module, "resource_definitions", lambda: mutated)
+    assert contract_module.canonical_fingerprint() != base
+
+
+def test_canonical_fingerprint_moves_with_capability_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = canonical_fingerprint()
+    original = capability_contract_payload()
+    mutated = {**original, "does_not": [*original["does_not"], "MUTATED"]}
+    monkeypatch.setattr(resources_module, "capability_contract_payload", lambda: mutated)
+    assert contract_module.canonical_fingerprint() != base
+
+
+def test_canonical_fingerprint_moves_with_server_instructions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = canonical_fingerprint()
+    original = server_instructions()
+    monkeypatch.setattr(contract_module, "server_instructions", lambda: original + " MUTATED")
+    assert contract_module.canonical_fingerprint() != base

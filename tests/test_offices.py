@@ -242,3 +242,37 @@ def test_offices_resource_reads_through_async_handler(configured) -> None:
 
     assert payload["count"] == 3
     assert {o["name"] for o in payload["offices"]} == {"NWO", "NWDM", "HQ"}
+
+
+@pytest.mark.parametrize(
+    ("office_id", "expected_target"),
+    [
+        ("NWO", "NWDM"),
+        ("NWK", "NWDM"),
+        ("NWS", "NWDP"),
+        ("NWP", "NWDP"),
+        ("NWW", "NWDP"),
+    ],
+)
+def test_nw_rollup_target_maps_each_stub(office_id: str, expected_target: str) -> None:
+    assert offices.nw_rollup_target(office_id) == expected_target
+
+
+def test_nw_rollup_target_falls_back_to_nwdm_for_unknown_office() -> None:
+    assert offices.nw_rollup_target("XYZ") == "NWDM"
+
+
+def test_ghost_office_repair_builds_same_tool_retry() -> None:
+    """#69: the repair targets the SAME failing tool with the SAME original
+    args, only `office` swapped — never a different tool."""
+    repair = offices.ghost_office_repair(
+        "NWO", tool="cwms_get_value", args={"name": "FTPK", "parameter": "Elev"}
+    )
+    assert repair.tool == "cwms_get_value"
+    assert repair.args == {"name": "FTPK", "parameter": "Elev", "office": "NWDM"}
+
+
+def test_ghost_office_repair_office_always_overrides_args() -> None:
+    """A stray `office` key in `args` must not survive — the swapped target wins."""
+    repair = offices.ghost_office_repair("NWS", tool="cwms_browse_region", args={"office": "NWO"})
+    assert repair.args["office"] == "NWDP"

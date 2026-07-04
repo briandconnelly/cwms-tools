@@ -12,7 +12,13 @@ from typing import Annotated
 
 import typer
 
-from cwms_tools.cli.render import emit, emit_error
+from cwms_tools.cli.render import (
+    attach_ghost_office_repair,
+    attach_ghost_office_spec_repair,
+    emit,
+    emit_error,
+    rewrite_error_field,
+)
 from cwms_tools.core import places, shaping
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail
@@ -92,7 +98,8 @@ def search(
                 "like 'Temp String' on a big office can match hundreds of "
                 "rows; the cap keeps responses small. Pass `0` to return "
                 "every match (no cap). When the cap kicks in the response "
-                "carries `truncated: true` and `total_count`."
+                "carries `has_more: true`, `next_cursor`, and `total_count` "
+                "(fully pageable — `truncated` stays false)."
             ),
         ),
     ] = places.DEFAULT_SEARCH_LIMIT,
@@ -164,7 +171,14 @@ def search(
             cursor=cursor,
         )
     except CwmsToolsError as err:
-        emit_error(err)
+        repair_args: dict[str, object] = {"query": query}
+        if parameter is not None:
+            repair_args["parameter"] = parameter
+        repair_args["limit"] = limit
+        if cursor is not None:
+            repair_args["cursor"] = cursor
+        repair_args["detail"] = detail.value
+        emit_error(attach_ghost_office_repair(err, tool="cwms_search_places", args=repair_args))
     emit(shaping.shape_place_detail(payload, detail))
 
 
@@ -196,8 +210,26 @@ def describe(
     try:
         payload = places.describe_place(office, name)
     except CwmsToolsError as err:
+        # No `--office` flag on this command — `spec` is the retryable arg.
+        # Repair targets the actual CLI invocation (#69 review): `spec` isn't
+        # a real MCP `cwms_describe_place` argument, so the repair.tool must
+        # be the CLI command, not the MCP tool name.
+        rewrite_error_field(err, when="office_id", to="spec")
+        attach_ghost_office_spec_repair(
+            err,
+            tool="cwms-tools place describe",
+            spec_key="spec",
+            spec_suffix=name,
+            args={"detail": detail.value},
+        )
         emit_error(err)
-    emit(shaping.shape_place_detail(payload, detail))
+    shaped = shaping.shape_place_detail(payload, detail)
+    # The CLI has no `source` wrapper to fold these into (unlike MCP's
+    # source.workaround/source.upstream_status); with no consumer, they were
+    # pure noise leaking into every response — drop them for parity (#74).
+    shaped.pop("source_workaround", None)
+    shaped.pop("upstream_status", None)
+    emit(shaped)
 
 
 @app.command("parameters")
@@ -217,6 +249,12 @@ def parameters(
     try:
         payload = places.list_parameters(office, name)
     except CwmsToolsError as err:
+        # No `--office` flag on this command — `spec` is the retryable arg.
+        # Repair targets the CLI invocation (#69 review): see cwms_describe_place.
+        rewrite_error_field(err, when="office_id", to="spec")
+        attach_ghost_office_spec_repair(
+            err, tool="cwms-tools place parameters", spec_key="spec", spec_suffix=name, args={}
+        )
         emit_error(err)
     # No `--detail` toggle here; routed through the shared shaper (a no-op for
     # this response shape) to stay structurally in lockstep with the

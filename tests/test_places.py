@@ -6,7 +6,7 @@ import cwms
 import pytest
 import responses
 
-from cwms_tools.core import locations, offices, places, projects, session
+from cwms_tools.core import locations, offices, pagination, places, projects, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
@@ -298,12 +298,17 @@ def test_browse_region_filters_by_bbox(configured, mocked) -> None:
 
 
 def test_browse_region_limit_truncates_and_reports_total_count(configured, mocked) -> None:
-    """M2/C4: browse caps results and reports the full size + a repair hint."""
+    """M2/C4: browse caps results and reports the full size + a repair hint.
+
+    #73: `truncated` means unrecoverable-by-paging; a `limit` cap here is
+    fully pageable via `next_cursor`, so `truncated` stays False — `has_more`
+    is the signal to page, not `truncated`."""
     _arm_all(mocked)
     payload = places.browse_region(office="SWT", limit=1)
     assert payload["result_count"] == 1
     assert payload["total_count"] == 2
-    assert payload["truncated"] is True
+    assert payload["truncated"] is False
+    assert payload["has_more"] is True
     assert payload["limit"] == 1
     assert "truncation_hint" in payload
     # Data-bearing FOSS sorts ahead of the CHOU-Lock ghost, so the cap keeps it.
@@ -603,15 +608,17 @@ def test_search_places_with_office_list_searches_each(configured, mocked) -> Non
 
 
 def test_search_places_single_ghost_office_raises_ghost_office(configured, mocked) -> None:
-    """A single NW-stub office must surface the ghost_office envelope, not empty results."""
+    """A single NW-stub office must surface the ghost_office envelope, not empty results.
+
+    #69: `repair` is None at this core level — a same-tool retry needs the
+    calling surface's own name/args, which `mcp.tools._safe`/`cli.render`
+    attach at the boundary (see test_mcp_tool_handlers.py/test_cli_place.py
+    for the surface-level repair assertions)."""
     with pytest.raises(CwmsToolsError) as exc_info:
         places.search_places("Bear Creek", office="NWO")
     env = exc_info.value.envelope
     assert env.code is ErrorCode.GHOST_OFFICE
-    assert env.repair is not None
-    # Already browse_region via the catalog guard; Task 2 aligns
-    # locations.py's single-location guard.
-    assert env.repair.tool == "cwms_browse_region"
+    assert env.repair is None
 
 
 def test_search_places_multi_office_records_failed_office_as_partial(configured, mocked) -> None:
@@ -710,15 +717,42 @@ def test_search_places_caps_uncached_office_fanout_by_budget(
     )
 
 
+def test_search_places_skipped_offices_coexist_with_truncated_false(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#73 review: `truncated: false` describes row completeness within the
+    *searched* offices only — it must NOT be conflated with (or imply)
+    scope completeness. A response can simultaneously have `has_more: true`
+    (more rows to page through in the searched office) AND non-empty
+    `offices_skipped_for_budget` (an office never searched at all);
+    `truncated` stays `false` regardless, since `offices_skipped_for_budget`
+    — not `truncated` — is the dedicated signal for scope incompleteness."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    locations_payload = {
+        "locations": [
+            {"office-id": "NWDP", "name": f"Site_{i:04d}", "latitude": 47.0, "longitude": -122.0}
+            for i in range(75)
+        ]
+    }
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=locations_payload, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    payload = places.search_places("Site", office=["NWDP", "SWT"])
+    assert payload["offices_searched"] == ["NWDP"]
+    assert payload["offices_skipped_for_budget"] == ["SWT"]
+    assert payload["has_more"] is True
+    assert payload["truncated"] is False
+
+
 # --------------------------------------------------------------------------
 # search_places --limit truncation
 # --------------------------------------------------------------------------
 
 
 def test_search_places_caps_result_count_by_default(configured, mocked) -> None:
-    """Broad searches should be capped so agents don't get flooded.
-    Default cap is 50; rows past the cap are dropped and the response
-    carries `truncated: true` plus the full `total_count`."""
+    """Broad searches should be capped so agents don't get flooded. Default
+    cap is 50; rows past the cap are dropped and the response carries
+    `has_more: true` plus the full `total_count` — `truncated` stays False
+    since `next_cursor` can page through the rest (#73)."""
     locations_payload = {
         "locations": [
             {
@@ -745,7 +779,8 @@ def test_search_places_caps_result_count_by_default(configured, mocked) -> None:
     )
     payload = places.search_places("Temp String", office="NWDP")
     assert payload["total_count"] == 75
-    assert payload["truncated"] is True
+    assert payload["truncated"] is False
+    assert payload["has_more"] is True
     assert payload["limit"] == 50
     assert len(payload["results"]) == 50
 
@@ -863,7 +898,13 @@ def test_search_places_paginates_with_cursor(monkeypatch):
     assert page3["has_more"] is False
     assert page3["next_cursor"] is None
 
-    assert fanout_calls == 1  # only page 1 fans out; pages 2-3 use the locked cursor
+    # #72: every page — including cursor continuations — re-runs `_run_fanout`
+    # over the (locked) office set, so a forged cursor can't bypass the
+    # uncached-office budget. Legitimate continuations pay no real extra cost
+    # since the locked offices are cache-hot by the time a page 2/3 call
+    # arrives; see the forged-cursor regression test below for the case this
+    # closes.
+    assert fanout_calls == 3
 
 
 def test_search_places_cursor_rejects_catalog_shift(monkeypatch):
@@ -930,6 +971,79 @@ def test_search_places_rejects_cursor_with_unlimited_limit(monkeypatch):
     monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: ([], []))
     with pytest.raises(CwmsToolsError) as exc:
         places.search_places("L", office="NWDM", limit=0, cursor="anytoken")
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_search_places_forged_cursor_cannot_bypass_fanout_budget(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#72: cursors are unkeyed base64url(JSON) and `req` is an unkeyed hash
+    of the query/parameter (`pagination.request_hash`) — anyone can build one
+    without ever having called `search_places`. A forged cursor naming many
+    never-cached offices must be capped by the SAME per-call uncached-office
+    budget the fresh path enforces (`_run_fanout` re-applied on continuation),
+    not trusted wholesale. When re-budgeting drops any of the cursor's locked
+    offices, the call is rejected outright (`invalid_cursor`) rather than
+    silently searching a smaller set than promised — proven here by asserting
+    ZERO upstream calls were made, not just the raised error code."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+
+    req = pagination.request_hash({"q": "anything", "parameter": None})
+    forged = pagination.encode_cursor(
+        {
+            "v": pagination.CURSOR_VERSION,
+            "kind": "search_places",
+            "off": 0,
+            "req": req,
+            # None of these are cached — a fresh call with this same list
+            # would budget them identically; the cursor path must too.
+            "offices": ["NWDM", "NWDP", "SWT"],
+            "total": 0,
+        }
+    )
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("anything", limit=2, cursor=forged)
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+    # The real security property: no upstream calls were made at all — the
+    # budget-skip is detected and rejected BEFORE any fan-out, not after
+    # spending calls on a partial/degraded set.
+    assert len(mocked.calls) == 0
+
+
+def test_search_places_cursor_rejects_when_cache_expires_between_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#72 (Codex review): pre-#72, a cursor's locked offices were refetched
+    unconditionally regardless of cache state, so cache TTL eviction between
+    pages never affected a legitimate multi-office cursor. Re-applying the
+    budget on continuation means an office that falls out of cache between
+    pages can now get budget-skipped too — this is an intentional, narrow
+    behavior change (documented in `_resolve_scope`): the response is a
+    clearly labeled `invalid_cursor` restart signal, not a silently smaller
+    result set that a client might mistake for complete."""
+    rows = [
+        {
+            "office_id": "NWDM",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(3)
+    ]
+    cached_offices = {"NWDM", "NWDP"}
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 0)  # no new fetches allowed at all
+    monkeypatch.setattr(places, "_location_catalog_cached", lambda office: office in cached_offices)
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
+
+    page1 = places.search_places("L", office=["NWDM", "NWDP"], limit=2)
+    assert page1["offices_searched"] == ["NWDM", "NWDP"]
+    assert page1["next_cursor"]
+
+    cached_offices.discard("NWDP")  # simulate TTL eviction between page 1 and page 2
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("L", office=["NWDM", "NWDP"], limit=2, cursor=page1["next_cursor"])
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
 
 
