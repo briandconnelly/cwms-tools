@@ -84,14 +84,15 @@ class ErrorDetails(CompactDumpMixin, BaseModel):
 
     Only ever constructed when at least one member is meaningful (see
     `CwmsToolsError.of`) — an envelope with nothing field-specific to say
-    carries `details: None`, never an empty object. Enforced at construction
-    (not just by convention at the `.of()` call site) so a direct
-    `ErrorDetails()`/`ErrorDetails(**{})` or a later mutation back to
-    all-None can't reintroduce the empty-object shape the wire contract
-    forbids.
+    carries `details: None`, never an empty object. Enforced both at
+    construction and on later assignment (`validate_assignment=True`), so a
+    direct `ErrorDetails()`/`ErrorDetails(**{})`, or an in-place mutation
+    (e.g. `stamp_envelope`/`rewrite_error_field`) that would zero out the
+    last remaining member, can't reintroduce the empty-object shape the wire
+    contract forbids.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     field: str | None = None
     value: Any | None = None
@@ -104,7 +105,7 @@ class ErrorDetails(CompactDumpMixin, BaseModel):
         return self
 
 
-class RepairHint(BaseModel):
+class RepairHint(CompactDumpMixin, BaseModel):
     """A pointer at a real callable surface that should succeed where this call failed."""
 
     model_config = ConfigDict(extra="forbid")
@@ -196,10 +197,10 @@ def upstream_error_from_status(
 ) -> CwmsToolsError:
     """Classify an upstream HTTP failure by status code.
 
-    - 404 → NOT_FOUND (non-retryable)
-    - 429 → RATE_LIMITED (retryable; carries `retry_after_ms` when known)
-    - other 4xx → UPSTREAM_ERROR (non-retryable)
-    - 5xx and unknown → UPSTREAM_ERROR (retryable)
+    - 404 → NOT_FOUND (not temporary)
+    - 429 → RATE_LIMITED (temporary; carries `retry_after_ms` when known)
+    - other 4xx → UPSTREAM_ERROR (not temporary)
+    - 5xx and unknown → UPSTREAM_ERROR (temporary)
 
     Callers that already have an upstream exception (e.g. `cwms.api.ApiError`)
     pull `exc.response.status_code` off it and pass it in, plus

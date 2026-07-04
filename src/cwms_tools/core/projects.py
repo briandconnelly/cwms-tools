@@ -9,7 +9,7 @@ Two recoverable failure modes:
   response rather than raising UPSTREAM_ERROR.
 
 Other 4xx → partial with `project_lookup_4xx` + the captured status.
-5xx → propagated as a retryable UPSTREAM_ERROR.
+5xx → propagated as a temporary UPSTREAM_ERROR.
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ def _classify_and_fallback(
 ) -> dict[str, Any] | None:
     """Route an upstream ApiError to a partial-response fallback or None.
 
-    Returns None when the caller should raise UPSTREAM_ERROR (retryable
+    Returns None when the caller should raise UPSTREAM_ERROR (temporary
     5xx, or anything else outside the documented partial-response paths).
     """
     status = getattr(getattr(exc, "response", None), "status_code", None)

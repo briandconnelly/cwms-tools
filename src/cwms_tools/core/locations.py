@@ -62,8 +62,8 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
     """Return a single Location's raw payload from cwms-python.
 
     Wraps upstream errors with status-code routing: 404 → NOT_FOUND,
-    other 4xx → UPSTREAM_ERROR (non-retryable), 5xx → UPSTREAM_ERROR
-    (retryable). Previously every failure became NOT_FOUND, hiding
+    other 4xx → UPSTREAM_ERROR (not temporary), 5xx → UPSTREAM_ERROR
+    (temporary). Previously every failure became NOT_FOUND, hiding
     transient upstream issues behind a "not found" envelope.
     """
     if office_id in NW_STUBS:

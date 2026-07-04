@@ -107,7 +107,7 @@ def emit_error(error: CwmsToolsError) -> NoReturn:
 
 
 def rewrite_error_field(error: CwmsToolsError, *, when: str, to: str) -> CwmsToolsError:
-    """Override `error.envelope.field` to `to` when it currently equals `when`.
+    """Override `error.envelope.details.field` to `to` when it currently equals `when`.
 
     `emit_error`'s `surface_field_name()` translation assumes a flag exists
     for the producer-internal name it's correcting to (true for MCP tools
@@ -115,12 +115,12 @@ def rewrite_error_field(error: CwmsToolsError, *, when: str, to: str) -> CwmsToo
     combined positional instead (`place describe/parameters`'s `OFFICE/NAME`
     `spec`; `value get/history/profile`'s `OFFICE/NAME/PARAMETER` id) — for
     those, `office`/`office_id` isn't a real argument on the command at all,
-    so the surface-facing `field` needs command-specific redirection to the
-    positional the caller can actually retry with (#68 review feedback).
-    Call this BEFORE `emit_error`/serialization so `surface_field_name`'s
-    default translation doesn't run first (it's a no-op on an already-
-    rewritten name, but checking the untranslated producer name here keeps
-    the intent obvious at each call site).
+    so the surface-facing `details.field` needs command-specific redirection
+    to the positional the caller can actually retry with (#68 review
+    feedback). Call this BEFORE `emit_error`/serialization so
+    `surface_field_name`'s default translation doesn't run first (it's a
+    no-op on an already-rewritten name, but checking the untranslated
+    producer name here keeps the intent obvious at each call site).
     """
     if error.envelope.details is not None and error.envelope.details.field == when:
         error.envelope.details.field = to
