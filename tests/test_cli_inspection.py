@@ -125,6 +125,11 @@ def test_schema_value_get_marks_with_status_slow_path() -> None:
     assert ws["type"] == "boolean"
 
 
+def _canonical_long_name(param: Any) -> str:
+    """The long `--...` form of a Click option, regardless of declaration order."""
+    return next((o for o in param.opts if o.startswith("--")), param.opts[0])
+
+
 def _leaf_commands(command: Any, prefix: list[str]) -> list[tuple[list[str], Any]]:
     """Recursively collect (path parts, click Command) for every leaf command."""
     sub = getattr(command, "commands", None)
@@ -149,7 +154,9 @@ def test_every_typer_command_has_a_schema_entry_with_matching_options() -> None:
         entry = schema_by_path[path]
         schema_option_names = {o["name"] for o in entry["options"]}
 
-        real_option_names = {p.opts[0] for p in command.params if p.param_type_name == "option"}
+        real_option_names = {
+            _canonical_long_name(p) for p in command.params if p.param_type_name == "option"
+        }
         missing = real_option_names - schema_option_names
         assert not missing, f"{path}: schema is missing real options {missing} (#84)"
 
