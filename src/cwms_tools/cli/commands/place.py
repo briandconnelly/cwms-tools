@@ -178,7 +178,13 @@ def search(
         if cursor is not None:
             repair_args["cursor"] = cursor
         repair_args["detail"] = detail.value
-        emit_error(attach_ghost_office_repair(err, tool="cwms_search_places", args=repair_args))
+        # Repair targets the actual CLI invocation, not the MCP tool (#69):
+        # `cwms_search_places` isn't a runnable command, so mechanical retry
+        # must name `cwms-tools place search`, mirroring the sibling
+        # describe/parameters/value commands.
+        emit_error(
+            attach_ghost_office_repair(err, tool="cwms-tools place search", args=repair_args)
+        )
     emit(shaping.shape_place_detail(payload, detail))
 
 

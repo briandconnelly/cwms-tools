@@ -83,7 +83,6 @@ COMPACT_ERROR_SCHEMA: Final[dict[str, Any]] = {
                 "rate_limit_remaining": {"type": "integer"},
                 "request_id": {"type": "string"},
                 "protocol_request_id": {"type": "string"},
-                "endpoints_called": {"type": "array", "items": {"type": "string"}},
                 "source": {
                     "type": "object",
                     "additionalProperties": False,

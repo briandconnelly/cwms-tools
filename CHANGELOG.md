@@ -46,6 +46,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CLI `place search` and `region browse` ghost-office repair hints named the
+  MCP tools (`cwms_search_places` / `cwms_browse_region`) instead of the
+  runnable CLI commands, so an agent following the mechanical retry contract
+  (#69) invoked a non-existent command and got "no such command" — the exact
+  loop #69 was meant to make work. They now name `cwms-tools place search` /
+  `cwms-tools region browse`, matching the sibling describe/parameters/value
+  commands. The two CLI tests that had locked in the buggy tool names are
+  corrected.
+- `cwms_get_history` / `cwms-tools value history` raw-point cap
+  (`_cap_raw_points`) sorted points by lexicographic comparison of the raw
+  timestamp string, not chronologically — so mixed fractional-second
+  precision (`…:00Z` vs `…:00.500Z`, where `'.' < 'Z'`) or mixed zone offsets
+  could cap on the wrong boundary and derive a `next_begin` that skips or
+  duplicates points on continuation. Sorting now keys on the parsed epoch (via
+  a shared `_parse_point_timestamp` helper also used by `_next_begin_from_points`).
+- The `ghost_office` error envelope was built byte-for-byte identically in
+  `core.locations` and `core.catalog`; both now build it from a single shared
+  `core.offices.ghost_office_error`, so the guidance text can't drift between
+  the single-location-read path and the catalog path (matching how #69 already
+  consolidated `NW_STUBS`/`ghost_office_repair`).
+- The cold-cache fan-out budget was duplicated verbatim in
+  `core.places._fanout_budget` and `core.publishers_index._budget`; both now
+  delegate to a single `core.concurrency.fanout_budget`, so tuning the ratio
+  can't leave `search_places` and `publishers_for_parameter` enforcing
+  different per-call caps.
+- The `ErrorEnvelope` carried endpoint provenance twice — a flat top-level
+  `endpoints_called` and `source.endpoints_called`, populated identically — so
+  every error emitted the same list on the wire twice. Dropped the flat
+  top-level field (and its output-schema entry); provenance now lives solely
+  under `source`, matching #70's success-side decision to keep it nested.
+- Removed a dead `_threading = threading` alias in `core.values` whose comment
+  claimed it kept the import live, though `threading` is used directly.
+
 - `cwms-tools schema` (the agent-facing machine contract) was missing a
   `cwms-tools value profile` entry entirely, and `cwms-tools value history`'s
   entry was missing its `--rollup` option, even though both are real, tested

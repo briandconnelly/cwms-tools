@@ -22,30 +22,15 @@ from cwms_tools.core.errors import (
     retry_after_ms_from_response,
     upstream_error_from_status,
 )
-from cwms_tools.core.offices import NW_STUBS
+from cwms_tools.core.offices import NW_STUBS, ghost_office_error
 
 # NW Division district stubs — publish no data in CDA. Documented in
 # cwms-overview.md §6.1. Mirror the short-circuit from `core.catalog` so
 # single-location reads (place describe, place parameters) raise the same
-# structured `ghost_office` error instead of a database-internals 404. The
+# structured `ghost_office` error instead of a database-internals 404 — both
+# now build that error from the shared `core.offices.ghost_office_error`. The
 # surface boundary (mcp.tools._safe, cli.render), not this module, attaches
 # the same-tool retry repair (#69) — see core.offices.ghost_office_repair.
-
-
-def _ghost_office_error(office_id: str) -> CwmsToolsError:
-    """Build `ghost_office` with no `repair` — see `core.catalog._raise_ghost_office`
-    for why (#69): the surface boundary attaches the same-tool retry repair."""
-    return CwmsToolsError.of(
-        ErrorCode.GHOST_OFFICE,
-        f"Office {office_id} publishes no operational data; use the regional rollup.",
-        field="office_id",
-        value=office_id,
-        reason=(
-            "NW Division districts (NWO, NWK, NWS, NWP, NWW) are catalog stubs. "
-            "Use NWDM (Missouri) or NWDP (Pacific NW) instead. The "
-            "`cwms://offices` resource lists every valid office code."
-        ),
-    )
 
 
 def search(
@@ -67,7 +52,7 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
     transient upstream issues behind a "not found" envelope.
     """
     if office_id in NW_STUBS:
-        raise _ghost_office_error(office_id)
+        raise ghost_office_error(office_id)
     cache = catalog.get_cache()
     cfg = catalog.current_config()
     key = catalog.build_cache_key(

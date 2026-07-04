@@ -604,6 +604,21 @@ def test_timestamp_sort_key_pushes_malformed_string_timestamps_last() -> None:
     assert {id(ordered[2]), id(ordered[3])} == {id(malformed), id(missing)}
 
 
+def test_timestamp_sort_key_orders_chronologically_not_lexicographically() -> None:
+    """Mixed fractional-second precision must sort by real time, not raw string
+    bytes. For `"...:00Z"` vs `"...:00.500Z"`, `'.'` (0x2E) < `'Z'` (0x5A), so a
+    lexicographic key ranks the `.500` point *earlier* though it is 500 ms
+    *later* — capping on the wrong boundary and deriving a bogus `next_begin`.
+    Sorting by parsed epoch fixes it (post-0.5.0 review)."""
+    whole = {"timestamp": "2026-05-01T00:00:00Z", "value": 1.0}
+    frac = {"timestamp": "2026-05-01T00:00:00.500Z", "value": 2.0}
+    # Feed them in lexicographic ('.' < 'Z') order to prove the key re-sorts.
+    ordered = sorted([frac, whole], key=values._timestamp_sort_key)
+    assert ordered == [whole, frac]
+    # `next_begin` must derive from the true-latest point (frac), + 1 ms.
+    assert values._next_begin_from_points(ordered) == "2026-05-01T00:00:00.501000Z"
+
+
 # --------------------------------------------------------------------------
 # #26/#27: get_profile (whole-string depth read)
 # --------------------------------------------------------------------------

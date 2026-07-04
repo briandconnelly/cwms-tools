@@ -207,7 +207,9 @@ def test_place_search_returns_ghost_office_error_for_nwo() -> None:
     assert payload["error"]["code"] == "ghost_office"
     assert payload["error"]["details"]["field"] == "office"
     repair = payload["error"]["repair"]
-    assert repair["tool"] == "cwms_search_places"
+    # Repair names the runnable CLI command, not the MCP tool (#69) — the
+    # sibling describe/parameters/value commands do the same.
+    assert repair["tool"] == "cwms-tools place search"
     assert repair["arguments"] == {
         "query": "Bear Creek",
         "parameter": "Elev",
@@ -362,7 +364,7 @@ def test_region_browse_returns_ghost_office_error_for_nwo() -> None:
     # #69: repair retries the SAME command (never switches), office swapped
     # to the rollup target, echoing the rest of the original call.
     repair = payload["error"]["repair"]
-    assert repair["tool"] == "cwms_browse_region"
+    assert repair["tool"] == "cwms-tools region browse"
     assert repair["arguments"] == {"office": "NWDM", "state": "MT", "limit": 10}
 
 
