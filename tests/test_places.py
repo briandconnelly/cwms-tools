@@ -6,7 +6,7 @@ import cwms
 import pytest
 import responses
 
-from cwms_tools.core import locations, offices, places, projects, session
+from cwms_tools.core import locations, offices, pagination, places, projects, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
@@ -898,7 +898,13 @@ def test_search_places_paginates_with_cursor(monkeypatch):
     assert page3["has_more"] is False
     assert page3["next_cursor"] is None
 
-    assert fanout_calls == 1  # only page 1 fans out; pages 2-3 use the locked cursor
+    # #72: every page — including cursor continuations — re-runs `_run_fanout`
+    # over the (locked) office set, so a forged cursor can't bypass the
+    # uncached-office budget. Legitimate continuations pay no real extra cost
+    # since the locked offices are cache-hot by the time a page 2/3 call
+    # arrives; see the forged-cursor regression test below for the case this
+    # closes.
+    assert fanout_calls == 3
 
 
 def test_search_places_cursor_rejects_catalog_shift(monkeypatch):
@@ -965,6 +971,79 @@ def test_search_places_rejects_cursor_with_unlimited_limit(monkeypatch):
     monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: ([], []))
     with pytest.raises(CwmsToolsError) as exc:
         places.search_places("L", office="NWDM", limit=0, cursor="anytoken")
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_search_places_forged_cursor_cannot_bypass_fanout_budget(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#72: cursors are unkeyed base64url(JSON) and `req` is an unkeyed hash
+    of the query/parameter (`pagination.request_hash`) — anyone can build one
+    without ever having called `search_places`. A forged cursor naming many
+    never-cached offices must be capped by the SAME per-call uncached-office
+    budget the fresh path enforces (`_run_fanout` re-applied on continuation),
+    not trusted wholesale. When re-budgeting drops any of the cursor's locked
+    offices, the call is rejected outright (`invalid_cursor`) rather than
+    silently searching a smaller set than promised — proven here by asserting
+    ZERO upstream calls were made, not just the raised error code."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+
+    req = pagination.request_hash({"q": "anything", "parameter": None})
+    forged = pagination.encode_cursor(
+        {
+            "v": pagination.CURSOR_VERSION,
+            "kind": "search_places",
+            "off": 0,
+            "req": req,
+            # None of these are cached — a fresh call with this same list
+            # would budget them identically; the cursor path must too.
+            "offices": ["NWDM", "NWDP", "SWT"],
+            "total": 0,
+        }
+    )
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("anything", limit=2, cursor=forged)
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+    # The real security property: no upstream calls were made at all — the
+    # budget-skip is detected and rejected BEFORE any fan-out, not after
+    # spending calls on a partial/degraded set.
+    assert len(mocked.calls) == 0
+
+
+def test_search_places_cursor_rejects_when_cache_expires_between_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#72 (Codex review): pre-#72, a cursor's locked offices were refetched
+    unconditionally regardless of cache state, so cache TTL eviction between
+    pages never affected a legitimate multi-office cursor. Re-applying the
+    budget on continuation means an office that falls out of cache between
+    pages can now get budget-skipped too — this is an intentional, narrow
+    behavior change (documented in `_resolve_scope`): the response is a
+    clearly labeled `invalid_cursor` restart signal, not a silently smaller
+    result set that a client might mistake for complete."""
+    rows = [
+        {
+            "office_id": "NWDM",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": [],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(3)
+    ]
+    cached_offices = {"NWDM", "NWDP"}
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 0)  # no new fetches allowed at all
+    monkeypatch.setattr(places, "_location_catalog_cached", lambda office: office in cached_offices)
+    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
+
+    page1 = places.search_places("L", office=["NWDM", "NWDP"], limit=2)
+    assert page1["offices_searched"] == ["NWDM", "NWDP"]
+    assert page1["next_cursor"]
+
+    cached_offices.discard("NWDP")  # simulate TTL eviction between page 1 and page 2
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("L", office=["NWDM", "NWDP"], limit=2, cursor=page1["next_cursor"])
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
 
 

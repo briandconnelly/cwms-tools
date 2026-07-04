@@ -239,10 +239,25 @@ def _resolve_scope(
     """Resolve the office set to search, honoring a continuation cursor.
 
     Returns `(decoded_cursor, offset, offices_searched, offices_skipped,
-    partial_reasons)`. On the cursor path the office set is locked to the
-    cursor's bounded list (a forged cursor must not widen the fan-out); on the
-    fresh path it is the explicit `office` list or the cached default scope,
-    bounded by the per-call fan-out budget.
+    partial_reasons)`. On the cursor path the office set is bounded to the
+    cursor's locked list — a forged cursor cannot WIDEN the fan-out beyond
+    what `coerce_offices` structurally allows (at most `MAX_CURSOR_OFFICES`
+    entries) — but that list is then re-run through `_run_fanout` (#72), the
+    SAME uncached-office budget the fresh path enforces, so a forged cursor
+    naming many never-cached offices cannot bypass the budget either. A
+    legitimate cursor only ever locks in `offices_searched` from a prior page
+    (see the `next_cursor` encode call below), and those offices are normally
+    still cache-hot moments later, so this re-check is a no-op cost-wise for
+    the real pagination flow. It DOES introduce one new, narrow failure mode
+    versus the pre-#72 behavior (which unconditionally refetched every locked
+    office regardless of cache state): if cache TTL evicts more than
+    `_fanout_budget()` of the locked offices between pages, some now get
+    budget-skipped here. Silently shrinking the searched set and hoping
+    `ensure_total` catches the resulting mismatch would be both non-deterministic
+    (only fires if the total happens to differ) and could silently under-report
+    results if it doesn't — so instead this raises `invalid_cursor` immediately
+    whenever continuation budgeting skips ANY previously-locked office,
+    labeled distinctly from a genuine catalog-shift.
     """
     if cursor is None:
         requested = _normalize_office_arg(office)
@@ -262,7 +277,18 @@ def _resolve_scope(
     # Cheap checks BEFORE upstream fan-out: kind, request hash, offset shape,
     # and a bounded/typed office set (a forged cursor must not widen the fan-out).
     offset = pagination.validate_continuation(decoded, kind="search_places", req=req)
-    return decoded, offset, pagination.coerce_offices(decoded), [], []
+    locked_offices = pagination.coerce_offices(decoded)
+    offices_searched, offices_skipped, partial_reasons = _run_fanout(locked_offices)
+    if offices_skipped:
+        # A locked office fell out of budget (cache TTL evicted it, or the
+        # cursor was forged). Reject outright rather than silently searching
+        # a smaller set than the cursor promised.
+        raise pagination.invalid_cursor(
+            "cursor's locked office set no longer fits the per-call fan-out budget "
+            "(cache expired, or the cursor is invalid); restart without `cursor`",
+            offending_value=", ".join(offices_skipped)[: pagination.CURSOR_ECHO_MAX],
+        )
+    return decoded, offset, offices_searched, offices_skipped, partial_reasons
 
 
 def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
