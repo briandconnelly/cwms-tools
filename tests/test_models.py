@@ -160,23 +160,24 @@ def test_publishers_for_parameter_response_round_trips_observed_publishers_alias
     assert "observed_publishers_by_office" not in dumped
 
 
-@pytest.mark.parametrize(
-    "model_cls",
-    [
-        PlaceSummary,
-        SearchPlacesResponse,
-        BrowseRegionResponse,
-        ActiveThreshold,
-        ValueWithContextResponse,
-        HistoryResponse,
-    ],
-)
-def test_task_response_models_are_closed(model_cls: type[BaseModel]) -> None:
-    """#74: task-response models forbid extras — an undeclared producer field
-    is a schema bug to fix, not a silently-tolerated passthrough. (The DTO
-    facade tier — CdaLocation/CdaProject — is a different tier and is exempt
-    by design; not parametrized here.)"""
-    assert model_cls.model_config.get("extra") == "forbid"
+def test_all_task_response_models_are_closed() -> None:
+    """#74 (Copilot review): exhaustive over every `BaseModel` subclass
+    exported from `core.models.__all__`, not a hand-picked subset — so a new
+    task-response model added later without `extra="forbid"` fails this test
+    immediately instead of silently drifting back to the old tolerant
+    behavior. Only the DTO facade tier (`CdaLocation`/`CdaProject`) is exempt
+    by design — it wraps arbitrary upstream JSON DTOs."""
+    import cwms_tools.core.models as models_module
+
+    exempt = {"CdaLocation", "CdaProject"}
+    checked: list[str] = []
+    for name in models_module.__all__:
+        obj = getattr(models_module, name)
+        if isinstance(obj, type) and issubclass(obj, BaseModel) and name not in exempt:
+            checked.append(name)
+            assert obj.model_config.get("extra") == "forbid", f"{name} is not closed"
+    # Sanity: the loop actually found and checked models, not silently no-op.
+    assert len(checked) >= 15
 
 
 def test_value_with_context_response_carries_source_meta() -> None:
