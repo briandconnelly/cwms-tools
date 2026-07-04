@@ -178,7 +178,6 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Search places by name",
         },
         output_schema=iserror_output_schema(SearchPlacesResponse),
@@ -247,7 +246,6 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Describe a place",
         },
         output_schema=iserror_output_schema(DescribePlaceResponse),
@@ -288,7 +286,6 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "List parameters at a place",
         },
         output_schema=iserror_output_schema(ListParametersResponse),
@@ -320,7 +317,6 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Browse a region's catalog",
         },
         output_schema=iserror_output_schema(BrowseRegionResponse),
@@ -407,7 +403,6 @@ def register_value_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Current value (optional status)",
         },
         output_schema=iserror_output_schema(ValueWithContextResponse),
@@ -472,7 +467,6 @@ def register_value_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Windowed history",
         },
         output_schema=iserror_output_schema(HistoryResponse),
@@ -566,7 +560,6 @@ def register_value_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Depth profile (whole string)",
         },
         output_schema=iserror_output_schema(ProfileResponse),
@@ -629,7 +622,6 @@ def register_publisher_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Publishers reporting a parameter",
         },
         output_schema=iserror_output_schema(PublishersForParameterResponse),

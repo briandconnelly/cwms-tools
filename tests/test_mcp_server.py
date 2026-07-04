@@ -413,7 +413,7 @@ _CDA_TOOLS = {
 }
 
 
-def test_cda_tools_declare_open_world_and_idempotent():
+def test_cda_tools_declare_open_world_and_omit_idempotent_hint():
     async def go():
         mcp = build_server()
         return {t.name: t.to_mcp_tool() for t in await mcp.list_tools()}
@@ -423,10 +423,30 @@ def test_cda_tools_declare_open_world_and_idempotent():
         ann = tools[name].annotations
         assert ann.readOnlyHint is True
         assert ann.openWorldHint is True
-        assert ann.idempotentHint is True
     overview = tools["cwms_get_overview_section"].annotations
     assert overview.openWorldHint is False
-    assert overview.idempotentHint is True
+
+
+def test_every_read_only_tool_omits_idempotent_hint():
+    """#75 (Copilot review): exhaustive over every registered tool, not just
+    `_CDA_TOOLS` plus `cwms_get_overview_section` — that subset previously
+    missed `cwms_get_profile` and `cwms_list_offices`, so a regression on
+    either would have slipped through. The MCP spec only assigns
+    `idempotentHint`/`destructiveHint` meaning when `readOnlyHint` is false;
+    every tool here is read-only, so `idempotentHint` must be omitted
+    entirely (not asserted true) rather than claiming semantics the protocol
+    doesn't assign in this branch."""
+
+    async def go():
+        mcp = build_server()
+        return await mcp.list_tools()
+
+    tools = asyncio.run(go())
+    assert tools  # sanity: the loop actually found and checked tools
+    for tool in tools:
+        ann = tool.to_mcp_tool().annotations
+        assert ann.readOnlyHint is True, f"{tool.name} is not read-only"
+        assert ann.idempotentHint is None, f"{tool.name} still declares idempotentHint"
 
 
 def test_capabilities_declare_tool_latency():
