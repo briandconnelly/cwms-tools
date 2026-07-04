@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
+from cwms_tools.cli.commands.schema import _schema_payload
 
 runner = CliRunner()
 
@@ -120,3 +123,35 @@ def test_schema_value_get_marks_with_status_slow_path() -> None:
     assert cmd["latency_class"] in {"network", "slow"}
     ws = next(o for o in cmd["options"] if o["name"] == "--with-status")
     assert ws["type"] == "boolean"
+
+
+def _leaf_commands(command: Any, prefix: list[str]) -> list[tuple[list[str], Any]]:
+    """Recursively collect (path parts, click Command) for every leaf command."""
+    sub = getattr(command, "commands", None)
+    if sub:
+        out: list[tuple[list[str], Any]] = []
+        for name, child in sub.items():
+            out.extend(_leaf_commands(child, [*prefix, name]))
+        return out
+    return [(prefix, command)]
+
+
+def test_every_typer_command_has_a_schema_entry_with_matching_options() -> None:
+    """Regression for #84: a real Typer command missing from `schema._commands()`,
+    or a schema entry whose options drift from the real Typer options, must fail
+    this test rather than ship silently."""
+    click_root = typer.main.get_command(app)
+    schema_by_path = {c["path"]: c for c in _schema_payload()["commands"]}
+
+    for name_parts, command in _leaf_commands(click_root, []):
+        path = "cwms-tools " + " ".join(name_parts)
+        assert path in schema_by_path, f"{path} has no `cwms-tools schema` entry (#84)"
+        entry = schema_by_path[path]
+        schema_option_names = {o["name"] for o in entry["options"]}
+
+        real_option_names = {p.opts[0] for p in command.params if p.param_type_name == "option"}
+        missing = real_option_names - schema_option_names
+        assert not missing, f"{path}: schema is missing real options {missing} (#84)"
+
+        stale = schema_option_names - real_option_names
+        assert not stale, f"{path}: schema advertises options that don't exist: {stale}"
