@@ -413,7 +413,12 @@ _CDA_TOOLS = {
 }
 
 
-def test_cda_tools_declare_open_world_and_idempotent():
+def test_cda_tools_declare_open_world_and_omit_idempotent_hint():
+    """#75: the MCP spec only assigns `idempotentHint`/`destructiveHint`
+    meaning when `readOnlyHint` is false — every tool here is read-only, so
+    `idempotentHint` must be omitted entirely (not asserted true) rather than
+    claiming semantics the protocol doesn't assign in this branch."""
+
     async def go():
         mcp = build_server()
         return {t.name: t.to_mcp_tool() for t in await mcp.list_tools()}
@@ -423,10 +428,10 @@ def test_cda_tools_declare_open_world_and_idempotent():
         ann = tools[name].annotations
         assert ann.readOnlyHint is True
         assert ann.openWorldHint is True
-        assert ann.idempotentHint is True
+        assert ann.idempotentHint is None
     overview = tools["cwms_get_overview_section"].annotations
     assert overview.openWorldHint is False
-    assert overview.idempotentHint is True
+    assert overview.idempotentHint is None
 
 
 def test_capabilities_declare_tool_latency():

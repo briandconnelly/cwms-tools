@@ -113,6 +113,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   agent browsing a region doesn't need every per-row DTO). DTO facades
   (`CdaLocation`, `CdaProject`) are a different, currently-unwired tier and
   keep `extra="allow"` by design. Closes #74.
+- Removed `idempotentHint: true` from every tool annotation (all 10 tools
+  across `mcp/tools.py` and `mcp/server.py`). The MCP spec only assigns
+  `idempotentHint`/`destructiveHint` meaning when `readOnlyHint` is false —
+  every tool here is read-only, so asserting `idempotentHint: true` claimed
+  protocol semantics that don't apply in this branch rather than omitting a
+  hint the spec doesn't define here. Closes #75.
 - `ghost_office` errors no longer discard the agent's original call intent.
   Previously every ghost-office repair pointed at `cwms_browse_region`
   regardless of which tool actually failed — e.g. `cwms_get_value(office=NWO,

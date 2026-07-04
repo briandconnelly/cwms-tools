@@ -303,7 +303,6 @@ def build_server() -> FastMCP:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": False,
-            "idempotentHint": True,
             "title": "Get overview section",
         },
         output_schema=iserror_output_schema(OverviewSectionResponse, OverviewIndexResponse),
@@ -401,7 +400,6 @@ def build_server() -> FastMCP:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "List USACE offices",
         },
         output_schema=iserror_output_schema(OfficesResponse),
