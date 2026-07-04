@@ -171,6 +171,9 @@ def search_places(
             "last_data_timestamp": r.get("last_data_timestamp"),
             "co_located": r.get("co_located", []),
             "data_at": r.get("data_at", []),
+            # The unfiltered upstream location DTO (#74) — `shaping.shape_place_detail`
+            # strips this in `summary` mode; only `detail=full` keeps it.
+            "raw": r.get("raw"),
         }
         for r in page
     ]

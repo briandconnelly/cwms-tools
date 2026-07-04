@@ -167,10 +167,18 @@ class TsIdParts(BaseModel):
 
 
 # --------------------------------------------------------------------------
-# Task-response models — extra="allow" tolerates the dict layout we already
-# build in core/places.py and core/values.py without forcing a refactor of
-# those producers. The schemas FastMCP derives still document every field
-# we promise; extras are an upgrade hatch, not silent drift.
+# Task-response models — extra="forbid" (#74). These used to tolerate
+# extras as an "upgrade hatch" for the dict layout core/places.py and
+# core/values.py already build, but combined with the capability fingerprint
+# gap (#71, now closed) that meant a producer field could appear or drift
+# with no schema validation and no fingerprint movement — the outputSchema
+# advertised `additionalProperties: true` on every success branch. Every
+# field a producer actually emits is now declared explicitly (including
+# detail=full-only diagnostics like `ActiveThreshold.source_workaround` and
+# `PublishersForParameterResponse.observed_publishers_by_office`); an
+# undeclared field is a real bug, not a tolerated extra. DTO facades above
+# this line (CdaLocation, CdaProject) are a different tier and keep
+# extra="allow" by design — they wrap arbitrary upstream JSON.
 # --------------------------------------------------------------------------
 
 
@@ -179,7 +187,7 @@ class TsIdParts(BaseModel):
 class SensorDepth(CompactDumpMixin, BaseModel):
     """Structured depth parsed from a depth-tagged sensor id."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     value: float = Field(description="Sensor depth below the surface.")
     unit: str = Field(description="Depth unit: 'ft' or 'm'.")
@@ -188,7 +196,7 @@ class SensorDepth(CompactDumpMixin, BaseModel):
 class PlaceSummary(CompactDumpMixin, BaseModel):
     """One result from `cwms_search_places` / `cwms_browse_region`."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     office_id: str
     name: str
@@ -215,6 +223,10 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
             "`cwms_list_parameters` on each."
         ),
     )
+    raw: dict[str, Any] | None = Field(
+        default=None,
+        description="Unfiltered upstream location DTO; detail=full only (search, not browse).",
+    )
 
 
 # Distinct from `cwms_tools.core.errors.RepairHint` (the `{tool, args}` shape
@@ -222,7 +234,7 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
 class SearchRepairHint(CompactDumpMixin, BaseModel):
     """A retryable next call to recover from a dead-end search (e.g. no office in scope)."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     reason: str
     message: str
@@ -233,7 +245,7 @@ class SearchRepairHint(CompactDumpMixin, BaseModel):
 class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_search_places`."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     ok: Literal[True] = True
     query: str
@@ -290,7 +302,7 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
 
 
 class PublisherFingerprint(CompactDumpMixin, BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     publisher: str
     rank: int
@@ -301,7 +313,7 @@ class PublisherFingerprint(CompactDumpMixin, BaseModel):
 class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_describe_place`."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     ok: Literal[True] = True
     office_id: str
@@ -319,7 +331,7 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
 
 
 class PublisherAtPlace(CompactDumpMixin, BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     publisher: str
     rank: int
@@ -330,7 +342,7 @@ class PublisherAtPlace(CompactDumpMixin, BaseModel):
 class ListParametersResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_list_parameters`."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     ok: Literal[True] = True
     office_id: str
@@ -352,7 +364,7 @@ class ListParametersResponse(CompactDumpMixin, BaseModel):
 class BrowseRegionResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_browse_region`."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     ok: Literal[True] = True
     office: str
@@ -410,23 +422,34 @@ class StatusClass(StrEnum):
     UNKNOWN = "unknown"
 
 
+class LevelLookupStatus(StrEnum):
+    """Threshold-classification outcome on `cwms_get_value` responses."""
+
+    SKIPPED = "skipped"
+    COMPUTED = "computed"
+    TIMED_OUT = "timed_out"
+    UNAVAILABLE = "unavailable"
+
+
 class ActiveThreshold(CompactDumpMixin, BaseModel):
     """One applicable threshold and the relation of the current value to it."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     specified_level_id: str
+    level_id: str | None = Field(default=None, description="Present only at detail=full.")
     value: float
     unit: str
     relation: Literal["above", "at", "below"]
     delta: float | None = None
+    source_workaround: str | None = None
 
 
 class ValueWithContextResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_get_value`."""
 
     _keep_null: ClassVar[frozenset[str]] = frozenset({"value", "timestamp"})
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     ok: Literal[True] = True
     ts_id: str
@@ -439,6 +462,7 @@ class ValueWithContextResponse(CompactDumpMixin, BaseModel):
     timestamp: str | None = None
     status_class: StatusClass
     thresholds_active: list[ActiveThreshold]
+    level_lookup_status: LevelLookupStatus
     truncated: bool = False
     truncation_hint: str | None = None
     source: SourceMeta
@@ -446,7 +470,7 @@ class ValueWithContextResponse(CompactDumpMixin, BaseModel):
 
 class HistoryPoint(CompactDumpMixin, BaseModel):
     _keep_null: ClassVar[frozenset[str]] = frozenset({"value", "timestamp"})
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     timestamp: str | None = None
     value: float | None = None
@@ -456,7 +480,7 @@ class HistoryPoint(CompactDumpMixin, BaseModel):
 class HistorySummary(CompactDumpMixin, BaseModel):
     """Window-level reduction so 'how has X changed?' needs no client-side math."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     count: int = Field(
         description="Observations with both a numeric value and a timestamp (others excluded).",
@@ -472,7 +496,7 @@ class HistorySummary(CompactDumpMixin, BaseModel):
 class HistoryBucket(CompactDumpMixin, BaseModel):
     """One server-side rollup bucket (per UTC hour or day)."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     timestamp: str = Field(description="RFC3339 UTC bucket start (half-open interval).")
     min: float
@@ -490,7 +514,7 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     # (it is null only when the window holds no numeric observations); callers
     # can rely on `summary` existing rather than probing for it.
     _keep_null: ClassVar[frozenset[str]] = frozenset({"summary"})
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     ok: Literal[True] = True
     ts_id: str
@@ -545,7 +569,7 @@ class ProfileSensor(CompactDumpMixin, BaseModel):
     """One depth sensor's latest reading in a `cwms_get_profile` result."""
 
     _keep_null: ClassVar[frozenset[str]] = frozenset({"value", "timestamp"})
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     depth: SensorDepth
@@ -565,7 +589,7 @@ class ProfileSensor(CompactDumpMixin, BaseModel):
 class ProfileResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_get_profile` — a depth string read in one call."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     ok: Literal[True] = True
     office_id: str
@@ -589,7 +613,7 @@ class ProfileResponse(CompactDumpMixin, BaseModel):
 
 
 class PublisherCoverage(CompactDumpMixin, BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     publisher: str
     rank: int
@@ -598,7 +622,7 @@ class PublisherCoverage(CompactDumpMixin, BaseModel):
 
 
 class PublishersCoverage(CompactDumpMixin, BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     offices_requested: list[str]
     offices_indexed: list[str]
@@ -619,7 +643,12 @@ class PublishersCoverage(CompactDumpMixin, BaseModel):
 class PublishersForParameterResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_publishers_for_parameter`."""
 
-    model_config = ConfigDict(extra="allow")
+    # `serialize_by_alias`: the one field below needs to round-trip under its
+    # literal underscore-prefixed wire name, which pydantic forbids as a
+    # Python attribute name outright — the alias IS the real field name here,
+    # not cosmetic, so serialization must honor it without a `by_alias=True`
+    # at every dump call site.
+    model_config = ConfigDict(extra="forbid", serialize_by_alias=True)
 
     ok: Literal[True] = True
     parameter: str
@@ -628,6 +657,11 @@ class PublishersForParameterResponse(CompactDumpMixin, BaseModel):
     ts_count: int
     coverage: PublishersCoverage
     repair: dict[str, Any] | None = None
+    observed_publishers_by_office: dict[str, list[str]] | None = Field(
+        default=None,
+        alias="_observed_publishers_by_office",
+        description="Internal diagnostic: publisher sightings per office; detail=full only.",
+    )
     source: SourceMeta
 
 
@@ -641,6 +675,7 @@ __all__ = [
     "ErrorRef",
     "HistoryPoint",
     "HistoryResponse",
+    "LevelLookupStatus",
     "ListParametersResponse",
     "PlaceSummary",
     "PublisherAtPlace",

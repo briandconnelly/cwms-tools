@@ -756,7 +756,12 @@ def test_error_envelope_carries_protocol_request_id(configured) -> None:
 def test_semantic_nulls_survive_fastmcp_wire_serialization() -> None:
     import pydantic_core
 
-    from cwms_tools.core.models import SourceMeta, StatusClass, ValueWithContextResponse
+    from cwms_tools.core.models import (
+        LevelLookupStatus,
+        SourceMeta,
+        StatusClass,
+        ValueWithContextResponse,
+    )
 
     resp = ValueWithContextResponse(
         ts_id="X.Elev.Inst.1Hour.0.Best",
@@ -769,6 +774,7 @@ def test_semantic_nulls_survive_fastmcp_wire_serialization() -> None:
         timestamp=None,
         status_class=StatusClass.UNKNOWN,
         thresholds_active=[],
+        level_lookup_status=LevelLookupStatus.SKIPPED,
         source=SourceMeta(fingerprint="f" * 64),
     )
     wire = pydantic_core.to_jsonable_python(resp)

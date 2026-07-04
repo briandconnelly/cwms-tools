@@ -139,6 +139,7 @@ VALUE = {
                 "source_workaround": "wa",
             }
         ],
+        "level_lookup_status": "computed",
     },
     "producer": (values, "get_value"),
     "cli": ["value", "get", "SWT/FOSS/Elev"],

@@ -85,6 +85,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   locked offices fell out of cache between pages — is rejected outright as
   `invalid_cursor` (no upstream calls spent) rather than silently searching
   a smaller office set than the cursor promised. Closes #72.
+- Task-response models (`SearchPlacesResponse`, `DescribePlaceResponse`,
+  `ValueWithContextResponse`, and the rest of the success-branch tier in
+  `core/models.py`) now forbid extra fields (`extra="forbid"`), so every
+  outputSchema's success branch advertises `additionalProperties: false`
+  instead of `true`. Previously an undeclared producer field silently passed
+  through unvalidated and unfingerprinted (combined with #71's since-closed
+  fingerprint gap, a field could appear or drift with no signal at all).
+  Closing the models surfaced fields that were only ever tolerated via the
+  old `extra="allow"` hatch and needed to become real, declared fields:
+  `ActiveThreshold.level_id`/`.source_workaround` (detail=full only),
+  `ValueWithContextResponse.level_lookup_status` (a new `LevelLookupStatus`
+  enum; always present, per `core.values.get_value`'s own docstring), and
+  `PublishersForParameterResponse`'s `_observed_publishers_by_office`
+  diagnostic (detail=full only; needs `alias`+`serialize_by_alias=True`
+  since pydantic forbids a literal underscore-prefixed field name). It also
+  surfaced a real bug: `cwms_describe_place`'s producer emitted top-level
+  `source_workaround`/`upstream_status` keys purely to feed `source.workaround`/
+  `source.upstream_status` — never popped, so every response (both MCP and
+  CLI) leaked a redundant, undocumented duplicate of that same information;
+  now popped on both surfaces. Also completed a previously half-wired
+  feature: `cwms_search_places` results now carry the raw upstream location
+  DTO under `raw` at `detail=full` (dropped in `summary`) — the shaping
+  layer already had this exact stripping logic, but the producer never
+  actually included the field, so it was dead code; `cwms_browse_region`
+  deliberately still omits it (an existing, unchanged design decision — an
+  agent browsing a region doesn't need every per-row DTO). DTO facades
+  (`CdaLocation`, `CdaProject`) are a different, currently-unwired tier and
+  keep `extra="allow"` by design. Closes #74.
 - `ghost_office` errors no longer discard the agent's original call intent.
   Previously every ghost-office repair pointed at `cwms_browse_region`
   regardless of which tool actually failed — e.g. `cwms_get_value(office=NWO,
