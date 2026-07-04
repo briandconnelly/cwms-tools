@@ -247,7 +247,7 @@ def test_describe_place_falls_back_when_project_lookup_is_other_4xx(configured, 
 
 def test_describe_place_raises_upstream_error_on_project_5xx(configured, mocked) -> None:
     """5xx is transient; we do NOT swallow it into a partial response —
-    raise UPSTREAM_ERROR(retryable=True) so the caller can back off and
+    raise UPSTREAM_ERROR(temporary=True) so the caller can back off and
     retry."""
     mocked.add(
         responses.GET,
@@ -259,7 +259,7 @@ def test_describe_place_raises_upstream_error_on_project_5xx(configured, mocked)
         projects.get_one("SWT", "FOSS", use_cache=False)
     env = ex_info.value.envelope
     assert env.code is ErrorCode.UPSTREAM_ERROR
-    assert env.retryable is True
+    assert env.temporary is True
 
 
 # --------------------------------------------------------------------------
@@ -821,8 +821,8 @@ def test_search_places_no_limit_returns_all(configured, mocked) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_locations_get_one_wraps_5xx_as_retryable_upstream_error(configured, mocked) -> None:
-    """A transient 5xx must surface as UPSTREAM_ERROR(retryable=True), not
+def test_locations_get_one_wraps_5xx_as_temporary_upstream_error(configured, mocked) -> None:
+    """A transient 5xx must surface as UPSTREAM_ERROR(temporary=True), not
     masquerade as NOT_FOUND. The previous bare `except Exception` collapsed
     every upstream failure into a 'not found' envelope."""
     mocked.add(
@@ -835,11 +835,11 @@ def test_locations_get_one_wraps_5xx_as_retryable_upstream_error(configured, moc
         locations.get_one("SWT", "FOSS", use_cache=False)
     env = ex_info.value.envelope
     assert env.code is ErrorCode.UPSTREAM_ERROR
-    assert env.retryable is True
+    assert env.temporary is True
 
 
 def test_locations_get_one_wraps_404_as_not_found_with_field(configured, mocked) -> None:
-    """A genuine 404 still maps to NOT_FOUND and carries `field`/`offending_value`
+    """A genuine 404 still maps to NOT_FOUND and carries `details.field`/`details.value`
     so the agent gets a useful repair surface."""
     mocked.add(
         responses.GET,
@@ -851,8 +851,9 @@ def test_locations_get_one_wraps_404_as_not_found_with_field(configured, mocked)
         locations.get_one("SWT", "MISSING", use_cache=False)
     env = ex_info.value.envelope
     assert env.code is ErrorCode.NOT_FOUND
-    assert env.field == "name"
-    assert env.offending_value == "MISSING"
+    assert env.details is not None
+    assert env.details.field == "name"
+    assert env.details.value == "MISSING"
 
 
 # --------------------------------------------------------------------------

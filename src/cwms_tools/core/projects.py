@@ -9,7 +9,7 @@ Two recoverable failure modes:
   response rather than raising UPSTREAM_ERROR.
 
 Other 4xx → partial with `project_lookup_4xx` + the captured status.
-5xx → propagated as a retryable UPSTREAM_ERROR.
+5xx → propagated as a temporary UPSTREAM_ERROR.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
       ["not_a_project"]`, `upstream_status: 404`.
     - Other 4xx: `partial: true, partial_reasons: ["project_lookup_4xx"]`,
       `upstream_status: <code>`.
-    - 5xx: raises `CwmsToolsError(UPSTREAM_ERROR, retryable=True)`.
+    - 5xx: raises `CwmsToolsError(UPSTREAM_ERROR, temporary=True)`.
     """
     cache = get_cache()
     cfg = current_config()
@@ -63,7 +63,7 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
                 ErrorCode.UPSTREAM_ERROR,
                 f"upstream get_project failed for {office_id}/{name}: {exc}",
                 endpoints_called=[endpoint],
-                retryable=True,
+                temporary=True,
             ) from exc
         cache.set(key, fallback, ttl=cache.ttl_for("location_catalog"))
         return fallback
@@ -80,7 +80,7 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
             ErrorCode.UPSTREAM_ERROR,
             f"upstream get_project failed for {office_id}/{name}: {exc}",
             endpoints_called=[endpoint],
-            retryable=True,
+            temporary=True,
         ) from exc
 
     payload = data.json if hasattr(data, "json") else data
@@ -104,7 +104,7 @@ def _classify_and_fallback(
 ) -> dict[str, Any] | None:
     """Route an upstream ApiError to a partial-response fallback or None.
 
-    Returns None when the caller should raise UPSTREAM_ERROR (retryable
+    Returns None when the caller should raise UPSTREAM_ERROR (temporary
     5xx, or anything else outside the documented partial-response paths).
     """
     status = getattr(getattr(exc, "response", None), "status_code", None)

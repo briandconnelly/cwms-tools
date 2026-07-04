@@ -133,8 +133,8 @@ def get_profile(
             ErrorCode.USAGE_ERROR,
             "window_hours must be a positive number of hours.",
             field="window_hours",
-            offending_value=int(window.total_seconds() // 3600),
-            hint="Pass a positive look-back window, e.g. window_hours=24.",
+            value=int(window.total_seconds() // 3600),
+            reason="Pass a positive look-back window, e.g. window_hours=24.",
         )
     # `enrich_locations(like=...)` still fetches the full per-office locations
     # catalog (cached) and filters it client-side, but the `like` scopes the
@@ -239,8 +239,8 @@ def get_history(
             ErrorCode.USAGE_ERROR,
             f"Unknown rollup {rollup!r}.",
             field="rollup",
-            offending_value=rollup,
-            hint=f"Use one of: {', '.join(ROLLUP_MODES)}.",
+            value=rollup,
+            reason=f"Use one of: {', '.join(ROLLUP_MODES)}.",
         )
     tsid = timeseries.require_canonical_ts_id(office, location, parameter)
     parts = publishers.parse_ts_id(tsid)

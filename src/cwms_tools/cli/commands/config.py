@@ -53,7 +53,7 @@ def show(
             CwmsToolsError.of(
                 ErrorCode.USAGE_ERROR,
                 "Run `cwms-tools config show --resolved`.",
-                hint="Pass --resolved to print the merged effective configuration.",
+                reason="Pass --resolved to print the merged effective configuration.",
             )
         )
 

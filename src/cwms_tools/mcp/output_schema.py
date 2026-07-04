@@ -51,31 +51,46 @@ COMPACT_ERROR_SCHEMA: Final[dict[str, Any]] = {
             "properties": {
                 "code": {"type": "string", "enum": [c.value for c in ErrorCode]},
                 "message": {"type": "string"},
-                "field": {"type": ["string", "null"]},
-                "offending_value": {},
-                "hint": {"type": ["string", "null"]},
-                "repair": {
-                    "type": ["object", "null"],
+                "details": {
+                    "type": "object",
                     "additionalProperties": False,
-                    "description": "Retry: call repair.tool with repair.args.",
+                    "description": (
+                        "Field-level diagnostic detail. Omitted entirely (never present as "
+                        "`null`) when nothing field-specific applies — `CompactDumpMixin` "
+                        "strips None-valued fields at serialization rather than emitting them."
+                    ),
+                    "minProperties": 1,
                     "properties": {
-                        "tool": {"type": "string"},
-                        "args": {"type": "object", "additionalProperties": True},
+                        "field": {"type": "string"},
+                        "value": {},
+                        "reason": {"type": "string"},
                     },
-                    "required": ["tool"],
                 },
-                "retryable": {"type": "boolean"},
-                "retry_after_ms": {"type": ["integer", "null"]},
+                "repair": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "description": "Retry: call repair.tool with repair.arguments.",
+                    "properties": {
+                        "next_step": {"type": "string"},
+                        "tool": {"type": "string"},
+                        "arguments": {"type": "object", "additionalProperties": True},
+                        "alternative": {"type": "string"},
+                    },
+                    "required": ["next_step", "tool"],
+                },
+                "temporary": {"type": "boolean"},
+                "retry_after_ms": {"type": "integer"},
+                "rate_limit_remaining": {"type": "integer"},
                 "request_id": {"type": "string"},
-                "protocol_request_id": {"type": ["string", "null"]},
+                "protocol_request_id": {"type": "string"},
                 "endpoints_called": {"type": "array", "items": {"type": "string"}},
                 "source": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
                         "endpoints_called": {"type": "array", "items": {"type": "string"}},
-                        "fingerprint": {"type": ["string", "null"]},
-                        "workaround": {"type": ["string", "null"]},
+                        "fingerprint": {"type": "string"},
+                        "workaround": {"type": "string"},
                     },
                 },
             },

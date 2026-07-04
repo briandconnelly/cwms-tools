@@ -72,8 +72,8 @@ def _raise_ghost_office(office_id: str) -> None:
         ErrorCode.GHOST_OFFICE,
         f"Office {office_id} publishes no operational data; use the regional rollup.",
         field="office_id",
-        offending_value=office_id,
-        hint=(
+        value=office_id,
+        reason=(
             "NW Division districts (NWO, NWK, NWS, NWP, NWW) are catalog stubs. "
             "Use NWDM (Missouri) or NWDP (Pacific NW) instead. The "
             "`cwms://offices` resource lists every valid office code."

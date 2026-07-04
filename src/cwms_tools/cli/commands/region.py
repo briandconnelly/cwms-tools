@@ -110,8 +110,8 @@ def browse(
                 ErrorCode.USAGE_ERROR,
                 "--limit must be a non-negative integer.",
                 field="limit",
-                offending_value=limit,
-                hint="Pass --limit 0 for no cap, or any non-negative integer.",
+                value=limit,
+                reason="Pass --limit 0 for no cap, or any non-negative integer.",
             )
         )
     provided = [v for v in (south, west, north, east) if v is not None]
@@ -122,8 +122,8 @@ def browse(
                 "When specifying a bounding box, --south, --west, --north, "
                 "--east must all be provided.",
                 field=first_missing_bbox_field(south, west, north, east),
-                offending_value={"south": south, "west": west, "north": north, "east": east},
-                hint="Pass all four bbox edges or omit bbox entirely.",
+                value={"south": south, "west": west, "north": north, "east": east},
+                reason="Pass all four bbox edges or omit bbox entirely.",
             )
         )
 

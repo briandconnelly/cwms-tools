@@ -125,8 +125,9 @@ def test_get_value_raises_not_found_with_repair_when_parameter_absent(configured
             values.get_value("SWT", "FOSS", "Flow-In")
     err = ex_info.value.envelope
     assert err.code is ErrorCode.NOT_FOUND
-    assert err.field == "parameter"
-    assert err.offending_value == "Flow-In"
+    assert err.details is not None
+    assert err.details.field == "parameter"
+    assert err.details.value == "Flow-In"
     assert err.repair is not None
     assert err.repair.tool == "cwms_list_parameters"
 
@@ -702,7 +703,9 @@ def test_get_profile_rejects_non_positive_window(configured, hours) -> None:
     with pytest.raises(CwmsToolsError) as exc:
         values.get_profile("NWDP", "GWLW_S1", "Temp-Water", window=timedelta(hours=hours))
     assert exc.value.envelope.code == ErrorCode.USAGE_ERROR
-    assert exc.value.envelope.field == "window_hours"
+    details = exc.value.envelope.details
+    assert details is not None
+    assert details.field == "window_hours"
 
 
 # --------------------------------------------------------------------------

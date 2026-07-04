@@ -158,8 +158,9 @@ def publishers_for_parameter(
     repair = None
     if skipped:
         repair = RepairHint(
+            next_step="retry_skipped_offices",
             tool="cwms_publishers_for_parameter",
-            args={"parameter": parameter, "offices": skipped},
+            arguments={"parameter": parameter, "offices": skipped},
         ).model_dump(mode="json")
 
     return {

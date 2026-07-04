@@ -15,5 +15,5 @@ recordings land alongside the tool implementations in M3–M6.
 | `multi_id_value.json`              | List input to `cwms_get_value`; exercises `core/concurrency.py`. |
 | `catalog_truncated_at_page_cap.json` | `get_timeseries` silent-truncation detection. |
 | `cda_429_rate_limited.json`        | Recorded 429 + `Retry-After`; drives `test_get_locations_catalog_wraps_429_as_rate_limited_with_retry_after`. |
-| `cda_503_upstream_error.json`      | `error.code = upstream_error`, `retryable: true`. |
+| `cda_503_upstream_error.json`      | `error.code = upstream_error`, `temporary: true`. |
 | `auth_unconfigured.json`           | Anonymous-session verification (`whoami`, `env`). |

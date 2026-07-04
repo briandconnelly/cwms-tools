@@ -205,10 +205,10 @@ def test_place_search_returns_ghost_office_error_for_nwo() -> None:
     assert result.exit_code == 12  # GHOST exit
     payload = json.loads(result.stderr)
     assert payload["error"]["code"] == "ghost_office"
-    assert payload["error"]["field"] == "office"
+    assert payload["error"]["details"]["field"] == "office"
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms_search_places"
-    assert repair["args"] == {
+    assert repair["arguments"] == {
         "query": "Bear Creek",
         "parameter": "Elev",
         "limit": 10,
@@ -269,14 +269,14 @@ def test_place_describe_ghost_office_names_spec_not_office() -> None:
     assert result.exit_code == 12  # GHOST exit
     payload = json.loads(result.stderr)
     assert payload["error"]["code"] == "ghost_office"
-    assert payload["error"]["field"] == "spec"
+    assert payload["error"]["details"]["field"] == "spec"
     # #69: repair retries `place describe` with the SAME name, office
     # rolled up into a fresh `OFFICE/NAME` spec — not a different command.
     # #69 review: `tool` names the actual CLI invocation, not the MCP tool
     # (the MCP tool takes separate office/name, not a combined `spec`).
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms-tools place describe"
-    assert repair["args"] == {"spec": "NWDM/FTPK", "detail": "summary"}
+    assert repair["arguments"] == {"spec": "NWDM/FTPK", "detail": "summary"}
 
 
 def test_place_parameters_ghost_office_names_spec_not_office() -> None:
@@ -284,10 +284,10 @@ def test_place_parameters_ghost_office_names_spec_not_office() -> None:
     assert result.exit_code == 12  # GHOST exit
     payload = json.loads(result.stderr)
     assert payload["error"]["code"] == "ghost_office"
-    assert payload["error"]["field"] == "spec"
+    assert payload["error"]["details"]["field"] == "spec"
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms-tools place parameters"
-    assert repair["args"] == {"spec": "NWDM/FTPK"}
+    assert repair["arguments"] == {"spec": "NWDM/FTPK"}
 
 
 def test_place_parameters_lists_grouped_by_publisher(configured) -> None:
@@ -358,12 +358,12 @@ def test_region_browse_returns_ghost_office_error_for_nwo() -> None:
     assert payload["error"]["code"] == "ghost_office"
     # #68: `--office` is the flag; `office_id` (the producer-internal name
     # `core.locations`/`core.catalog` raise with) is never a real CLI flag.
-    assert payload["error"]["field"] == "office"
+    assert payload["error"]["details"]["field"] == "office"
     # #69: repair retries the SAME command (never switches), office swapped
     # to the rollup target, echoing the rest of the original call.
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms_browse_region"
-    assert repair["args"] == {"office": "NWDM", "state": "MT", "limit": 10}
+    assert repair["arguments"] == {"office": "NWDM", "state": "MT", "limit": 10}
 
 
 def test_region_browse_ghost_office_repair_echoes_bbox() -> None:
@@ -387,7 +387,7 @@ def test_region_browse_ghost_office_repair_echoes_bbox() -> None:
     assert result.exit_code == 12  # GHOST exit
     payload = json.loads(result.stderr)
     repair = payload["error"]["repair"]
-    assert repair["args"] == {
+    assert repair["arguments"] == {
         "south": 35.0,
         "west": -100.0,
         "north": 36.0,
@@ -405,7 +405,7 @@ def test_region_browse_rejects_partial_bbox_naming_first_missing_corner() -> Non
     assert result.exit_code == 2  # USAGE_ERROR
     payload = json.loads(result.stderr)
     assert payload["error"]["code"] == "usage_error"
-    assert payload["error"]["field"] == "west"
+    assert payload["error"]["details"]["field"] == "west"
 
 
 def test_place_search_accepts_cursor(monkeypatch):

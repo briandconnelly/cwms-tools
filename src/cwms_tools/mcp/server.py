@@ -165,7 +165,7 @@ def _raise_resource_not_found(
             ErrorCode.NOT_FOUND,
             message,
             field=field,
-            offending_value=offending_value,
+            value=offending_value,
             repair=repair,
         ).envelope
     )
@@ -261,7 +261,11 @@ def build_server() -> FastMCP:
                     f"No overview section {section_id!r}. Valid sections: "
                     f"{', '.join(overview.section_ids())}."
                 ),
-                repair=RepairHint(tool="cwms_get_overview_section", args={}),
+                repair=RepairHint(
+                    next_step="list_overview_sections",
+                    tool="cwms_get_overview_section",
+                    arguments={},
+                ),
             )
         return payload
 
@@ -289,8 +293,9 @@ def build_server() -> FastMCP:
                     "section for current chunk ids."
                 ),
                 repair=RepairHint(
+                    next_step="reread_section_for_current_chunk_ids",
                     tool="cwms_get_overview_section",
-                    args={"section_id": section_id, "detail": "summary"},
+                    arguments={"section_id": section_id, "detail": "summary"},
                 ),
             )
         return payload
@@ -340,8 +345,10 @@ def build_server() -> FastMCP:
                         ErrorCode.USAGE_ERROR,
                         "chunk_id requires section_id.",
                         field="chunk_id",
-                        offending_value=chunk_id,
-                        hint="Pass section_id along with chunk_id, or omit both to get the index.",
+                        value=chunk_id,
+                        reason=(
+                            "Pass section_id along with chunk_id, or omit both to get the index."
+                        ),
                     )
                 )
             return OverviewIndexResponse.model_validate(
@@ -356,10 +363,11 @@ def build_server() -> FastMCP:
                         ErrorCode.NOT_FOUND,
                         f"No chunk {chunk_id!r} in section {section_id!r}.",
                         field="chunk_id",
-                        offending_value=chunk_id,
+                        value=chunk_id,
                         repair=RepairHint(
+                            next_step="reread_section_for_current_chunk_ids",
                             tool="cwms_get_overview_section",
-                            args={"section_id": section_id, "detail": "summary"},
+                            arguments={"section_id": section_id, "detail": "summary"},
                         ),
                     )
                 )
@@ -390,8 +398,12 @@ def build_server() -> FastMCP:
                     f"No overview section {section_id!r}. Valid sections: "
                     f"{', '.join(overview.section_ids())}.",
                     field="section_id",
-                    offending_value=section_id,
-                    repair=RepairHint(tool="cwms_get_overview_section", args={}),
+                    value=section_id,
+                    repair=RepairHint(
+                        next_step="list_overview_sections",
+                        tool="cwms_get_overview_section",
+                        arguments={},
+                    ),
                 )
             )
         return OverviewSectionResponse.model_validate({**payload, "source": _overview_source()})

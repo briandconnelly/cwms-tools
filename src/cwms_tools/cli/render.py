@@ -99,14 +99,15 @@ def emit_error(error: CwmsToolsError) -> NoReturn:
     to the CLI-facing flag name (#68), mirroring `mcp.tools.stamp_envelope` —
     core producers emit whatever internal name suits their own domain.
     """
-    error.envelope.field = surface_field_name(error.envelope.field)
+    if error.envelope.details is not None:
+        error.envelope.details.field = surface_field_name(error.envelope.details.field)
     payload = {"ok": False, "error": error.envelope.model_dump(mode="json")}
     typer.echo(json.dumps(payload, default=str), err=True)
     raise typer.Exit(code=exit_code_for(error.envelope.code))
 
 
 def rewrite_error_field(error: CwmsToolsError, *, when: str, to: str) -> CwmsToolsError:
-    """Override `error.envelope.field` to `to` when it currently equals `when`.
+    """Override `error.envelope.details.field` to `to` when it currently equals `when`.
 
     `emit_error`'s `surface_field_name()` translation assumes a flag exists
     for the producer-internal name it's correcting to (true for MCP tools
@@ -114,15 +115,15 @@ def rewrite_error_field(error: CwmsToolsError, *, when: str, to: str) -> CwmsToo
     combined positional instead (`place describe/parameters`'s `OFFICE/NAME`
     `spec`; `value get/history/profile`'s `OFFICE/NAME/PARAMETER` id) — for
     those, `office`/`office_id` isn't a real argument on the command at all,
-    so the surface-facing `field` needs command-specific redirection to the
-    positional the caller can actually retry with (#68 review feedback).
-    Call this BEFORE `emit_error`/serialization so `surface_field_name`'s
-    default translation doesn't run first (it's a no-op on an already-
-    rewritten name, but checking the untranslated producer name here keeps
-    the intent obvious at each call site).
+    so the surface-facing `details.field` needs command-specific redirection
+    to the positional the caller can actually retry with (#68 review
+    feedback). Call this BEFORE `emit_error`/serialization so
+    `surface_field_name`'s default translation doesn't run first (it's a
+    no-op on an already-rewritten name, but checking the untranslated
+    producer name here keeps the intent obvious at each call site).
     """
-    if error.envelope.field == when:
-        error.envelope.field = to
+    if error.envelope.details is not None and error.envelope.details.field == when:
+        error.envelope.details.field = to
     return error
 
 
@@ -140,7 +141,7 @@ def attach_ghost_office_repair(
     `repair`) — call in either order, but before `emit_error`, which
     serializes the envelope and exits.
     """
-    office_id = error.envelope.offending_value
+    office_id = error.envelope.details.value if error.envelope.details else None
     if error.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
         error.envelope.repair = ghost_office_repair(office_id, tool=tool, args=args)
     return error
@@ -156,11 +157,13 @@ def attach_ghost_office_spec_repair(
     `spec_suffix` is everything after `OFFICE/` (e.g. `NAME` or
     `NAME/PARAMETER`); the repaired value becomes `{target}/{spec_suffix}`.
     """
-    office_id = error.envelope.offending_value
+    office_id = error.envelope.details.value if error.envelope.details else None
     if error.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
         target = nw_rollup_target(office_id)
         error.envelope.repair = RepairHint(
-            tool=tool, args={**args, spec_key: f"{target}/{spec_suffix}"}
+            next_step="retry_with_rollup_office",
+            tool=tool,
+            arguments={**args, spec_key: f"{target}/{spec_suffix}"},
         )
     return error
 

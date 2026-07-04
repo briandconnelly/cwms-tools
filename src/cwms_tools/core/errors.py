@@ -14,7 +14,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cwms_tools.core._compact import CompactDumpMixin
 
@@ -79,15 +79,46 @@ def surface_field_name(field: str | None) -> str | None:
     return _FIELD_SURFACE_NAMES.get(field, field)
 
 
-class RepairHint(BaseModel):
+class ErrorDetails(CompactDumpMixin, BaseModel):
+    """Field-level diagnostic detail for a failure.
+
+    Only ever constructed when at least one member is meaningful (see
+    `CwmsToolsError.of`) — an envelope with nothing field-specific to say
+    carries `details: None`, never an empty object. Enforced both at
+    construction and on later assignment (`validate_assignment=True`), so a
+    direct `ErrorDetails()`/`ErrorDetails(**{})`, or an in-place mutation
+    (e.g. `stamp_envelope`/`rewrite_error_field`) that would zero out the
+    last remaining member, can't reintroduce the empty-object shape the wire
+    contract forbids.
+    """
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    field: str | None = None
+    value: Any | None = None
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def _require_at_least_one_member(self) -> ErrorDetails:
+        if self.field is None and self.value is None and self.reason is None:
+            raise ValueError("ErrorDetails requires at least one of field/value/reason.")
+        return self
+
+
+class RepairHint(CompactDumpMixin, BaseModel):
     """A pointer at a real callable surface that should succeed where this call failed."""
 
     model_config = ConfigDict(extra="forbid")
 
+    next_step: str = Field(description="Short stable slug naming the corrective action.")
     tool: str = Field(description="The MCP tool / CLI command to call next.")
-    args: dict[str, Any] = Field(
+    arguments: dict[str, Any] = Field(
         default_factory=dict,
         description="Arguments for the next call.",
+    )
+    alternative: str | None = Field(
+        default=None,
+        description="Free-form fallback action when no single tool call fully recovers.",
     )
 
 
@@ -104,7 +135,8 @@ class SourceInfo(CompactDumpMixin, BaseModel):
 class ErrorEnvelope(CompactDumpMixin, BaseModel):
     """The structured error payload returned by every tool and CLI command on failure.
 
-    Wire shape matches the plan's §"Discovery & error contracts" exactly so a single
+    Wire shape matches the `agent-friendly-mcp` skill's contract checklist
+    §"Failure Recovery" (`details`/`temporary`/`repair.next_step`) so a single
     parser handles MCP and CLI errors.
     """
 
@@ -112,12 +144,11 @@ class ErrorEnvelope(CompactDumpMixin, BaseModel):
 
     code: ErrorCode
     message: str
-    field: str | None = None
-    offending_value: Any | None = None
-    hint: str | None = None
+    details: ErrorDetails | None = None
     repair: RepairHint | None = None
-    retryable: bool = False
+    temporary: bool = False
     retry_after_ms: int | None = None
+    rate_limit_remaining: int | None = None
     request_id: str = Field(default_factory=lambda: uuid4().hex)
     protocol_request_id: str | None = Field(
         default=None,
@@ -166,10 +197,10 @@ def upstream_error_from_status(
 ) -> CwmsToolsError:
     """Classify an upstream HTTP failure by status code.
 
-    - 404 → NOT_FOUND (non-retryable)
-    - 429 → RATE_LIMITED (retryable; carries `retry_after_ms` when known)
-    - other 4xx → UPSTREAM_ERROR (non-retryable)
-    - 5xx and unknown → UPSTREAM_ERROR (retryable)
+    - 404 → NOT_FOUND (not temporary)
+    - 429 → RATE_LIMITED (temporary; carries `retry_after_ms` when known)
+    - other 4xx → UPSTREAM_ERROR (not temporary)
+    - 5xx and unknown → UPSTREAM_ERROR (temporary)
 
     Callers that already have an upstream exception (e.g. `cwms.api.ApiError`)
     pull `exc.response.status_code` off it and pass it in, plus
@@ -181,16 +212,16 @@ def upstream_error_from_status(
             ErrorCode.NOT_FOUND,
             message,
             endpoints_called=[endpoint],
-            retryable=False,
+            temporary=False,
         )
     if status == 429:
         return CwmsToolsError.of(
             ErrorCode.RATE_LIMITED,
             message,
             endpoints_called=[endpoint],
-            retryable=True,
+            temporary=True,
             retry_after_ms=retry_after_ms,
-            hint=(
+            reason=(
                 "Upstream rate limit hit. Wait retry_after_ms (when set) before "
                 "retrying; reduce request fan-out via CWMS_TOOLS_WORKERS."
             ),
@@ -200,13 +231,13 @@ def upstream_error_from_status(
             ErrorCode.UPSTREAM_ERROR,
             message,
             endpoints_called=[endpoint],
-            retryable=False,
+            temporary=False,
         )
     return CwmsToolsError.of(
         ErrorCode.UPSTREAM_ERROR,
         message,
         endpoints_called=[endpoint],
-        retryable=True,
+        temporary=True,
     )
 
 
@@ -224,23 +255,28 @@ class CwmsToolsError(Exception):
         message: str,
         *,
         field: str | None = None,
-        offending_value: Any | None = None,
-        hint: str | None = None,
+        value: Any | None = None,
+        reason: str | None = None,
         repair: RepairHint | None = None,
-        retryable: bool = False,
+        temporary: bool = False,
         retry_after_ms: int | None = None,
+        rate_limit_remaining: int | None = None,
         endpoints_called: list[str] | None = None,
         workaround: str | None = None,
     ) -> CwmsToolsError:
+        details = (
+            ErrorDetails(field=field, value=value, reason=reason)
+            if field is not None or value is not None or reason is not None
+            else None
+        )
         envelope = ErrorEnvelope(
             code=code,
             message=message,
-            field=field,
-            offending_value=offending_value,
-            hint=hint,
+            details=details,
             repair=repair,
-            retryable=retryable,
+            temporary=temporary,
             retry_after_ms=retry_after_ms,
+            rate_limit_remaining=rate_limit_remaining,
             endpoints_called=endpoints_called or [],
             source=SourceInfo(
                 endpoints_called=endpoints_called or [],
@@ -253,6 +289,7 @@ class CwmsToolsError(Exception):
 __all__ = [
     "CwmsToolsError",
     "ErrorCode",
+    "ErrorDetails",
     "ErrorEnvelope",
     "RepairHint",
     "SourceInfo",
