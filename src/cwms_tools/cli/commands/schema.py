@@ -294,6 +294,17 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--begin", "string", required=True, help="RFC3339 window start."),
                 _opt("--end", "string", required=True, help="RFC3339 window end."),
                 _opt("--unit", "string", default="EN", enum=["EN", "SI"]),
+                _opt(
+                    "--rollup",
+                    "string",
+                    default="raw",
+                    enum=["raw", "hourly", "daily"],
+                    help=(
+                        "'raw' returns every point (server-side 5,000-point cap); "
+                        "'hourly'/'daily' return per-bucket min/max/mean/count and "
+                        "are not subject to that cap."
+                    ),
+                ),
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
             "error_codes": _errs(
@@ -304,6 +315,28 @@ def _commands() -> list[dict[str, Any]]:
                 "upstream_error",
                 "usage_error",
             ),
+        },
+        {
+            "path": "cwms-tools value profile",
+            "output_class": "record",
+            "reads_stdin": False,
+            "latency_class": "slow",
+            "arguments": [
+                _arg(
+                    "id_spec",
+                    "string",
+                    help="Parent string + parameter in OFFICE/NAME/PARAMETER form.",
+                )
+            ],
+            "options": [
+                _opt("--window-hours", "integer", default=24),
+                _opt("--unit", "string", default="EN", enum=["EN", "SI"]),
+                _opt("--detail", "string", default="summary", enum=["summary", "full"]),
+            ],
+            "error_codes": _errs(
+                "ghost_office", "not_found", "rate_limited", "upstream_error", "usage_error"
+            ),
+            "notes": "Reads every depth sensor of one string in a single call.",
         },
         # Publisher index (M6).
         {

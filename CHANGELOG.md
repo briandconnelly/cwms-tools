@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `cwms-tools schema` (the agent-facing machine contract) was missing a
+  `cwms-tools value profile` entry entirely, and `cwms-tools value history`'s
+  entry was missing its `--rollup` option, even though both are real, tested
+  Typer commands — so a schema-driven agent couldn't discover them. A new
+  regression test walks the actual Typer command tree and asserts every
+  command has a schema entry whose option list matches the real options
+  exactly, so this class of drift can't reoccur silently. Closes #84.
 - Removed `source.endpoints_called`/`source.cached` from successful tool
   responses — they were never populated (`mcp.tools._source()` had no path
   to set them) and always reported `[]`/`false`, even on network-hitting or
