@@ -94,8 +94,8 @@ def test_publishers_for_parameter_skips_offices_beyond_budget(
     assert payload["coverage"]["offices_skipped_for_budget"] == ["MVS", "MVR"]
     assert payload["repair"] is not None
     assert payload["repair"]["tool"] == "cwms_publishers_for_parameter"
-    assert payload["repair"]["args"]["parameter"] == "Elev"
-    assert payload["repair"]["args"]["offices"] == ["MVS", "MVR"]
+    assert payload["repair"]["arguments"]["parameter"] == "Elev"
+    assert payload["repair"]["arguments"]["offices"] == ["MVS", "MVR"]
 
 
 def test_publishers_for_parameter_distinguishes_budget_skipped_from_error_skipped(
@@ -179,7 +179,7 @@ def test_cli_publisher_for_parameter_error_is_structured_envelope(
             ErrorCode.UPSTREAM_ERROR,
             "boom",
             endpoints_called=["/catalog/TIMESERIES"],
-            retryable=True,
+            temporary=True,
         )
 
     monkeypatch.setattr(publishers_index, "publishers_for_parameter", _boom)
@@ -188,7 +188,7 @@ def test_cli_publisher_for_parameter_error_is_structured_envelope(
     assert result.stdout == ""
     err = json.loads(result.stderr)["error"]
     assert err["code"] == "upstream_error"
-    assert err["retryable"] is True
+    assert err["temporary"] is True
 
 
 def test_cli_publisher_for_parameter_with_explicit_office(configured) -> None:

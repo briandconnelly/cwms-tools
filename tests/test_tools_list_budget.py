@@ -25,6 +25,10 @@ below locks that in with headroom for organic growth;
 `test_tools_list_component_budget` reports subtotals so a future
 regression is easy to localize to input schemas, output schemas, or
 docstrings.
+
+#76 later grew the error envelope's own wire shape (`details`, richer
+`repair`, `rate_limit_remaining`), moving the measured size to ~58.4k
+chars — see `BUDGET_CHARS` below for that adjustment.
 """
 
 from __future__ import annotations
@@ -33,10 +37,13 @@ import json
 
 from cwms_tools.mcp.server import build_server
 
-#: ~14k tokens at the chars/4 conversion #67 used. Current measured size is
-#: ~54.1k chars; this leaves headroom for organic growth before the guard
-#: fires, while still catching a regression back toward the pre-fix ~81.4k.
-BUDGET_CHARS = 58_000
+#: #76 grew the error envelope wire shape (`details`, `repair.next_step`/
+#: `repair.alternative`, `rate_limit_remaining`) inlined once per tool via
+#: `COMPACT_ERROR_SCHEMA`, moving the measured size from ~54.1k to ~58.4k
+#: chars. Budget bumped to keep headroom for organic growth before the
+#: guard fires, while still catching a regression back toward the pre-#67
+#: ~81.4k.
+BUDGET_CHARS = 62_000
 
 
 def _serialize_tool(tool) -> str:

@@ -99,7 +99,8 @@ def stamp_envelope(envelope: ErrorEnvelope) -> ErrorEnvelope:
     invocation via `server.call_tool`).
     """
     envelope.source.fingerprint = canonical_fingerprint()
-    envelope.field = surface_field_name(envelope.field)
+    if envelope.details is not None:
+        envelope.details.field = surface_field_name(envelope.details.field)
     try:
         from fastmcp.server.dependencies import get_context  # noqa: PLC0415
 
@@ -353,13 +354,13 @@ def register_place_tools(mcp: FastMCP) -> None:
                     "When specifying a bounding box, all four of south, west, "
                     "north, east must be provided.",
                     field=first_missing_bbox_field(south, west, north, east),
-                    offending_value={
+                    value={
                         "south": south,
                         "west": west,
                         "north": north,
                         "east": east,
                     },
-                    hint="Pass all four bbox edges or omit bbox entirely.",
+                    reason="Pass all four bbox edges or omit bbox entirely.",
                 )
             )
         if south is not None and west is not None and north is not None and east is not None:
@@ -512,8 +513,8 @@ def register_value_tools(mcp: FastMCP) -> None:
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse begin_iso as RFC3339: {exc}",
                     field="begin_iso",
-                    offending_value=begin_iso,
-                    hint="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
+                    value=begin_iso,
+                    reason="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
                 )
             )
         try:
@@ -524,8 +525,8 @@ def register_value_tools(mcp: FastMCP) -> None:
                     ErrorCode.INVALID_FIELD,
                     f"Could not parse end_iso as RFC3339: {exc}",
                     field="end_iso",
-                    offending_value=end_iso,
-                    hint="RFC3339 with timezone, e.g. 2026-05-18T00:00:00Z",
+                    value=end_iso,
+                    reason="RFC3339 with timezone, e.g. 2026-05-18T00:00:00Z",
                 )
             )
         raw = await _safe(
@@ -666,8 +667,8 @@ def _negative_limit_error(limit: int) -> CwmsToolsError:
         ErrorCode.USAGE_ERROR,
         "limit must be a non-negative integer (0 means no cap).",
         field="limit",
-        offending_value=limit,
-        hint="Pass limit=0 for no cap, or any non-negative integer.",
+        value=limit,
+        reason="Pass limit=0 for no cap, or any non-negative integer.",
     )
 
 
@@ -692,7 +693,7 @@ async def _safe(
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
-        office_id = err.envelope.offending_value
+        office_id = err.envelope.details.value if err.envelope.details else None
         if (
             _repair_call is not None
             and err.envelope.code is ErrorCode.GHOST_OFFICE

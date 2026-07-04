@@ -172,7 +172,7 @@ def test_describe_place_handler_returns_ghost_office_for_nwo(configured) -> None
     assert payload["error"]["code"] == "ghost_office"
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms_describe_place"
-    assert repair["args"] == {"name": "FTPK", "detail": "summary", "office": "NWDM"}
+    assert repair["arguments"] == {"name": "FTPK", "detail": "summary", "office": "NWDM"}
 
 
 def test_list_parameters_handler_returns_ghost_office_for_nwo(configured) -> None:
@@ -184,7 +184,7 @@ def test_list_parameters_handler_returns_ghost_office_for_nwo(configured) -> Non
     assert payload["error"]["code"] == "ghost_office"
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms_list_parameters"
-    assert repair["args"] == {"name": "FTPK", "detail": "summary", "office": "NWDM"}
+    assert repair["arguments"] == {"name": "FTPK", "detail": "summary", "office": "NWDM"}
 
 
 def test_browse_region_handler_rejects_partial_bbox(configured) -> None:
@@ -201,15 +201,15 @@ def test_browse_region_handler_rejects_partial_bbox(configured) -> None:
     assert payload["ok"] is False
     err = payload["error"]
     assert err["code"] == "usage_error"
-    assert err["field"] == "west"
+    assert err["details"]["field"] == "west"
     # Pre-`_safe` manual branches now flow through the full envelope.
-    assert err["offending_value"] == {
+    assert err["details"]["value"] == {
         "south": 30.0,
         "west": None,
         "north": 40.0,
         "east": None,
     }
-    assert err["hint"] == "Pass all four bbox edges or omit bbox entirely."
+    assert err["details"]["reason"] == "Pass all four bbox edges or omit bbox entirely."
     assert err["request_id"]
     assert "source" in err
     assert "protocol_request_id" not in err  # absent outside a real client session
@@ -223,14 +223,14 @@ def test_browse_region_handler_returns_ghost_office_for_nwo(configured) -> None:
     assert payload["error"]["code"] == "ghost_office"
     # #68: the tool's actual parameter is `office`, not the producer-internal
     # `office_id` `core.locations`/`core.catalog` raise with.
-    assert payload["error"]["field"] == "office"
+    assert payload["error"]["details"]["field"] == "office"
     # #69: repair retries the SAME tool (never switches), office swapped to
     # the rollup target, echoing the rest of the original call.
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms_browse_region"
-    assert repair["args"]["office"] == "NWDM"
-    assert repair["args"]["state"] == "MT"
-    assert repair["args"]["limit"] == 10
+    assert repair["arguments"]["office"] == "NWDM"
+    assert repair["arguments"]["state"] == "MT"
+    assert repair["arguments"]["limit"] == 10
 
 
 def test_browse_region_handler_rejects_negative_limit(configured) -> None:
@@ -242,7 +242,7 @@ def test_browse_region_handler_rejects_negative_limit(configured) -> None:
     payload = _branch(result.structured_content)
     assert payload["ok"] is False
     assert payload["error"]["code"] == "usage_error"
-    assert payload["error"]["field"] == "limit"
+    assert payload["error"]["details"]["field"] == "limit"
 
 
 def test_search_places_handler_rejects_negative_limit(configured) -> None:
@@ -251,7 +251,7 @@ def test_search_places_handler_rejects_negative_limit(configured) -> None:
     payload = _branch(result.structured_content)
     assert payload["ok"] is False
     assert payload["error"]["code"] == "usage_error"
-    assert payload["error"]["field"] == "limit"
+    assert payload["error"]["details"]["field"] == "limit"
 
 
 def test_get_value_handler(configured) -> None:
@@ -304,7 +304,7 @@ def test_get_value_handler_returns_ghost_office_for_nwo(configured) -> None:
     assert payload["error"]["code"] == "ghost_office"
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms_get_value"
-    assert repair["args"] == {
+    assert repair["arguments"] == {
         "name": "FTPK",
         "parameter": "Elev",
         "window_hours": 48,
@@ -328,7 +328,7 @@ def test_get_profile_handler_returns_ghost_office_for_nwo(configured) -> None:
     assert payload["error"]["code"] == "ghost_office"
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms_get_profile"
-    assert repair["args"] == {
+    assert repair["arguments"] == {
         "name": "GWLW_S1",
         "parameter": "Temp-Water",
         "window_hours": 24,
@@ -356,9 +356,9 @@ def test_get_history_handler_rejects_bad_begin_iso(configured) -> None:
     payload = _branch(result.structured_content)
     err = payload["error"]
     assert err["code"] == "invalid_field"
-    assert err["field"] == "begin_iso"
-    assert err["offending_value"] == "not-a-date"
-    assert "RFC3339" in err["hint"]
+    assert err["details"]["field"] == "begin_iso"
+    assert err["details"]["value"] == "not-a-date"
+    assert "RFC3339" in err["details"]["reason"]
     assert err["request_id"]
     assert "source" in err
 
@@ -399,8 +399,8 @@ def test_get_history_handler_rejects_bad_end_iso(configured) -> None:
     payload = _branch(result.structured_content)
     err = payload["error"]
     assert err["code"] == "invalid_field"
-    assert err["field"] == "end_iso"
-    assert err["offending_value"] == "still-not"
+    assert err["details"]["field"] == "end_iso"
+    assert err["details"]["value"] == "still-not"
 
 
 def test_get_history_handler_returns_values(configured) -> None:
@@ -445,7 +445,7 @@ def test_get_history_handler_returns_ghost_office_for_nwo(configured) -> None:
     assert payload["error"]["code"] == "ghost_office"
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms_get_history"
-    assert repair["args"] == {
+    assert repair["arguments"] == {
         "name": "FTPK",
         "parameter": "Elev",
         "begin_iso": "2026-05-17T17:00:00Z",
@@ -520,14 +520,14 @@ def test_search_places_handler_returns_ghost_office_for_nwo(configured) -> None:
     payload = _branch(result.structured_content)
     assert payload["ok"] is False
     assert payload["error"]["code"] == "ghost_office"
-    assert payload["error"]["field"] == "office"
+    assert payload["error"]["details"]["field"] == "office"
     # #69: repair retries cwms_search_places (not a different tool), echoing
     # the original query/parameter with office swapped to the rollup target.
     repair = payload["error"]["repair"]
     assert repair["tool"] == "cwms_search_places"
-    assert repair["args"]["query"] == "Bear Creek"
-    assert repair["args"]["parameter"] == "Elev"
-    assert repair["args"]["office"] == "NWDM"
+    assert repair["arguments"]["query"] == "Bear Creek"
+    assert repair["arguments"]["parameter"] == "Elev"
+    assert repair["arguments"]["office"] == "NWDM"
 
 
 def test_search_places_handler_surfaces_repair_hint_for_empty_scope(configured) -> None:

@@ -269,10 +269,10 @@ def test_ghost_office_repair_builds_same_tool_retry() -> None:
         "NWO", tool="cwms_get_value", args={"name": "FTPK", "parameter": "Elev"}
     )
     assert repair.tool == "cwms_get_value"
-    assert repair.args == {"name": "FTPK", "parameter": "Elev", "office": "NWDM"}
+    assert repair.arguments == {"name": "FTPK", "parameter": "Elev", "office": "NWDM"}
 
 
 def test_ghost_office_repair_office_always_overrides_args() -> None:
     """A stray `office` key in `args` must not survive — the swapped target wins."""
     repair = offices.ghost_office_repair("NWS", tool="cwms_browse_region", args={"office": "NWO"})
-    assert repair.args["office"] == "NWDP"
+    assert repair.arguments["office"] == "NWDP"

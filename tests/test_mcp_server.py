@@ -243,7 +243,7 @@ def test_overview_section_tool_returns_not_found_payload_for_bad_slug(server) ->
     assert branch["ok"] is False
     err = branch["error"]
     assert err["code"] == "not_found"
-    assert err["field"] == "section_id"
+    assert err["details"]["field"] == "section_id"
     assert err["repair"]["tool"] == "cwms_get_overview_section"
     assert err["request_id"]
 
@@ -266,10 +266,10 @@ def test_overview_section_resource_miss_raises_structured_jsonrpc_error(server) 
     assert isinstance(data, dict)
     assert data["machine_code"] == "not_found"
     assert data["human_message"]
-    assert data["field"] == "section_id"
-    assert data["offending_value"] == "does-not-exist"
+    assert data["details"]["field"] == "section_id"
+    assert data["details"]["value"] == "does-not-exist"
     assert data["repair"]["tool"] == "cwms_get_overview_section"
-    assert data["retryable"] is False
+    assert data["temporary"] is False
     assert data["request_id"]
     assert "recoverable" not in data
     assert "code" not in data
@@ -289,7 +289,7 @@ def test_overview_section_resource_miss_repair_hint_is_callable(server) -> None:
         asyncio.run(go())
     data = ex.value.error.data
     assert isinstance(data, dict)
-    assert data["repair"]["args"] == {}
+    assert data["repair"]["arguments"] == {}
     for sid in overview.section_ids():
         assert sid in data["human_message"]
 
@@ -309,10 +309,10 @@ def test_overview_chunk_resource_miss_raises_structured_jsonrpc_error(server) ->
     data = ex.value.error.data
     assert isinstance(data, dict)
     assert data["machine_code"] == "not_found"
-    assert data["field"] == "chunk_id"
-    assert data["offending_value"] == "does-not-exist"
+    assert data["details"]["field"] == "chunk_id"
+    assert data["details"]["value"] == "does-not-exist"
     assert data["repair"]["tool"] == "cwms_get_overview_section"
-    assert data["repair"]["args"]["section_id"] == sid
+    assert data["repair"]["arguments"]["section_id"] == sid
     assert "recoverable" not in data
 
 

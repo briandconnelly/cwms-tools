@@ -10,6 +10,7 @@ import pytest
 from cwms_tools.core.errors import (
     CwmsToolsError,
     ErrorCode,
+    ErrorDetails,
     ErrorEnvelope,
     RepairHint,
     exit_code_for,
@@ -52,12 +53,11 @@ def test_envelope_round_trips_through_json() -> None:
     envelope = ErrorEnvelope(
         code=ErrorCode.GHOST_OFFICE,
         message="Office NWO publishes no operational data; use the regional rollup.",
-        field="office_id",
-        offending_value="NWO",
-        hint="Use NWDM or NWDP.",
+        details=ErrorDetails(field="office_id", value="NWO", reason="Use NWDM or NWDP."),
         repair=RepairHint(
+            next_step="retry_with_rollup_office",
             tool="cwms_browse_region",
-            args={"office": "NWDM"},
+            arguments={"office": "NWDM"},
         ),
     )
     blob = envelope.model_dump(mode="json")
@@ -65,7 +65,7 @@ def test_envelope_round_trips_through_json() -> None:
     assert parsed.code is ErrorCode.GHOST_OFFICE
     assert parsed.repair is not None
     assert parsed.repair.tool == "cwms_browse_region"
-    assert parsed.repair.args["office"] == "NWDM"
+    assert parsed.repair.arguments["office"] == "NWDM"
 
 
 def test_cwms_tools_error_of_factory_constructs_envelope() -> None:
@@ -73,7 +73,7 @@ def test_cwms_tools_error_of_factory_constructs_envelope() -> None:
         ErrorCode.NOT_FOUND,
         "Location not found",
         field="name",
-        offending_value="DOES_NOT_EXIST",
+        value="DOES_NOT_EXIST",
         endpoints_called=["/locations/DOES_NOT_EXIST"],
     )
     assert isinstance(err, CwmsToolsError)
@@ -93,9 +93,24 @@ def test_envelope_rejects_unknown_fields() -> None:
         ErrorEnvelope.model_validate({"code": "not_found", "message": "x", "unknown": "field"})
 
 
-def test_upstream_429_maps_to_rate_limited_retryable_with_retry_after_ms() -> None:
-    """SC2: a 429 is the rate-limit repair signal — retryable, with the wait
-    encoded in `retry_after_ms`, not the previous non-retryable upstream_error."""
+def test_error_details_rejects_all_none_construction() -> None:
+    """An empty `details: {}` is the one shape the wire contract forbids — the
+    invariant is enforced on the model itself, not just at the `.of()` call
+    site, so a direct construction or a later reset back to all-None can't
+    reintroduce it."""
+    with pytest.raises(ValueError, match="at least one"):
+        ErrorDetails()
+
+
+def test_cwms_tools_error_of_omits_details_when_nothing_meaningful() -> None:
+    """No field/value/reason given -> `details` stays None, not an empty object."""
+    err = CwmsToolsError.of(ErrorCode.NOT_FOUND, "no such place")
+    assert err.envelope.details is None
+
+
+def test_upstream_429_maps_to_rate_limited_temporary_with_retry_after_ms() -> None:
+    """SC2: a 429 is the rate-limit repair signal — temporary, with the wait
+    encoded in `retry_after_ms`, not the previous non-temporary upstream_error."""
     err = upstream_error_from_status(
         429,
         endpoint="/catalog/LOCATIONS",
@@ -104,17 +119,17 @@ def test_upstream_429_maps_to_rate_limited_retryable_with_retry_after_ms() -> No
     )
     env = err.envelope
     assert env.code is ErrorCode.RATE_LIMITED
-    assert env.retryable is True
+    assert env.temporary is True
     assert env.retry_after_ms == 30_000
     assert exit_code_for(env.code) == 6
 
 
-def test_non_404_4xx_remains_non_retryable_upstream_error() -> None:
-    """Regression guard: a 403 stays a non-retryable upstream_error (only 429
+def test_non_404_4xx_remains_non_temporary_upstream_error() -> None:
+    """Regression guard: a 403 stays a non-temporary upstream_error (only 429
     flips to rate_limited)."""
     err = upstream_error_from_status(403, endpoint="/x", message="forbidden")
     assert err.envelope.code is ErrorCode.UPSTREAM_ERROR
-    assert err.envelope.retryable is False
+    assert err.envelope.temporary is False
 
 
 def test_retry_after_ms_from_response_parses_delta_seconds() -> None:

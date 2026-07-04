@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** migrated the shared `ErrorEnvelope` (tool `structuredContent`,
+  resource JSON-RPC `error.data`, and CLI stderr — all three carriers) to the
+  field shape this repo's own `agent-friendly-mcp` skill checklist mandates,
+  deliberately deferred out of #64/PR #77: `retryable` is now `temporary`;
+  `field`/`offending_value`/`hint` collapse into a single `details: {field,
+  value, reason}` object, present only when at least one member is
+  meaningful; `repair: {tool, args}` is now `repair: {next_step, tool,
+  arguments, alternative}`; and a new optional `rate_limit_remaining` field
+  is reserved for a future upstream signal — omitted from responses (not a
+  fabricated `null`) until one backs it. No compatibility shim — this is a
+  single breaking migration (pre-1.0, no external SDK consumers to preserve compat for),
+  matching the precedent set by #77's resource error-code rename. The
+  capability fingerprint moves accordingly since it hashes live output
+  schemas and capability prose. Closes #76.
 - Trimmed the serialized `tools/list` payload every preloading MCP client
   pays before its first call: ~81.4k chars (~20.4k tokens) down to ~54.1k
   chars (~13.5k tokens), a 34% reduction. The `ErrorEnvelope` schema — full

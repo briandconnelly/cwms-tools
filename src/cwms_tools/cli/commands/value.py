@@ -39,8 +39,8 @@ def _parse_id(spec: str) -> tuple[str, str, str]:
                 ErrorCode.USAGE_ERROR,
                 "Expected `OFFICE/NAME/PARAMETER` form, e.g. `NWDM/FTPK/Elev`.",
                 field="id",
-                offending_value=spec,
-                hint="Pass each id as OFFICE/NAME/PARAMETER, e.g. NWDM/FTPK/Elev.",
+                value=spec,
+                reason="Pass each id as OFFICE/NAME/PARAMETER, e.g. NWDM/FTPK/Elev.",
             )
         )
     return parts[0].strip(), parts[1].strip(), parts[2].strip()
@@ -138,12 +138,13 @@ def get(
             # office rolled up into a fresh OFFICE/NAME/PARAMETER spec.
             # Targets the CLI invocation, not the MCP tool (#69 review):
             # `id_specs` isn't a real `cwms_get_value` MCP argument.
-            office_id = err.envelope.offending_value
+            office_id = err.envelope.details.value if err.envelope.details else None
             if err.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
                 target = nw_rollup_target(office_id)
                 err.envelope.repair = RepairHint(
+                    next_step="retry_with_rollup_office",
                     tool="cwms-tools value get",
-                    args={
+                    arguments={
                         "id_specs": [f"{target}/{name}/{parameter}"],
                         "window_hours": window_hours,
                         "unit": unit.value,
@@ -345,7 +346,7 @@ def _parse_iso(value: str, *, field: str) -> datetime:
                 ErrorCode.INVALID_FIELD,
                 f"Could not parse --{field} as RFC3339: {exc}",
                 field=field,
-                offending_value=value,
-                hint="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
+                value=value,
+                reason="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
             )
         )

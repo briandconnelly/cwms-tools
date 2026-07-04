@@ -42,8 +42,8 @@ def _parse_office_slash_name(spec: str) -> tuple[str, str]:
                 ErrorCode.USAGE_ERROR,
                 "Expected `OFFICE/NAME` form, e.g. `NWDM/FTPK`.",
                 field="spec",
-                offending_value=spec,
-                hint="Pass the place id as OFFICE/NAME, e.g. NWDM/FTPK.",
+                value=spec,
+                reason="Pass the place id as OFFICE/NAME, e.g. NWDM/FTPK.",
             )
         )
     office, name = spec.split("/", 1)
@@ -147,8 +147,8 @@ def search(
                 ErrorCode.USAGE_ERROR,
                 "--limit must be a non-negative integer.",
                 field="limit",
-                offending_value=limit,
-                hint="Pass --limit 0 for no cap, or any non-negative integer.",
+                value=limit,
+                reason="Pass --limit 0 for no cap, or any non-negative integer.",
             )
         )
     effective_limit = None if limit == 0 else limit

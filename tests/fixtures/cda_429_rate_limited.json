@@ -8,7 +8,7 @@
   },
   "expected_envelope": {
     "code": "rate_limited",
-    "retryable": true,
+    "temporary": true,
     "retry_after_ms": 30000
   }
 }

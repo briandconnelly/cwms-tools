@@ -79,8 +79,8 @@ def invalid_cursor(
         ErrorCode.INVALID_CURSOR,
         message,
         field="cursor",
-        offending_value=offending_value,
-        hint="Re-issue the original call without `cursor` to restart pagination.",
+        value=offending_value,
+        reason="Re-issue the original call without `cursor` to restart pagination.",
         repair=repair,
     )
 

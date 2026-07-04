@@ -122,14 +122,15 @@ def require_canonical_ts_id(
             ErrorCode.NOT_FOUND,
             f"No published ts_id at {office}/{location} for parameter {parameter!r}.",
             field="parameter",
-            offending_value=parameter,
-            hint=(
+            value=parameter,
+            reason=(
                 "Use cwms_list_parameters to see what publishes at this location. "
                 "Ghost records (parameter_count=0) carry no timeseries."
             ),
             repair=RepairHint(
+                next_step="list_available_parameters",
                 tool="cwms_list_parameters",
-                args={"office": office, "name": location},
+                arguments={"office": office, "name": location},
             ),
         )
     return tsid

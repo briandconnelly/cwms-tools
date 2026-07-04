@@ -139,8 +139,9 @@ def test_nw_district_office_raises_ghost_office_no_repair_at_core_level(configur
         catalog.get_locations_catalog("NWO")
     err = ex_info.value.envelope
     assert err.code is ErrorCode.GHOST_OFFICE
-    assert err.field == "office_id"
-    assert err.offending_value == "NWO"
+    assert err.details is not None
+    assert err.details.field == "office_id"
+    assert err.details.value == "NWO"
     assert err.repair is None
 
 
@@ -463,7 +464,7 @@ def test_enrich_locations_skips_ts_catalog_when_alternation_overflows(
     assert not ts_calls, "the oversized regex must not hit the upstream"
 
 
-def test_get_locations_catalog_wraps_5xx_as_retryable_upstream_error(configured, mocked) -> None:
+def test_get_locations_catalog_wraps_5xx_as_temporary_upstream_error(configured, mocked) -> None:
     """Upstream 5xx errors must become a structured CwmsToolsError, not a
     bare ApiError traceback — that's the regression that broke broad
     `place search` in the eval."""
@@ -477,7 +478,7 @@ def test_get_locations_catalog_wraps_5xx_as_retryable_upstream_error(configured,
         catalog.get_locations_catalog("SWT", use_cache=False)
     env = ex_info.value.envelope
     assert env.code is ErrorCode.UPSTREAM_ERROR
-    assert env.retryable is True
+    assert env.temporary is True
     assert env.endpoints_called == ["/catalog/LOCATIONS"]
 
 
@@ -503,7 +504,7 @@ def test_get_locations_catalog_wraps_429_as_rate_limited_with_retry_after(
     expected = fixture["expected_envelope"]
     assert env.code is ErrorCode.RATE_LIMITED
     assert env.code.value == expected["code"]
-    assert env.retryable is expected["retryable"]
+    assert env.temporary is expected["temporary"]
     assert env.retry_after_ms == expected["retry_after_ms"]
 
 
@@ -520,7 +521,7 @@ def test_get_timeseries_catalog_wraps_404_as_not_found(configured, mocked) -> No
         catalog.get_timeseries_catalog("SWT", like="^FOSS\\.", use_cache=False)
     env = ex_info.value.envelope
     assert env.code is ErrorCode.NOT_FOUND
-    assert env.retryable is False
+    assert env.temporary is False
 
 
 def test_upstream_error_message_does_not_embed_long_url(configured, mocked) -> None:

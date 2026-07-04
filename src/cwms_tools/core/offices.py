@@ -55,7 +55,11 @@ def ghost_office_repair(office_id: str, *, tool: str, args: dict[str, Any]) -> R
     single fallback tool (#69: the repair no longer silently switches from,
     say, `cwms_get_value` to `cwms_browse_region`, discarding the agent's
     `name`/`parameter` and forcing re-orchestration)."""
-    return RepairHint(tool=tool, args={**args, "office": nw_rollup_target(office_id)})
+    return RepairHint(
+        next_step="retry_with_rollup_office",
+        tool=tool,
+        arguments={**args, "office": nw_rollup_target(office_id)},
+    )
 
 
 # Documented degraded fallback. Used only when the upstream offices fetch

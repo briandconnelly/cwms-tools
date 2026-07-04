@@ -81,7 +81,7 @@ class ErrorRef(BaseModel):
     """The in-band `{ok: false, error: {...}}` envelope returned by tool handlers.
 
     `error` is the full `ErrorEnvelope` so the published outputSchema documents
-    the failure contract (code, field, repair, retryable, retry_after_ms,
+    the failure contract (code, details, repair, temporary, retry_after_ms,
     request_id) instead of an opaque object.
     """
 

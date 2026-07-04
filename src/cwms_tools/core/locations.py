@@ -18,6 +18,7 @@ from cwms_tools.core import catalog
 from cwms_tools.core.errors import (
     CwmsToolsError,
     ErrorCode,
+    ErrorDetails,
     retry_after_ms_from_response,
     upstream_error_from_status,
 )
@@ -38,8 +39,8 @@ def _ghost_office_error(office_id: str) -> CwmsToolsError:
         ErrorCode.GHOST_OFFICE,
         f"Office {office_id} publishes no operational data; use the regional rollup.",
         field="office_id",
-        offending_value=office_id,
-        hint=(
+        value=office_id,
+        reason=(
             "NW Division districts (NWO, NWK, NWS, NWP, NWW) are catalog stubs. "
             "Use NWDM (Missouri) or NWDP (Pacific NW) instead. The "
             "`cwms://offices` resource lists every valid office code."
@@ -89,15 +90,14 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
             retry_after_ms=retry_after_ms_from_response(response),
         )
         if err.envelope.code is ErrorCode.NOT_FOUND:
-            err.envelope.field = "name"
-            err.envelope.offending_value = name
+            err.envelope.details = ErrorDetails(field="name", value=name)
         raise err from exc
     except Exception as exc:  # pragma: no cover - defensive for non-ApiError surprises
         raise CwmsToolsError.of(
             ErrorCode.UPSTREAM_ERROR,
             f"Location {office_id}/{name} upstream call failed: {exc}",
             endpoints_called=[endpoint],
-            retryable=True,
+            temporary=True,
         ) from exc
     payload = data.json if hasattr(data, "json") else data
     cache.set(key, payload, ttl=cache.ttl_for("location_catalog"))

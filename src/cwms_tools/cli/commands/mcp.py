@@ -106,8 +106,8 @@ def serve(
                 ErrorCode.USAGE_ERROR,
                 f"Unknown transport {transport!r}.",
                 field="transport",
-                offending_value=transport,
-                hint="Use --transport stdio or streamable-http.",
+                value=transport,
+                reason="Use --transport stdio or streamable-http.",
             )
         )
 

@@ -296,7 +296,7 @@ def _seasonal_workaround(
         raise CwmsToolsError.of(
             ErrorCode.WRAPPER_BUG,
             f"seasonal-level workaround failed for {office}/{level_id}: {exc}",
-            hint=(
+            reason=(
                 "Seasonal levels are routed around cwms-python issue #286 by "
                 "hitting /levels/{id}/timeseries directly; this request failed."
             ),

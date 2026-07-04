@@ -193,8 +193,9 @@ def capability_contract_payload() -> dict[str, Any]:
                 "(wrong type, missing required arg, out-of-enum value) surface as plain "
                 "protocol errors without this envelope. The error object's full field "
                 "set is documented in the error branch of each tool's outputSchema; "
-                "key repair fields: code, message, field, offending_value, hint, "
-                "repair, retryable, retry_after_ms, request_id, protocol_request_id, "
+                "key repair fields: code, message, details (field, value, reason), "
+                "repair (next_step, tool, arguments, alternative), temporary, "
+                "retry_after_ms, rate_limit_remaining, request_id, protocol_request_id, "
                 "source."
             ),
             "resources": (
