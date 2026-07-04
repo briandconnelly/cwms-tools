@@ -138,40 +138,27 @@ RESOURCE_INVENTORY: list[dict[str, Any]] = [
 
 #: NW Division district stubs publish no operational data in CDA; data lands at
 #: the regional rollups instead. Surfaced in the `cwms://offices` guidance block
-#: and mirrored by the `ghost_office` repair path in `core/locations.py` /
-#: `core/catalog.py`. See cwms-overview.md §6.1.
-NW_ROLLUP_TARGETS: dict[str, str] = {
-    "NWO": "NWDM",
-    "NWK": "NWDM",
-    "NWS": "NWDP",
-    "NWP": "NWDP",
-    "NWW": "NWDP",
-}
+#: and used to build the `ghost_office` same-tool retry repair (#69). Canonical
+#: home is `core.offices`; re-exported here for existing importers of this name.
+NW_ROLLUP_TARGETS = offices.NW_ROLLUP_TARGETS
 
 
-def capabilities_payload() -> dict[str, Any]:
-    """Build the structured capability summary served at `cwms://capabilities`.
+def capability_contract_payload() -> dict[str, Any]:
+    """Static, non-circular agent-facing capability prose (#71).
 
-    Per `agent-friendly-mcp` §2: states what the server does, what it does
-    NOT do, prerequisites, the capability fingerprint (with scope), the tool
-    and resource inventories, the FastMCP capability verdict, and the active
-    workarounds. A single-read should be enough for an agent to plan against.
-
-    The fingerprint comes from `canonical_fingerprint()` — the same value the
-    CLI `fingerprint` command and every tool response's `source.fingerprint`
-    report — so a client can cache by it across surfaces.
+    This is the subset of `capabilities_payload()` that is fixed by the code
+    (not runtime config) and does not embed the fingerprint itself — so it can
+    safely feed `canonical_fingerprint()` without recursion. Excluded on
+    purpose: `fingerprint`/`fingerprint_scope` (the hash we're computing),
+    `prerequisites.api_root`/`user_agent` and the `fastmcp` diagnostics block
+    (runtime-resolved, not source-controlled prose), and `active_workarounds`
+    (environment-detected, not agent-selection guidance). A prose rewrite to
+    anything below — e.g. `does_not` or `error_handling` — changes what an
+    agent decides to do next, so it must move the fingerprint.
     """
-    # Lazy import: contract imports this module for RESOURCE_INVENTORY.
-    from cwms_tools.mcp.contract import canonical_fingerprint  # noqa: PLC0415
-
-    cfg = current_config()
-    fp = canonical_fingerprint()
     return {
         "name": SERVER_NAME,
         "title": SERVER_TITLE,
-        "version": PKG_VERSION,
-        "fingerprint": fp,
-        "fingerprint_scope": fingerprint.FINGERPRINT_SCOPE,
         "description": (
             "Read-only tools for the USACE Corps Water Management System "
             "(CWMS) Data API. Returns task-completing answers — a current "
@@ -186,15 +173,12 @@ def capabilities_payload() -> dict[str, Any]:
             "Decode DSS or XML forecast file attachments.",
             "Pre-warm caches or scan the catalog in the background.",
         ],
-        "prerequisites": {
-            "auth": "None. The CWMS Data API's read endpoints are public.",
-            "api_root": cfg.api_root,
-            "user_agent": cfg.user_agent,
-        },
-        "tools": TOOL_INVENTORY,
-        "tool_error_codes": TOOL_ERROR_CODES,
+        # Latency class is agent-selection guidance same as description/error
+        # codes: a tool moving from cached/local to network/slow changes
+        # whether an agent should call it eagerly, so it must move the
+        # fingerprint too (Codex review of #71).
         "tool_latency": TOOL_LATENCY,
-        "resources": RESOURCE_INVENTORY,
+        "auth": "None. The CWMS Data API's read endpoints are public.",
         "error_codes": sorted(c.value for c in ErrorCode if c.value not in RESERVED_ERROR_CODES),
         "error_codes_reserved": list(RESERVED_ERROR_CODES),
         "error_handling": {
@@ -240,7 +224,6 @@ def capabilities_payload() -> dict[str, Any]:
             "bumps the fingerprint. Entry shape: "
             "{name, kind, replacement, removed_in}."
         ),
-        "active_workarounds": active_workarounds(),
         "completions": {
             "supported": False,
             "reason": (
@@ -249,6 +232,58 @@ def capabilities_payload() -> dict[str, Any]:
             ),
             "discover_section_ids_via": "cwms://overview",
         },
+        "discovery_hint": (
+            "For the bundled CWMS orientation document, read "
+            "`cwms://overview` (an index of sections) and then either "
+            "`cwms://overview/{section_id}` or `cwms_get_overview_section` "
+            "for a specific section. Both honor `detail=summary|full`."
+        ),
+    }
+
+
+def capabilities_payload() -> dict[str, Any]:
+    """Build the structured capability summary served at `cwms://capabilities`.
+
+    Per `agent-friendly-mcp` §2: states what the server does, what it does
+    NOT do, prerequisites, the capability fingerprint (with scope), the tool
+    and resource inventories, the FastMCP capability verdict, and the active
+    workarounds. A single-read should be enough for an agent to plan against.
+
+    The fingerprint comes from `canonical_fingerprint()` — the same value the
+    CLI `fingerprint` command and every tool response's `source.fingerprint`
+    report — so a client can cache by it across surfaces.
+    """
+    # Lazy import: contract imports this module for RESOURCE_INVENTORY.
+    from cwms_tools.mcp.contract import canonical_fingerprint  # noqa: PLC0415
+
+    cfg = current_config()
+    fp = canonical_fingerprint()
+    contract = capability_contract_payload()
+    return {
+        "name": contract["name"],
+        "title": contract["title"],
+        "version": PKG_VERSION,
+        "fingerprint": fp,
+        "fingerprint_scope": fingerprint.FINGERPRINT_SCOPE,
+        "description": contract["description"],
+        "does_not": contract["does_not"],
+        "prerequisites": {
+            "auth": contract["auth"],
+            "api_root": cfg.api_root,
+            "user_agent": cfg.user_agent,
+        },
+        "tools": TOOL_INVENTORY,
+        "tool_error_codes": TOOL_ERROR_CODES,
+        "tool_latency": contract["tool_latency"],
+        "resources": RESOURCE_INVENTORY,
+        "error_codes": contract["error_codes"],
+        "error_codes_reserved": contract["error_codes_reserved"],
+        "error_handling": contract["error_handling"],
+        "response_shape": contract["response_shape"],
+        "deprecations": contract["deprecations"],
+        "deprecation_policy": contract["deprecation_policy"],
+        "active_workarounds": active_workarounds(),
+        "completions": contract["completions"],
         "fastmcp": {
             "installed_version": installed_fastmcp_version(),
             "verified_against": VERIFIED_AGAINST,
@@ -256,12 +291,7 @@ def capabilities_payload() -> dict[str, Any]:
             "verified": list(VERIFIED.keys()),
             "fallbacks": list(FALLBACKS.keys()),
         },
-        "discovery_hint": (
-            "For the bundled CWMS orientation document, read "
-            "`cwms://overview` (an index of sections) and then either "
-            "`cwms://overview/{section_id}` or `cwms_get_overview_section` "
-            "for a specific section. Both honor `detail=summary|full`."
-        ),
+        "discovery_hint": contract["discovery_hint"],
     }
 
 
@@ -385,6 +415,7 @@ __all__ = [
     "TOOL_INVENTORY",
     "TOOL_LATENCY",
     "capabilities_payload",
+    "capability_contract_payload",
     "offices_payload",
     "overview_chunk_payload",
     "overview_index_payload",

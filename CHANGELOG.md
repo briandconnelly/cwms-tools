@@ -32,6 +32,149 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed `source.endpoints_called`/`source.cached` from successful tool
+  responses — they were never populated (`mcp.tools._source()` had no path
+  to set them) and always reported `[]`/`false`, even on network-hitting or
+  cache-served calls, so agents could be misled into treating fabricated
+  negative values as real signal. A single tool call can span multiple
+  independently cached-or-not sub-calls against different upstream
+  endpoints, so a flat list/bool is either silently incomplete or ambiguous
+  once real — worse than not advertising it. Error-envelope provenance
+  (`error.source.endpoints_called`, which records the one endpoint that
+  actually failed) is unaffected — that one has no such ambiguity and was
+  already populated correctly. Also fixed `cwms_get_overview_section`,
+  the one tool whose success responses carried no `source` at all despite
+  the module's own "every successful tool response carries
+  `source.fingerprint`" contract — all three of its success branches
+  (index, section, chunk) now carry it. Closes #70.
+- The capability fingerprint now moves when agent-visible selection prose
+  changes, not just when a schema does. Previously a tool `description`
+  rewrite, its latency class, a resource's `name`/`title`/`description`, the
+  FastMCP server `instructions` string, or the capability-summary prose in
+  `capabilities_payload()` (what the server does/does not do, error-handling
+  and response-shape guidance, deprecation policy) could all change without
+  moving the fingerprint, leaving cached agents unaware their selection
+  criteria were stale. `mcp.contract.tool_definitions()` now carries each
+  tool's live `description`/`title`; a new `mcp.contract.resource_definitions()`
+  live-introspects resource/template `name`/`title`/`description` from the
+  real FastMCP registration (merging in `error_codes` from the existing
+  hand-maintained inventory, since FastMCP has no introspection point for
+  those, plus a new test pinning that inventory's URI set against the live
+  one so the two can't silently diverge); a new
+  `mcp.resources.capability_contract_payload()` factors out the static,
+  non-circular subset of the capability summary (including `tool_latency`) as
+  its own fingerprint input; and the server's `instructions` string is now
+  read from the live built server via `mcp.contract.server_instructions()`
+  rather than a separately-referenced constant. Deliberately excluded as
+  runtime-volatile rather than source-controlled prose: `prerequisites.api_root`/
+  `user_agent`, the `fastmcp` installed-version/drift diagnostics, and
+  `active_workarounds` (all already covered, where relevant, by the existing
+  version/runtime-baseline fingerprint inputs). Closes #71.
+- `cwms_search_places` pagination cursors are unkeyed base64url(JSON), and the
+  `req` field is an unkeyed hash of the query/parameter — anyone can
+  construct a valid-looking cursor without ever having called the tool.
+  Previously the continuation path trusted a forged cursor's embedded office
+  list (up to 200 offices) directly, bypassing the per-call uncached-office
+  fan-out budget the fresh-request path enforces — a hand-crafted cursor
+  could drive up to 200 real upstream calls in one continuation instead of
+  the small per-call cap. The cursor's office list is now re-run through the
+  same budget check (`_run_fanout`) on every continuation, not just the
+  first call: a legitimate multi-page search pays no extra cost (the locked
+  offices are normally still cache-hot moments later), while a forged cursor
+  naming many never-cached offices — or, rarely, a legitimate cursor whose
+  locked offices fell out of cache between pages — is rejected outright as
+  `invalid_cursor` (no upstream calls spent) rather than silently searching
+  a smaller office set than the cursor promised. Closes #72.
+- Task-response models (`SearchPlacesResponse`, `DescribePlaceResponse`,
+  `ValueWithContextResponse`, and the rest of the success-branch tier in
+  `core/models.py`) now forbid extra fields (`extra="forbid"`), so every
+  outputSchema's success branch advertises `additionalProperties: false`
+  instead of `true`. Previously an undeclared producer field silently passed
+  through unvalidated and unfingerprinted (combined with #71's since-closed
+  fingerprint gap, a field could appear or drift with no signal at all).
+  Closing the models surfaced fields that were only ever tolerated via the
+  old `extra="allow"` hatch and needed to become real, declared fields:
+  `ActiveThreshold.level_id`/`.source_workaround` (detail=full only),
+  `ValueWithContextResponse.level_lookup_status` (a new `LevelLookupStatus`
+  enum; always present, per `core.values.get_value`'s own docstring), and
+  `PublishersForParameterResponse`'s `_observed_publishers_by_office`
+  diagnostic (detail=full only; needs `alias`+`serialize_by_alias=True`
+  since pydantic forbids a literal underscore-prefixed field name). It also
+  surfaced a real bug: `cwms_describe_place`'s producer emitted top-level
+  `source_workaround`/`upstream_status` keys purely to feed `source.workaround`/
+  `source.upstream_status` — never popped, so every response (both MCP and
+  CLI) leaked a redundant, undocumented duplicate of that same information;
+  now popped on both surfaces. Also completed a previously half-wired
+  feature: `cwms_search_places` results now carry the raw upstream location
+  DTO under `raw` at `detail=full` (dropped in `summary`) — the shaping
+  layer already had this exact stripping logic, but the producer never
+  actually included the field, so it was dead code; `cwms_browse_region`
+  deliberately still omits it (an existing, unchanged design decision — an
+  agent browsing a region doesn't need every per-row DTO). DTO facades
+  (`CdaLocation`, `CdaProject`) are a different, currently-unwired tier and
+  keep `extra="allow"` by design. Closes #74.
+- Removed `idempotentHint: true` from every tool annotation (all 10 tools
+  across `mcp/tools.py` and `mcp/server.py`). The MCP spec only assigns
+  `idempotentHint`/`destructiveHint` meaning when `readOnlyHint` is false —
+  every tool here is read-only, so asserting `idempotentHint: true` claimed
+  protocol semantics that don't apply in this branch rather than omitting a
+  hint the spec doesn't define here. Closes #75.
+- `ghost_office` errors no longer discard the agent's original call intent.
+  Previously every ghost-office repair pointed at `cwms_browse_region`
+  regardless of which tool actually failed — e.g. `cwms_get_value(office=NWO,
+  name=FTPK, parameter=Elev)` told the agent to call
+  `cwms_browse_region(office=NWDM)` instead, dropping `name`/`parameter` and
+  forcing re-orchestration (browse, re-find the place, re-call `get_value`).
+  The repair now retries the SAME failing tool/CLI command with the SAME
+  original arguments, only `office` swapped to the NW rollup target
+  (`core.offices.ghost_office_repair`, wired at each MCP tool handler and
+  CLI command). CLI commands with no `--office` flag (`place
+  describe`/`parameters`, `value get`/`history`/`profile` — these take a
+  combined `OFFICE/NAME[/PARAMETER]` positional instead) get a repair
+  naming the actual CLI invocation (e.g. `cwms-tools value history`) with
+  CLI-native argument names (e.g. `begin`/`end`, not the MCP tool's
+  `begin_iso`/`end_iso`), not the MCP tool name — a repair combining an
+  MCP tool name with CLI-only argument names would be callable on neither
+  surface. Consolidated the NW-stub/rollup map, previously triplicated
+  across `core.catalog`, `core.locations`, and `mcp.resources`, into a
+  single canonical `core.offices` home. Core no longer builds this repair
+  itself (it doesn't know which tool/command is calling); a core-level
+  `ghost_office` error now carries `repair: null`, unaffected by this
+  change. Closes #69.
+- Error envelope `field` now names a real, retryable tool parameter or CLI
+  flag instead of a producer-internal or synthetic name. `ghost_office`
+  errors reported `field: "office_id"` (the CDA-facing name `core.catalog`/
+  `core.locations` use internally), but every MCP tool's actual parameter
+  is `office`; an agent applying mechanical field-level repair would retry
+  with a rejected argument name. Bounding-box validation errors reported
+  `field: "bbox"`, which isn't a real argument on any surface — the four
+  corners are separate params/flags. `field` is now translated at every
+  output boundary (`mcp.tools.stamp_envelope`, `cli.render.emit_error`, and
+  the `value get` bulk per-item path) via a small internal→surface name
+  map (`core.errors.surface_field_name`); bbox errors now name the first
+  missing corner in canonical south/west/north/east order. `place
+  describe`/`parameters` and `value get`/`history`/`profile` have no
+  `--office` flag (they take a combined `OFFICE/NAME[/PARAMETER]`
+  positional instead), so those five commands redirect the same
+  `office_id` producer field to their own actual positional argument
+  (`spec` for `place describe`/`parameters`; `id_specs`/`id_spec` for
+  `value get`/`history`/`profile`) instead of the (nonexistent, for them)
+  `office`. Scoped to the `ghost_office`/bbox mismatches this issue
+  reported: `value.py`'s pre-existing `_parse_id` malformed-spec-shape
+  error (a separate site, shared across all three `value` commands) still
+  emits its own established `field: "id"` convention unchanged. Core-level
+  tests still assert the internal producer name unaffected. Closes #68.
+- `cwms_search_places`/`cwms_browse_region` (and their CLI equivalents) no
+  longer set `truncated: true` when a `limit` cap is hit. `truncated` is
+  meant for genuinely unrecoverable caps (as `cwms_get_history` already
+  handles correctly); search/browse results are always fully pageable via
+  `has_more`/`next_cursor`, so reporting `truncated: true` there could
+  cause an agent to give up or over-narrow its query instead of paging.
+  `truncated` now always reports `false` for these two tools. Documented
+  that this is orthogonal to `cwms_search_places`'s pre-existing
+  `offices_skipped_for_budget` (a separate signal for scope — as opposed
+  to row — incompleteness), so `truncated: false` never implies every
+  requested office was searched. Closes #73.
 - `cwms_get_history`/`cwms-tools value history` now cap raw points returned
   under the default `rollup='raw'` at `MAX_RAW_HISTORY_POINTS` (5,000). The
   only prior bound was the upstream 300,000-point page cap, so a naive

@@ -26,9 +26,9 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
-from cwms_tools.core import concurrency, places, publishers_index, shaping, values
-from cwms_tools.core.errors import CwmsToolsError, ErrorCode, ErrorEnvelope
-from cwms_tools.core.geo import BBox
+from cwms_tools.core import concurrency, offices, places, publishers_index, shaping, values
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode, ErrorEnvelope, surface_field_name
+from cwms_tools.core.geo import BBox, first_missing_bbox_field
 from cwms_tools.core.models import (
     BrowseRegionResponse,
     DescribePlaceResponse,
@@ -86,7 +86,11 @@ def stamp_envelope(envelope: ErrorEnvelope) -> ErrorEnvelope:
     in-band tool envelope via `error_ref()` below, and the JSON-RPC `error.data`
     envelope for resource failures in `mcp/server.py`. Keeping this in one place
     means both carriers carry identical `source.fingerprint`/`protocol_request_id`
-    provenance rather than each surface growing its own stamping logic.
+    provenance rather than each surface growing its own stamping logic. Also the
+    single place both carriers get `field` translated to the surface parameter
+    name (#68) — core producers emit whatever internal name suits their own
+    domain (e.g. `office_id`); `surface_field_name()` maps it to what an agent
+    would actually retry with (e.g. `office`).
 
     When called from inside a live FastMCP request context, `protocol_request_id`
     is populated with the JSON-RPC message id so agents can correlate the error
@@ -95,6 +99,7 @@ def stamp_envelope(envelope: ErrorEnvelope) -> ErrorEnvelope:
     invocation via `server.call_tool`).
     """
     envelope.source.fingerprint = canonical_fingerprint()
+    envelope.field = surface_field_name(envelope.field)
     try:
         from fastmcp.server.dependencies import get_context  # noqa: PLC0415
 
@@ -173,7 +178,6 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Search places by name",
         },
         output_schema=iserror_output_schema(SearchPlacesResponse),
@@ -195,8 +199,9 @@ def register_place_tools(mcp: FastMCP) -> None:
         ] = None,
         limit: Annotated[
             int,
-            "Result cap (default 50; 0 = no cap). When hit, sets `truncated`/"
-            "`total_count`/`has_more`/`next_cursor` for the next page.",
+            "Result cap (default 50; 0 = no cap). When hit, sets `total_count`/"
+            "`has_more`/`next_cursor` for the next page (fully pageable — "
+            "`truncated` stays false).",
         ] = places.DEFAULT_SEARCH_LIMIT,
         cursor: Annotated[str | None, _CURSOR_HINT] = None,
         detail: Detail = Detail.SUMMARY,
@@ -220,6 +225,16 @@ def register_place_tools(mcp: FastMCP) -> None:
             parameter=parameter,
             limit=effective_limit,
             cursor=cursor,
+            _repair_call=(
+                "cwms_search_places",
+                {
+                    "query": query,
+                    **({"parameter": parameter} if parameter is not None else {}),
+                    "limit": limit,
+                    **({"cursor": cursor} if cursor is not None else {}),
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -231,7 +246,6 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Describe a place",
         },
         output_schema=iserror_output_schema(DescribePlaceResponse),
@@ -248,12 +262,20 @@ def register_place_tools(mcp: FastMCP) -> None:
         and last data timestamp. Sets `partial`/`partial_reasons` when a
         sub-lookup degrades (e.g. a project-record format error).
         """
-        raw = await _safe(places.describe_place, office, name)
+        raw = await _safe(
+            places.describe_place,
+            office,
+            name,
+            _repair_call=("cwms_describe_place", {"name": name, "detail": detail.value}),
+        )
         if isinstance(raw, ErrorRef):
             return raw
         shaped = shaping.shape_place_detail(raw, detail)
-        workaround = shaped.get("source_workaround")
-        upstream_status = shaped.get("upstream_status")
+        # These carry the project-lookup recovery signal into `source` below;
+        # pop rather than leave them (they'd otherwise duplicate
+        # source.workaround/source.upstream_status at the top level, #74).
+        workaround = shaped.pop("source_workaround", None)
+        upstream_status = shaped.pop("upstream_status", None)
         shaped["source"] = _source(
             workaround=workaround,
             upstream_status=upstream_status,
@@ -264,7 +286,6 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "List parameters at a place",
         },
         output_schema=iserror_output_schema(ListParametersResponse),
@@ -280,7 +301,12 @@ def register_place_tools(mcp: FastMCP) -> None:
         The cheapest ghost probe: a ghost returns `ts_count: 0` and an empty
         `by_publisher` list.
         """
-        raw = await _safe(places.list_parameters, office, name)
+        raw = await _safe(
+            places.list_parameters,
+            office,
+            name,
+            _repair_call=("cwms_list_parameters", {"name": name, "detail": detail.value}),
+        )
         if isinstance(raw, ErrorRef):
             return raw
         shaped = shaping.shape_place_detail(raw, detail)
@@ -291,7 +317,6 @@ def register_place_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Browse a region's catalog",
         },
         output_schema=iserror_output_schema(BrowseRegionResponse),
@@ -307,7 +332,8 @@ def register_place_tools(mcp: FastMCP) -> None:
         limit: Annotated[
             int,
             "Result cap (default 50; 0 = no cap). Data-bearing rows sort ahead "
-            "of ghosts. When hit, sets `truncated`/`has_more`/`next_cursor`.",
+            "of ghosts. When hit, sets `has_more`/`next_cursor` (fully "
+            "pageable — `truncated` stays false).",
         ] = places.DEFAULT_BROWSE_LIMIT,
         cursor: Annotated[str | None, _CURSOR_HINT] = None,
         detail: Detail = Detail.SUMMARY,
@@ -326,7 +352,7 @@ def register_place_tools(mcp: FastMCP) -> None:
                     ErrorCode.USAGE_ERROR,
                     "When specifying a bounding box, all four of south, west, "
                     "north, east must be provided.",
-                    field="bbox",
+                    field=first_missing_bbox_field(south, west, north, east),
                     offending_value={
                         "south": south,
                         "west": west,
@@ -348,6 +374,20 @@ def register_place_tools(mcp: FastMCP) -> None:
             state=state,
             limit=effective_limit,
             cursor=cursor,
+            _repair_call=(
+                "cwms_browse_region",
+                {
+                    **(
+                        {"south": south, "west": west, "north": north, "east": east}
+                        if bbox is not None
+                        else {}
+                    ),
+                    **({"state": state} if state is not None else {}),
+                    "limit": limit,
+                    **({"cursor": cursor} if cursor is not None else {}),
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -363,7 +403,6 @@ def register_value_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Current value (optional status)",
         },
         output_schema=iserror_output_schema(ValueWithContextResponse),
@@ -406,6 +445,17 @@ def register_value_tools(mcp: FastMCP) -> None:
             window=timedelta(hours=window_hours),
             unit=unit,
             classify_against_levels=with_status,
+            _repair_call=(
+                "cwms_get_value",
+                {
+                    "name": name,
+                    "parameter": parameter,
+                    "window_hours": window_hours,
+                    "unit": unit,
+                    "with_status": with_status,
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -417,7 +467,6 @@ def register_value_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Windowed history",
         },
         output_schema=iserror_output_schema(HistoryResponse),
@@ -488,6 +537,18 @@ def register_value_tools(mcp: FastMCP) -> None:
             end=end,
             unit=unit,
             rollup=rollup.value,
+            _repair_call=(
+                "cwms_get_history",
+                {
+                    "name": name,
+                    "parameter": parameter,
+                    "begin_iso": begin_iso,
+                    "end_iso": end_iso,
+                    "unit": unit,
+                    "rollup": rollup.value,
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -499,7 +560,6 @@ def register_value_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Depth profile (whole string)",
         },
         output_schema=iserror_output_schema(ProfileResponse),
@@ -537,6 +597,16 @@ def register_value_tools(mcp: FastMCP) -> None:
             parameter,
             window=timedelta(hours=window_hours),
             unit=unit,
+            _repair_call=(
+                "cwms_get_profile",
+                {
+                    "name": name,
+                    "parameter": parameter,
+                    "window_hours": window_hours,
+                    "unit": unit,
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -552,7 +622,6 @@ def register_publisher_tools(mcp: FastMCP) -> None:
         annotations={
             "readOnlyHint": True,
             "openWorldHint": True,
-            "idempotentHint": True,
             "title": "Publishers reporting a parameter",
         },
         output_schema=iserror_output_schema(PublishersForParameterResponse),
@@ -602,16 +671,35 @@ def _negative_limit_error(limit: int) -> CwmsToolsError:
     )
 
 
-async def _safe(fn, *args, **kwargs) -> dict[str, Any] | ErrorRef:
+async def _safe(
+    fn, *args, _repair_call: tuple[str, dict[str, Any]] | None = None, **kwargs
+) -> dict[str, Any] | ErrorRef:
     """Run a sync core function on the bounded executor; surface known errors structured.
 
     Returns the raw dict on success, or an `ErrorRef` (with fingerprint stamped)
     on any `CwmsToolsError`. Handlers check `isinstance(raw, ErrorRef)` and
     return it directly.
+
+    `_repair_call`, when given, is `(tool_name, wire_format_args)` for THIS
+    handler's own call (args as the agent would actually pass them, minus
+    `office`) — the single place a `ghost_office` failure gets a same-tool
+    retry repair instead of core's old hardcoded `cwms_browse_region` switch
+    (#69). Core can't build this itself: it doesn't know which surface/tool
+    is calling, and `_safe`'s own `*args`/`**kwargs` are already core-format
+    (`timedelta`/`datetime`/`BBox`, not `window_hours`/`begin_iso`/bbox
+    floats), so this takes the handler's ORIGINAL wire-format args instead.
     """
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
+        office_id = err.envelope.offending_value
+        if (
+            _repair_call is not None
+            and err.envelope.code is ErrorCode.GHOST_OFFICE
+            and isinstance(office_id, str)
+        ):
+            tool, call_args = _repair_call
+            err.envelope.repair = offices.ghost_office_repair(office_id, tool=tool, args=call_args)
         return error_ref(err)
 
 

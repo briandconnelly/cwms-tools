@@ -130,16 +130,18 @@ def test_get_locations_catalog_refetches_when_use_cache_false(configured, mocked
     assert len(mocked.calls) == 2
 
 
-def test_nw_district_office_raises_ghost_office_with_repair(configured) -> None:
+def test_nw_district_office_raises_ghost_office_no_repair_at_core_level(configured) -> None:
+    """#69: core no longer hardcodes a same-tool-switching repair — a same-CALL
+    retry needs the calling surface's own tool name and original arguments,
+    which core doesn't have. `mcp.tools._safe`/`cli.render` attach the repair
+    via `core.offices.ghost_office_repair` at the surface boundary instead."""
     with pytest.raises(CwmsToolsError) as ex_info:
         catalog.get_locations_catalog("NWO")
     err = ex_info.value.envelope
     assert err.code is ErrorCode.GHOST_OFFICE
     assert err.field == "office_id"
     assert err.offending_value == "NWO"
-    assert err.repair is not None
-    assert err.repair.tool == "cwms_browse_region"
-    assert err.repair.args["office"] in {"NWDM", "NWDP"}
+    assert err.repair is None
 
 
 def test_enrich_locations_marks_ghost_records(configured, mocked) -> None:

@@ -1,8 +1,9 @@
 """Name resolution + co-located variant grouping over the locations catalog.
 
 Wraps `cwms.locations.physical_locations.get_location` and the enriched
-catalog browse in `core.catalog`. Surfaces NW-stub repair hints via
-`cwms_browse_region` and the canonical PlaceSummary shape used by
+catalog browse in `core.catalog`. Raises the structured `ghost_office`
+error for NW-stub offices (the calling surface attaches a same-tool retry
+repair, #69) and produces the canonical PlaceSummary shape used by
 `cwms_search_places` / `cwms_describe_place`.
 """
 
@@ -17,27 +18,22 @@ from cwms_tools.core import catalog
 from cwms_tools.core.errors import (
     CwmsToolsError,
     ErrorCode,
-    RepairHint,
     retry_after_ms_from_response,
     upstream_error_from_status,
 )
+from cwms_tools.core.offices import NW_STUBS
 
 # NW Division district stubs — publish no data in CDA. Documented in
 # cwms-overview.md §6.1. Mirror the short-circuit from `core.catalog` so
-# single-location reads (place describe, place parameters) surface the
-# same agent-friendly repair hint instead of a database-internals 404.
-_NW_STUBS: frozenset[str] = frozenset({"NWO", "NWK", "NWS", "NWP", "NWW"})
-_NW_REPAIR_TARGETS: dict[str, str] = {
-    "NWO": "NWDM",
-    "NWK": "NWDM",
-    "NWS": "NWDP",
-    "NWP": "NWDP",
-    "NWW": "NWDP",
-}
+# single-location reads (place describe, place parameters) raise the same
+# structured `ghost_office` error instead of a database-internals 404. The
+# surface boundary (mcp.tools._safe, cli.render), not this module, attaches
+# the same-tool retry repair (#69) — see core.offices.ghost_office_repair.
 
 
 def _ghost_office_error(office_id: str) -> CwmsToolsError:
-    target = _NW_REPAIR_TARGETS.get(office_id, "NWDM")
+    """Build `ghost_office` with no `repair` — see `core.catalog._raise_ghost_office`
+    for why (#69): the surface boundary attaches the same-tool retry repair."""
     return CwmsToolsError.of(
         ErrorCode.GHOST_OFFICE,
         f"Office {office_id} publishes no operational data; use the regional rollup.",
@@ -48,7 +44,6 @@ def _ghost_office_error(office_id: str) -> CwmsToolsError:
             "Use NWDM (Missouri) or NWDP (Pacific NW) instead. The "
             "`cwms://offices` resource lists every valid office code."
         ),
-        repair=RepairHint(tool="cwms_browse_region", args={"office": target}),
     )
 
 
@@ -70,7 +65,7 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
     (retryable). Previously every failure became NOT_FOUND, hiding
     transient upstream issues behind a "not found" envelope.
     """
-    if office_id in _NW_STUBS:
+    if office_id in NW_STUBS:
         raise _ghost_office_error(office_id)
     cache = catalog.get_cache()
     cfg = catalog.current_config()

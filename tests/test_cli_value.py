@@ -207,6 +207,42 @@ def test_value_history_rejects_unknown_unit() -> None:
     assert "bogus" in combined
 
 
+def test_value_history_ghost_office_names_id_spec_not_office() -> None:
+    """#68 review: `value history` has no `--office` flag — the retryable
+    arg for a ghost_office error is `id_spec` (the declared CLI argument,
+    per `cli/commands/schema.py`), not the nonexistent "office"."""
+    result = runner.invoke(
+        app,
+        [
+            "value",
+            "history",
+            "NWO/FTPK/Elev",
+            "--begin",
+            "2026-05-17T17:00:00Z",
+            "--end",
+            "2026-05-17T19:00:00Z",
+        ],
+    )
+    assert result.exit_code == 12  # GHOST exit
+    payload = json.loads(result.stderr)
+    assert payload["error"]["code"] == "ghost_office"
+    assert payload["error"]["field"] == "id_spec"
+    # #69: repair retries `value history` with the SAME name/parameter/
+    # window/unit/rollup, office rolled up into a fresh id_spec.
+    # #69 review: `tool` names the actual CLI invocation with CLI flag
+    # names (`begin`/`end`), not the MCP tool's `begin_iso`/`end_iso`.
+    repair = payload["error"]["repair"]
+    assert repair["tool"] == "cwms-tools value history"
+    assert repair["args"] == {
+        "id_spec": "NWDM/FTPK/Elev",
+        "begin": "2026-05-17T17:00:00Z",
+        "end": "2026-05-17T19:00:00Z",
+        "unit": "EN",
+        "rollup": "raw",
+        "detail": "summary",
+    }
+
+
 def test_usage_error_writes_full_envelope_to_stderr() -> None:
     """C1/C3: whole-command usage errors emit the FULL ErrorEnvelope (with
     request_id, hint, field) to stderr — not the old hand-built partial dict on
@@ -232,6 +268,23 @@ def test_value_get_partial_failure_keeps_aggregate_on_stdout(configured) -> None
     assert payload["summary"]["failed"] == 1
     assert payload["results"][0]["ok"] is False
     assert payload["results"][0]["error"]["code"] == "ghost_office"
+    # #68: this per-item error bypasses `emit_error()` (it's embedded in the
+    # success-shaped batch envelope). `value get` has no `--office` flag —
+    # `id_specs` (the declared CLI argument) is the retryable arg, not the
+    # nonexistent "office".
+    assert payload["results"][0]["error"]["field"] == "id_specs"
+    # #69: repair retries `value get` with a fresh id_specs list containing
+    # only THIS failed spec (not the whole original list — re-running
+    # already-ok items would be wasteful/confusing), office rolled up.
+    repair = payload["results"][0]["error"]["repair"]
+    assert repair["tool"] == "cwms-tools value get"
+    assert repair["args"] == {
+        "id_specs": ["NWDM/FTPK/Elev"],
+        "window_hours": 24,
+        "unit": "EN",
+        "with_status": False,
+        "detail": "summary",
+    }
 
 
 def test_value_profile_emits_sorted_profile(configured, monkeypatch) -> None:
@@ -280,3 +333,20 @@ def test_value_profile_rejects_bad_id_shape() -> None:
     result = runner.invoke(app, ["value", "profile", "missing-slashes"])
     assert result.exit_code == 2
     assert json.loads(result.stderr)["error"]["code"] == "usage_error"
+
+
+def test_value_profile_ghost_office_names_id_spec_not_office() -> None:
+    """#68 review: `value profile` has no `--office` flag either."""
+    result = runner.invoke(app, ["value", "profile", "NWO/GWLW_S1/Temp-Water"])
+    assert result.exit_code == 12  # GHOST exit
+    payload = json.loads(result.stderr)
+    assert payload["error"]["code"] == "ghost_office"
+    assert payload["error"]["field"] == "id_spec"
+    repair = payload["error"]["repair"]
+    assert repair["tool"] == "cwms-tools value profile"
+    assert repair["args"] == {
+        "id_spec": "NWDM/GWLW_S1/Temp-Water",
+        "window_hours": 24,
+        "unit": "EN",
+        "detail": "summary",
+    }

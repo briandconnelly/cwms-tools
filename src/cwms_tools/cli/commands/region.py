@@ -6,10 +6,10 @@ from typing import Annotated
 
 import typer
 
-from cwms_tools.cli.render import emit, emit_error
+from cwms_tools.cli.render import attach_ghost_office_repair, emit, emit_error
 from cwms_tools.core import places, shaping
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
-from cwms_tools.core.geo import BBox
+from cwms_tools.core.geo import BBox, first_missing_bbox_field
 from cwms_tools.core.models import Detail
 
 app = typer.Typer(
@@ -76,8 +76,8 @@ def browse(
                 "Cap on the number of results (default 50). A no-filter browse of "
                 "a large office can return thousands of rows; the cap keeps the "
                 "response bounded. Pass `0` for no cap. When the cap kicks in the "
-                "response carries `truncated: true`, `total_count`, and a "
-                "`truncation_hint`."
+                "response carries `has_more: true`, `total_count`, `next_cursor`, "
+                "and a `truncation_hint` (fully pageable — `truncated` stays false)."
             ),
         ),
     ] = places.DEFAULT_BROWSE_LIMIT,
@@ -121,7 +121,7 @@ def browse(
                 ErrorCode.USAGE_ERROR,
                 "When specifying a bounding box, --south, --west, --north, "
                 "--east must all be provided.",
-                field="bbox",
+                field=first_missing_bbox_field(south, west, north, east),
                 offending_value={"south": south, "west": west, "north": north, "east": east},
                 hint="Pass all four bbox edges or omit bbox entirely.",
             )
@@ -140,7 +140,15 @@ def browse(
             cursor=cursor,
         )
     except CwmsToolsError as err:
-        emit_error(err)
+        repair_args: dict[str, object] = {}
+        if bbox is not None:
+            repair_args.update(south=south, west=west, north=north, east=east)
+        if state is not None:
+            repair_args["state"] = state
+        repair_args["limit"] = limit
+        if cursor is not None:
+            repair_args["cursor"] = cursor
+        emit_error(attach_ghost_office_repair(err, tool="cwms_browse_region", args=repair_args))
     # `region browse` has no `--detail` toggle; it always emits the summary
     # shape, routed through the shared shaper so it stays in lockstep with the
     # `cwms_browse_region` MCP tool (e.g. both strip `raw` from results).

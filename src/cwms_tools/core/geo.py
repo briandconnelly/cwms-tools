@@ -32,6 +32,23 @@ class BBox:
         return self.south <= lat <= self.north and self.west <= lon <= self.east
 
 
+def first_missing_bbox_field(
+    south: float | None, west: float | None, north: float | None, east: float | None
+) -> str | None:
+    """Name of the first unset corner (canonical south/west/north/east order).
+
+    A bounding box requires all four corners or none — when 1-3 are
+    provided, this names a real, retryable argument for the caller's error
+    `field` (#68), rather than a synthetic "bbox" that isn't an actual
+    parameter of either surface (MCP tool params / CLI flags are the four
+    separate corners, not a combined "bbox" object).
+    """
+    for name, value in (("south", south), ("west", west), ("north", north), ("east", east)):
+        if value is None:
+            return name
+    return None
+
+
 @dataclass(frozen=True)
 class GeoPoint:
     """A location keyed by `(office_id, name)` for co-location grouping."""

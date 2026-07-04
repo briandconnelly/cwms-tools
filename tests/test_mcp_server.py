@@ -189,11 +189,39 @@ def test_every_task_tool_response_carries_source_fingerprint(server) -> None:
             arguments={"section_id": sid, "detail": "summary"},
         )
 
-    # Overview tool is the only one that doesn't include `source` (it
-    # predates the M9 envelope rework). This test pins one of the M4-M6
-    # task tools instead — exercised indirectly via the schemas test above.
     result = asyncio.run(go())
     assert result.structured_content is not None
+
+
+def test_overview_section_tool_carries_source_fingerprint_on_every_branch(server) -> None:
+    """#70: `cwms_get_overview_section` was the one tool whose success
+    responses carried no `source` at all, despite the module's own contract
+    ("every successful tool response carries source.fingerprint") — fixed
+    on all three success branches: index, section, and chunk."""
+    from cwms_tools.core import overview
+
+    sid = overview.section_ids()[0]
+
+    def _branch(structured):
+        return (structured or {}).get("result", structured or {})
+
+    async def go():
+        index_result = await server.call_tool("cwms_get_overview_section", arguments={})
+        section_result = await server.call_tool(
+            "cwms_get_overview_section", arguments={"section_id": sid, "detail": "summary"}
+        )
+        section_payload = _branch(section_result.structured_content)
+        chunk_id = section_payload["chunks"][0]["chunk_id"]
+        chunk_result = await server.call_tool(
+            "cwms_get_overview_section",
+            arguments={"section_id": sid, "chunk_id": chunk_id},
+        )
+        return index_result, section_result, chunk_result
+
+    index_result, section_result, chunk_result = asyncio.run(go())
+    assert _branch(index_result.structured_content)["source"]["fingerprint"]
+    assert _branch(section_result.structured_content)["source"]["fingerprint"]
+    assert _branch(chunk_result.structured_content)["source"]["fingerprint"]
 
 
 def test_overview_section_tool_returns_not_found_payload_for_bad_slug(server) -> None:
@@ -385,7 +413,7 @@ _CDA_TOOLS = {
 }
 
 
-def test_cda_tools_declare_open_world_and_idempotent():
+def test_cda_tools_declare_open_world_and_omit_idempotent_hint():
     async def go():
         mcp = build_server()
         return {t.name: t.to_mcp_tool() for t in await mcp.list_tools()}
@@ -395,10 +423,30 @@ def test_cda_tools_declare_open_world_and_idempotent():
         ann = tools[name].annotations
         assert ann.readOnlyHint is True
         assert ann.openWorldHint is True
-        assert ann.idempotentHint is True
     overview = tools["cwms_get_overview_section"].annotations
     assert overview.openWorldHint is False
-    assert overview.idempotentHint is True
+
+
+def test_every_read_only_tool_omits_idempotent_hint():
+    """#75 (Copilot review): exhaustive over every registered tool, not just
+    `_CDA_TOOLS` plus `cwms_get_overview_section` — that subset previously
+    missed `cwms_get_profile` and `cwms_list_offices`, so a regression on
+    either would have slipped through. The MCP spec only assigns
+    `idempotentHint`/`destructiveHint` meaning when `readOnlyHint` is false;
+    every tool here is read-only, so `idempotentHint` must be omitted
+    entirely (not asserted true) rather than claiming semantics the protocol
+    doesn't assign in this branch."""
+
+    async def go():
+        mcp = build_server()
+        return await mcp.list_tools()
+
+    tools = asyncio.run(go())
+    assert tools  # sanity: the loop actually found and checked tools
+    for tool in tools:
+        ann = tool.to_mcp_tool().annotations
+        assert ann.readOnlyHint is True, f"{tool.name} is not read-only"
+        assert ann.idempotentHint is None, f"{tool.name} still declares idempotentHint"
 
 
 def test_capabilities_declare_tool_latency():

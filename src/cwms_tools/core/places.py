@@ -79,10 +79,15 @@ def search_places(
     widen. New (uncached) offices in the list are capped per call by
     `_fanout_budget()`; offices not fetched are listed under
     `offices_skipped_for_budget` — re-call with those offices in `office`
-    to widen. When the resolved scope is empty (a bare-name search with no
-    cached offices), the response carries a top-level `repair_hint`: a
-    ready-to-use retry call naming the curated data-bearing office list under
-    `repair_hint.args.office`. It is omitted whenever any office was searched.
+    to widen. This is the signal for *scope* incompleteness (offices never
+    searched at all) and is orthogonal to `truncated`/`has_more` (which
+    describe *row* completeness within the offices that WERE searched):
+    `truncated: false` never implies every requested office was searched —
+    check `offices_skipped_for_budget` for that. When the resolved scope is
+    empty (a bare-name search with no cached offices), the response carries
+    a top-level `repair_hint`: a ready-to-use retry call naming the curated
+    data-bearing office list under `repair_hint.args.office`. It is omitted
+    whenever any office was searched.
 
     `parameter`: optional CWMS parameter code (e.g. `Temp-Water`). When
     set, data-bearing rows that do not publish this parameter are dropped
@@ -94,18 +99,20 @@ def search_places(
     `limit` caps the number of results returned (default 50). Broad
     searches can return hundreds of rows on a big office; the cap
     prevents flooding the caller. Set `limit=None` (or `limit=0` on the
-    CLI) to return every match. When the cap kicks in, the response
-    carries `truncated: true` and `total_count`.
+    CLI) to return every match.
 
     Pagination: when the result set exceeds `limit`, the response sets
-    `has_more: true` and returns an opaque `next_cursor`. Pass that value
-    back as `cursor` to fetch the next page; the cursor locks the searched
-    office set and the query/parameter, so continuation is deterministic.
-    A stale cursor (changed query/parameter, or a catalog that shifted)
-    raises an `invalid_cursor` error — restart without `cursor`. `limit=None`
-    (or `limit=0` on the CLI) returns all results and never paginates;
-    passing `cursor` together with an unlimited limit is rejected as
-    `invalid_cursor`.
+    `has_more: true` and returns an opaque `next_cursor` — `total_count`
+    reports the full size. Pass `next_cursor` back as `cursor` to fetch the
+    next page; the cursor locks the searched office set and the
+    query/parameter, so continuation is deterministic. `truncated` stays
+    `false` here: unlike a genuine hard cap, every row beyond `limit` is
+    still reachable via `next_cursor`, so it never means "unrecoverable"
+    for this tool (#73). A stale cursor (changed query/parameter, or a
+    catalog that shifted) raises an `invalid_cursor` error — restart
+    without `cursor`. `limit=None` (or `limit=0` on the CLI) returns all
+    results and never paginates; passing `cursor` together with an
+    unlimited limit is rejected as `invalid_cursor`.
     """
     if limit is not None and limit < 0:
         raise ValueError("limit must be a non-negative integer or None")
@@ -164,6 +171,9 @@ def search_places(
             "last_data_timestamp": r.get("last_data_timestamp"),
             "co_located": r.get("co_located", []),
             "data_at": r.get("data_at", []),
+            # The unfiltered upstream location DTO (#74) — `shaping.shape_place_detail`
+            # strips this in `summary` mode; only `detail=full` keeps it.
+            "raw": r.get("raw"),
         }
         for r in page
     ]
@@ -175,7 +185,10 @@ def search_places(
         "offices_skipped_for_budget": offices_skipped,
         "results": results,
         "total_count": total_count,
-        "truncated": has_more,
+        # `limit` never makes rows unrecoverable — `next_cursor` can always
+        # page through the rest — so `truncated` stays False here; `has_more`
+        # is the pagination signal (#73).
+        "truncated": False,
         "has_more": has_more,
         "next_cursor": next_cursor,
         "limit": limit,
@@ -229,10 +242,25 @@ def _resolve_scope(
     """Resolve the office set to search, honoring a continuation cursor.
 
     Returns `(decoded_cursor, offset, offices_searched, offices_skipped,
-    partial_reasons)`. On the cursor path the office set is locked to the
-    cursor's bounded list (a forged cursor must not widen the fan-out); on the
-    fresh path it is the explicit `office` list or the cached default scope,
-    bounded by the per-call fan-out budget.
+    partial_reasons)`. On the cursor path the office set is bounded to the
+    cursor's locked list — a forged cursor cannot WIDEN the fan-out beyond
+    what `coerce_offices` structurally allows (at most `MAX_CURSOR_OFFICES`
+    entries) — but that list is then re-run through `_run_fanout` (#72), the
+    SAME uncached-office budget the fresh path enforces, so a forged cursor
+    naming many never-cached offices cannot bypass the budget either. A
+    legitimate cursor only ever locks in `offices_searched` from a prior page
+    (see the `next_cursor` encode call below), and those offices are normally
+    still cache-hot moments later, so this re-check is a no-op cost-wise for
+    the real pagination flow. It DOES introduce one new, narrow failure mode
+    versus the pre-#72 behavior (which unconditionally refetched every locked
+    office regardless of cache state): if cache TTL evicts more than
+    `_fanout_budget()` of the locked offices between pages, some now get
+    budget-skipped here. Silently shrinking the searched set and hoping
+    `ensure_total` catches the resulting mismatch would be both non-deterministic
+    (only fires if the total happens to differ) and could silently under-report
+    results if it doesn't — so instead this raises `invalid_cursor` immediately
+    whenever continuation budgeting skips ANY previously-locked office,
+    labeled distinctly from a genuine catalog-shift.
     """
     if cursor is None:
         requested = _normalize_office_arg(office)
@@ -252,7 +280,18 @@ def _resolve_scope(
     # Cheap checks BEFORE upstream fan-out: kind, request hash, offset shape,
     # and a bounded/typed office set (a forged cursor must not widen the fan-out).
     offset = pagination.validate_continuation(decoded, kind="search_places", req=req)
-    return decoded, offset, pagination.coerce_offices(decoded), [], []
+    locked_offices = pagination.coerce_offices(decoded)
+    offices_searched, offices_skipped, partial_reasons = _run_fanout(locked_offices)
+    if offices_skipped:
+        # A locked office fell out of budget (cache TTL evicted it, or the
+        # cursor was forged). Reject outright rather than silently searching
+        # a smaller set than the cursor promised.
+        raise pagination.invalid_cursor(
+            "cursor's locked office set no longer fits the per-call fan-out budget "
+            "(cache expired, or the cursor is invalid); restart without `cursor`",
+            offending_value=", ".join(offices_skipped)[: pagination.CURSOR_ECHO_MAX],
+        )
+    return decoded, offset, offices_searched, offices_skipped, partial_reasons
 
 
 def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
@@ -605,7 +644,9 @@ def browse_region(
     large office can return thousands of rows; the cap keeps the response
     bounded. Set `limit=None` (or `limit=0` on the CLI) for no cap. When the
     cap kicks in the response carries `has_more: true`, `total_count`,
-    `next_cursor`, and a `truncation_hint`. Data-bearing rows sort ahead of
+    `next_cursor`, and a `truncation_hint`. `truncated` stays `false`: every
+    row beyond `limit` is still reachable via `next_cursor`, so it's never
+    "unrecoverable" for this tool (#73). Data-bearing rows sort ahead of
     ghosts so a capped browse keeps the useful records.
 
     Pass the opaque `next_cursor` from a prior response as `cursor` to fetch
@@ -703,7 +744,10 @@ def browse_region(
         "result_count": len(rows),
         "ghost_count": ghost_count,
         "total_count": total_count,
-        "truncated": has_more,
+        # See `search_places`'s docstring (#73): `limit` is always pageable
+        # via `next_cursor`, so `truncated` stays False; `has_more` is the
+        # pagination signal.
+        "truncated": False,
         "has_more": has_more,
         "next_cursor": next_cursor,
         "limit": limit,
