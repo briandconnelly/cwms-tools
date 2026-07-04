@@ -273,8 +273,11 @@ def register_place_tools(mcp: FastMCP) -> None:
         if isinstance(raw, ErrorRef):
             return raw
         shaped = shaping.shape_place_detail(raw, detail)
-        workaround = shaped.get("source_workaround")
-        upstream_status = shaped.get("upstream_status")
+        # These carry the project-lookup recovery signal into `source` below;
+        # pop rather than leave them (they'd otherwise duplicate
+        # source.workaround/source.upstream_status at the top level, #74).
+        workaround = shaped.pop("source_workaround", None)
+        upstream_status = shaped.pop("upstream_status", None)
         shaped["source"] = _source(
             workaround=workaround,
             upstream_status=upstream_status,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from pydantic import BaseModel, ValidationError
 
 from cwms_tools.core.models import (
     ActiveThreshold,
@@ -12,6 +13,7 @@ from cwms_tools.core.models import (
     CdaLocation,
     Detail,
     HistoryResponse,
+    LevelLookupStatus,
     PlaceSummary,
     Rollup,
     SearchPlacesResponse,
@@ -61,20 +63,19 @@ def test_status_class_enum_values() -> None:
     assert {c.value for c in StatusClass} == expected
 
 
-def test_place_summary_accepts_extra_fields() -> None:
-    """Task-response models allow extras so producers can add fields without
-    breaking validation; the schema FastMCP derives still documents every
-    declared field."""
-    summary = PlaceSummary.model_validate(
-        {
-            "office_id": "SWT",
-            "name": "FOSS",
-            "parameter_count": 31,
-            "additional_future_field": True,
-        }
-    )
-    assert summary.office_id == "SWT"
-    assert summary.parameter_count == 31
+def test_place_summary_rejects_extra_fields() -> None:
+    """#74: task-response models are closed (extra='forbid') so an undeclared
+    producer field surfaces as a loud ValidationError instead of silently
+    passing through undocumented and unfingerprinted."""
+    with pytest.raises(ValidationError):
+        PlaceSummary.model_validate(
+            {
+                "office_id": "SWT",
+                "name": "FOSS",
+                "parameter_count": 31,
+                "additional_future_field": True,
+            }
+        )
 
 
 def test_search_places_response_serializes_to_json() -> None:
@@ -114,6 +115,70 @@ def test_active_threshold_relation_is_literal_enum() -> None:
     assert t.relation == "above"
 
 
+def test_active_threshold_carries_level_id_and_source_workaround() -> None:
+    """#74: these are real fields (present at detail=full, stripped in
+    summary by `shape_value_detail`), not extras tolerated by the model."""
+    t = ActiveThreshold(
+        specified_level_id="Flood Stage",
+        level_id="Carlyle Lk.Elev.Inst.0.Flood Stage",
+        value=15.0,
+        unit="ft",
+        relation="above",
+        source_workaround="rating-curve-fallback",
+    )
+    assert t.level_id == "Carlyle Lk.Elev.Inst.0.Flood Stage"
+    assert t.source_workaround == "rating-curve-fallback"
+    # Both are optional (absent in summary-mode payloads).
+    bare = ActiveThreshold(
+        specified_level_id="Flood Stage", value=15.0, unit="ft", relation="above"
+    )
+    assert bare.level_id is None
+    assert bare.source_workaround is None
+
+
+def test_publishers_for_parameter_response_round_trips_observed_publishers_alias() -> None:
+    """#74: `_observed_publishers_by_office` is a real (aliased) field now,
+    not an extra — pydantic forbids a literal underscore-prefixed field name,
+    so the wire key is preserved via `alias` + `serialize_by_alias=True`."""
+    from cwms_tools.core.models import PublishersCoverage, PublishersForParameterResponse
+
+    resp = PublishersForParameterResponse(
+        parameter="Elev",
+        publishers=[],
+        publisher_count=0,
+        ts_count=0,
+        coverage=PublishersCoverage(
+            offices_requested=["NWDM"],
+            offices_indexed=["NWDM"],
+            complete=True,
+        ),
+        source=SourceMeta(fingerprint="f" * 64),
+        _observed_publishers_by_office={"NWDM": ["Best-MRBWM"]},
+    )
+    dumped = resp.model_dump(mode="json")
+    assert dumped["_observed_publishers_by_office"] == {"NWDM": ["Best-MRBWM"]}
+    assert "observed_publishers_by_office" not in dumped
+
+
+@pytest.mark.parametrize(
+    "model_cls",
+    [
+        PlaceSummary,
+        SearchPlacesResponse,
+        BrowseRegionResponse,
+        ActiveThreshold,
+        ValueWithContextResponse,
+        HistoryResponse,
+    ],
+)
+def test_task_response_models_are_closed(model_cls: type[BaseModel]) -> None:
+    """#74: task-response models forbid extras — an undeclared producer field
+    is a schema bug to fix, not a silently-tolerated passthrough. (The DTO
+    facade tier — CdaLocation/CdaProject — is a different tier and is exempt
+    by design; not parametrized here.)"""
+    assert model_cls.model_config.get("extra") == "forbid"
+
+
 def test_value_with_context_response_carries_source_meta() -> None:
     summary = ValueWithContextResponse(
         ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
@@ -126,6 +191,7 @@ def test_value_with_context_response_carries_source_meta() -> None:
         timestamp="2026-05-17T18:00:00Z",
         status_class=StatusClass.NOMINAL,
         thresholds_active=[],
+        level_lookup_status=LevelLookupStatus.SKIPPED,
         source=SourceMeta(fingerprint="abc"),
     )
     assert summary.source.fingerprint == "abc"
@@ -229,7 +295,12 @@ def test_search_response_drops_null_fields_on_dump() -> None:
 
 
 def test_value_response_keeps_semantic_nulls() -> None:
-    from cwms_tools.core.models import SourceMeta, StatusClass, ValueWithContextResponse
+    from cwms_tools.core.models import (
+        LevelLookupStatus,
+        SourceMeta,
+        StatusClass,
+        ValueWithContextResponse,
+    )
 
     resp = ValueWithContextResponse(
         ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
@@ -242,6 +313,7 @@ def test_value_response_keeps_semantic_nulls() -> None:
         timestamp=None,
         status_class=StatusClass.UNKNOWN,
         thresholds_active=[],
+        level_lookup_status=LevelLookupStatus.SKIPPED,
         source=SourceMeta(fingerprint="f" * 64),
     )
     dumped = resp.model_dump(mode="json")
@@ -265,7 +337,12 @@ def test_serialization_mode_schema_keeps_fields() -> None:
 
 def test_value_response_rounds_conversion_noise_on_dump() -> None:
     """Issue #45: the model serializer rounds measurement floats to 6 sig figs."""
-    from cwms_tools.core.models import SourceMeta, StatusClass, ValueWithContextResponse
+    from cwms_tools.core.models import (
+        LevelLookupStatus,
+        SourceMeta,
+        StatusClass,
+        ValueWithContextResponse,
+    )
 
     resp = ValueWithContextResponse(
         ts_id="BBLW_S1-D1,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV",
@@ -277,6 +354,7 @@ def test_value_response_rounds_conversion_noise_on_dump() -> None:
         timestamp="2026-05-17T18:00:00Z",
         status_class=StatusClass.UNKNOWN,
         thresholds_active=[],
+        level_lookup_status=LevelLookupStatus.SKIPPED,
         source=SourceMeta(fingerprint="f" * 64),
     )
     dumped = resp.model_dump(mode="json")
@@ -284,20 +362,23 @@ def test_value_response_rounds_conversion_noise_on_dump() -> None:
 
 
 def test_place_summary_preserves_coordinates_but_rounds_other_floats() -> None:
-    """Lat/lon carve-out survives serialization; an extra measurement float rounds."""
+    """Lat/lon carve-out survives serialization; a declared nested float
+    (parsed sensor depth) rounds normally. Generic float-rounding itself is
+    covered exhaustively in tests/test_rounding.py; this just checks a real
+    PlaceSummary field, not a fabricated extra="allow" one (#74)."""
     summary = PlaceSummary.model_validate(
         {
             "office_id": "NWDM",
             "name": "FTPK",
             "latitude": 47.99123456,
             "longitude": -106.41234567,
-            "reading": 20.305555555555557,  # extra="allow"; rounded as a generic float
+            "depth": {"value": 20.305555555555557, "unit": "ft"},
         }
     )
     dumped = summary.model_dump(mode="json")
     assert dumped["latitude"] == 47.99123456  # citation-grade precision preserved
     assert dumped["longitude"] == -106.41234567
-    assert dumped["reading"] == 20.3056
+    assert dumped["depth"]["value"] == 20.3056
 
 
 def test_compact_models_round_trip() -> None:

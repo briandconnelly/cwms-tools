@@ -223,7 +223,13 @@ def describe(
             args={"detail": detail.value},
         )
         emit_error(err)
-    emit(shaping.shape_place_detail(payload, detail))
+    shaped = shaping.shape_place_detail(payload, detail)
+    # The CLI has no `source` wrapper to fold these into (unlike MCP's
+    # source.workaround/source.upstream_status); with no consumer, they were
+    # pure noise leaking into every response — drop them for parity (#74).
+    shaped.pop("source_workaround", None)
+    shaped.pop("upstream_status", None)
+    emit(shaped)
 
 
 @app.command("parameters")
