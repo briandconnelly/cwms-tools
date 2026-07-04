@@ -276,3 +276,22 @@ def test_ghost_office_repair_office_always_overrides_args() -> None:
     """A stray `office` key in `args` must not survive — the swapped target wins."""
     repair = offices.ghost_office_repair("NWS", tool="cwms_browse_region", args={"office": "NWO"})
     assert repair.arguments["office"] == "NWDP"
+
+
+def test_ghost_office_error_is_the_shared_builder_for_both_surfaces() -> None:
+    """`core.locations` and `core.catalog` both build the `ghost_office`
+    envelope from this one helper (post-0.5.0 review), so they cannot drift.
+    Verify the canonical shape and that both call sites re-export it."""
+    from cwms_tools.core import catalog, locations
+    from cwms_tools.core.errors import ErrorCode
+
+    err = offices.ghost_office_error("NWO")
+    env = err.envelope
+    assert env.code is ErrorCode.GHOST_OFFICE
+    assert env.details is not None
+    assert env.details.field == "office_id"
+    assert env.details.value == "NWO"
+    assert env.repair is None  # the surface boundary attaches the retry repair
+    # Both modules import the shared builder rather than owning a copy.
+    assert locations.ghost_office_error is offices.ghost_office_error
+    assert catalog.ghost_office_error is offices.ghost_office_error

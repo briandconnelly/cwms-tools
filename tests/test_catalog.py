@@ -479,7 +479,7 @@ def test_get_locations_catalog_wraps_5xx_as_temporary_upstream_error(configured,
     env = ex_info.value.envelope
     assert env.code is ErrorCode.UPSTREAM_ERROR
     assert env.temporary is True
-    assert env.endpoints_called == ["/catalog/LOCATIONS"]
+    assert env.source.endpoints_called == ["/catalog/LOCATIONS"]
 
 
 def test_get_locations_catalog_wraps_429_as_rate_limited_with_retry_after(

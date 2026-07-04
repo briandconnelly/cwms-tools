@@ -25,12 +25,11 @@ from cwms_tools.core import publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import (
     CwmsToolsError,
-    ErrorCode,
     retry_after_ms_from_response,
     upstream_error_from_status,
 )
 from cwms_tools.core.geo import GeoPoint, co_located
-from cwms_tools.core.offices import NW_STUBS
+from cwms_tools.core.offices import NW_STUBS, ghost_office_error
 from cwms_tools.core.session import current_config
 
 
@@ -62,25 +61,6 @@ def _wrap_api_error(exc: ApiError, *, endpoint: str) -> CwmsToolsError:
 MAX_TS_LIKE_BYTES: int = 2048
 
 
-def _raise_ghost_office(office_id: str) -> None:
-    """Raise `ghost_office` with no `repair` — a same-tool retry needs the
-    calling surface's own tool name and original arguments (which core
-    doesn't have), so the surface boundary (`mcp.tools._safe`,
-    `cli.render`) attaches the repair via `core.offices.ghost_office_repair`
-    instead of this hardcoding a single fallback tool (#69)."""
-    raise CwmsToolsError.of(
-        ErrorCode.GHOST_OFFICE,
-        f"Office {office_id} publishes no operational data; use the regional rollup.",
-        field="office_id",
-        value=office_id,
-        reason=(
-            "NW Division districts (NWO, NWK, NWS, NWP, NWW) are catalog stubs. "
-            "Use NWDM (Missouri) or NWDP (Pacific NW) instead. The "
-            "`cwms://offices` resource lists every valid office code."
-        ),
-    )
-
-
 def get_locations_catalog(
     office_id: str,
     *,
@@ -89,7 +69,7 @@ def get_locations_catalog(
 ) -> dict[str, Any]:
     """Return the paginated locations catalog for an office. Cached for 6 h."""
     if office_id in NW_STUBS:
-        _raise_ghost_office(office_id)
+        raise ghost_office_error(office_id)
     cache = get_cache()
     ttl = cache.ttl_for("location_catalog")
     cfg = current_config()
@@ -125,7 +105,7 @@ def get_timeseries_catalog(
     need it is what made `value get` unusable in evaluation.
     """
     if office_id in NW_STUBS:
-        _raise_ghost_office(office_id)
+        raise ghost_office_error(office_id)
     cache = get_cache()
     ttl = cache.ttl_for("ts_catalog")
     cfg = current_config()

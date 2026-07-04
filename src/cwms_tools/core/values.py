@@ -28,8 +28,6 @@ ROLLUP_MODES: tuple[str, ...] = tuple(r.value for r in Rollup)
 #: true (uncapped) count fetched; only the `values` array is capped.
 MAX_RAW_HISTORY_POINTS = 5_000
 
-_threading = threading  # keep import live in case the formatter strips it
-
 # How long the threshold/status lookup is allowed to take before the caller
 # is given back an unclassified value. CWMS's `/levels` endpoint is
 # unreliably slow for big offices (NWDM reliably exceeds 60s). The chosen
@@ -311,27 +309,35 @@ def _cap_raw_points(
     return capped, True, _next_begin_from_points(capped)
 
 
-def _timestamp_sort_key(point: dict[str, Any]) -> tuple[int, str]:
-    """Sort key for `_cap_raw_points`: parseable timestamps sort first
-    (chronologically); missing or unparseable timestamps sort last."""
+def _parse_point_timestamp(point: dict[str, Any]) -> datetime | None:
+    """Parse a raw point's ISO `timestamp` to an aware datetime, or `None`.
+
+    Naive timestamps are assumed UTC so aware and naive points stay mutually
+    comparable (CWMS emits `...Z`, but a mixed feed must not raise or misorder).
+    """
     timestamp = point.get("timestamp")
-    if isinstance(timestamp, str):
-        try:
-            datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        except ValueError:
-            return (1, "")
-        return (0, timestamp)
-    return (1, "")
+    if not isinstance(timestamp, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _timestamp_sort_key(point: dict[str, Any]) -> tuple[int, float]:
+    """Sort key for `_cap_raw_points`: parseable timestamps sort first, in true
+    chronological order (by parsed epoch — a lexicographic string compare would
+    misorder mixed fractional-second precision like `…:00Z` vs `…:00.5Z`, or
+    mixed zone offsets); missing or unparseable timestamps sort last."""
+    parsed = _parse_point_timestamp(point)
+    return (1, 0.0) if parsed is None else (0, parsed.timestamp())
 
 
 def _next_begin_from_points(points: list[dict[str, Any]]) -> str | None:
     for point in reversed(points):
-        timestamp = point.get("timestamp")
-        if not isinstance(timestamp, str):
-            continue
-        try:
-            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        except ValueError:
+        parsed = _parse_point_timestamp(point)
+        if parsed is None:
             continue
         return (parsed + timedelta(milliseconds=1)).isoformat().replace("+00:00", "Z")
     return None

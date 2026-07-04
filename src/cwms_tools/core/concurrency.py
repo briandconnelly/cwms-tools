@@ -13,6 +13,7 @@ ceiling and producing the oversubscription pattern described in the plan.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
@@ -41,6 +42,17 @@ _EXECUTOR: ThreadPoolExecutor = ThreadPoolExecutor(
     max_workers=MAX_WORKERS,
     thread_name_prefix="cwms-tools",
 )
+
+
+def fanout_budget() -> int:
+    """Uncached offices to fetch per cold-cache fan-out call: `ceil(MAX_WORKERS / 2)`, min 1.
+
+    Single source of truth for the fan-out cap shared by `search_places` and
+    `publishers_for_parameter`, so one call never expands to the full ~68-office
+    surface and tuning the ratio moves both surfaces together (rather than the
+    two drifting — the duplication this replaced).
+    """
+    return max(1, math.ceil(MAX_WORKERS / 2))
 
 
 def get_executor() -> ThreadPoolExecutor:
@@ -78,6 +90,7 @@ def shutdown(*, wait: bool = True) -> None:
 
 __all__ = [
     "MAX_WORKERS",
+    "fanout_budget",
     "get_executor",
     "run_sync",
     "shutdown",

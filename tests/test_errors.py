@@ -79,6 +79,10 @@ def test_cwms_tools_error_of_factory_constructs_envelope() -> None:
     assert isinstance(err, CwmsToolsError)
     assert err.envelope.code is ErrorCode.NOT_FOUND
     assert err.envelope.source.endpoints_called == ["/locations/DOES_NOT_EXIST"]
+    # Provenance lives ONLY under `source` — the duplicated flat top-level
+    # `endpoints_called` was dropped (post-0.5.0 review), matching the #70
+    # success-side decision to keep endpoint provenance nested, not also flat.
+    assert "endpoints_called" not in err.envelope.model_dump()
 
 
 def test_envelope_request_id_is_unique() -> None:

@@ -148,7 +148,10 @@ def browse(
         repair_args["limit"] = limit
         if cursor is not None:
             repair_args["cursor"] = cursor
-        emit_error(attach_ghost_office_repair(err, tool="cwms_browse_region", args=repair_args))
+        # CLI repair must name the runnable command, not the MCP tool (#69).
+        emit_error(
+            attach_ghost_office_repair(err, tool="cwms-tools region browse", args=repair_args)
+        )
     # `region browse` has no `--detail` toggle; it always emits the summary
     # shape, routed through the shared shaper so it stays in lockstep with the
     # `cwms_browse_region` MCP tool (e.g. both strip `raw` from results).

@@ -10,20 +10,22 @@ which were skipped.
 
 from __future__ import annotations
 
-import math
 from collections import Counter, defaultdict
 from typing import Any
 
-from cwms_tools.core import catalog, publishers
+from cwms_tools.core import catalog, concurrency, publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
-from cwms_tools.core.concurrency import MAX_WORKERS
 from cwms_tools.core.errors import CwmsToolsError, RepairHint
 from cwms_tools.core.session import current_config
 
 
 def _budget() -> int:
-    """How many offices we will index per call. ceil(MAX_WORKERS / 2), min 1."""
-    return max(1, math.ceil(MAX_WORKERS / 2))
+    """How many offices we will index per call: the shared fan-out cap.
+
+    Delegates to `concurrency.fanout_budget()` so this and `search_places`
+    stay locked to one identical value; kept as a monkeypatch seam for tests.
+    """
+    return concurrency.fanout_budget()
 
 
 def _cached_offices() -> set[str]:

@@ -23,7 +23,7 @@ from typing import Any
 from cwms import api as cwms_api
 
 from cwms_tools.core.cache import Cache, build_cache_key, get_cache
-from cwms_tools.core.errors import RepairHint
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
 from cwms_tools.core.session import current_config
 
 # NW Division district stubs — catalog stubs that publish no operational
@@ -43,6 +43,28 @@ NW_ROLLUP_TARGETS: dict[str, str] = {
 def nw_rollup_target(office_id: str) -> str:
     """The regional rollup office that publishes data for an NW district stub."""
     return NW_ROLLUP_TARGETS.get(office_id, "NWDM")
+
+
+def ghost_office_error(office_id: str) -> CwmsToolsError:
+    """Build the canonical `ghost_office` error (no `repair` attached).
+
+    Single home for this envelope (#69: `NW_STUBS`/`ghost_office_repair`
+    already live here) so `core.locations` and `core.catalog` — both of which
+    short-circuit NW-stub offices — emit byte-identical guidance instead of
+    two copies that can drift. The surface boundary (`mcp.tools._safe`,
+    `cli.render`) attaches the same-tool retry repair via `ghost_office_repair`.
+    """
+    return CwmsToolsError.of(
+        ErrorCode.GHOST_OFFICE,
+        f"Office {office_id} publishes no operational data; use the regional rollup.",
+        field="office_id",
+        value=office_id,
+        reason=(
+            "NW Division districts (NWO, NWK, NWS, NWP, NWW) are catalog stubs. "
+            "Use NWDM (Missouri) or NWDP (Pacific NW) instead. The "
+            "`cwms://offices` resource lists every valid office code."
+        ),
+    )
 
 
 def ghost_office_repair(office_id: str, *, tool: str, args: dict[str, Any]) -> RepairHint:
@@ -239,6 +261,7 @@ __all__ = [
     "NW_STUBS",
     "cached_offices_for_locations",
     "discovery_office_candidates",
+    "ghost_office_error",
     "ghost_office_repair",
     "list_office_ids",
     "list_offices",

@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 
-from cwms_tools.core import concurrency
+from cwms_tools.core import concurrency, places, publishers_index
 
 
 def test_max_workers_defaults_to_8() -> None:
     # Module-level constant resolved at import; env override happens at import too.
     assert concurrency.MAX_WORKERS >= 1
+
+
+def test_fanout_budget_is_the_single_shared_cap() -> None:
+    """The cold-cache fan-out cap has ONE home (`concurrency.fanout_budget`);
+    `search_places` and `publishers_for_parameter` both delegate to it so they
+    can never drift (post-0.5.0 review)."""
+    expected = max(1, math.ceil(concurrency.MAX_WORKERS / 2))
+    assert concurrency.fanout_budget() == expected
+    assert places._fanout_budget() == expected
+    assert publishers_index._budget() == expected
 
 
 def test_submit_returns_future_with_result() -> None:

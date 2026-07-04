@@ -8,11 +8,11 @@ wrappers in `core.catalog`, `core.locations`, `core.projects`, and
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from cwms_tools.core import (
     catalog,
+    concurrency,
     depth,
     locations,
     offices,
@@ -21,7 +21,6 @@ from cwms_tools.core import (
     publishers,
 )
 from cwms_tools.core.cache import build_cache_key, get_cache
-from cwms_tools.core.concurrency import MAX_WORKERS
 from cwms_tools.core.errors import CwmsToolsError
 from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
 from cwms_tools.core.session import current_config
@@ -33,11 +32,11 @@ DEFAULT_BROWSE_LIMIT: int = 50
 def _fanout_budget() -> int:
     """How many uncached offices we will fetch per `search_places` call.
 
-    Mirrors `core/publishers_index._budget()`. Capping new fetches keeps
-    cold-cache fanout bounded so a single search doesn't trigger ~68
-    upstream calls.
+    Delegates to the shared `concurrency.fanout_budget()` so this and
+    `publishers_for_parameter` enforce one identical cap; kept as a thin
+    module-local seam that tests monkeypatch.
     """
-    return max(1, math.ceil(MAX_WORKERS / 2))
+    return concurrency.fanout_budget()
 
 
 def _normalize_office_arg(office: str | list[str] | None) -> list[str] | None:

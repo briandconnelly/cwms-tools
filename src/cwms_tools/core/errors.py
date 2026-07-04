@@ -158,7 +158,8 @@ class ErrorEnvelope(CompactDumpMixin, BaseModel):
             "logs; `request_id` remains the server-generated correlation id."
         ),
     )
-    endpoints_called: list[str] = Field(default_factory=list)
+    # Provenance lives solely under `source` (mirroring the success-side #70
+    # decision to keep endpoint provenance in one nested place, not also flat).
     source: SourceInfo = Field(default_factory=SourceInfo)
 
 
@@ -277,7 +278,6 @@ class CwmsToolsError(Exception):
             temporary=temporary,
             retry_after_ms=retry_after_ms,
             rate_limit_remaining=rate_limit_remaining,
-            endpoints_called=endpoints_called or [],
             source=SourceInfo(
                 endpoints_called=endpoints_called or [],
                 workaround=workaround,
