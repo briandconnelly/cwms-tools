@@ -33,9 +33,13 @@ dependencies = [
     "anyio>=4",
     "python-dateutil>=2.9",
     # Not imported directly; arrives via FastMCP's auth deps. cryptography 49+
-    # ships no x86_64 macOS wheels, so keep Intel Macs on prebuilt 48.x wheels
-    # instead of a Rust source build.
+    # ships no x86_64 macOS wheels, so keep Intel Macs (including x86_64 Python
+    # under Rosetta) on prebuilt 48.x wheels instead of a Rust source build.
+    # The complementary >=50 floor makes uv fork uv.lock, so every other
+    # platform (and the .mcpb bundle there) tracks current releases, including
+    # the CVE-2026-69247 fix in 50.0.0. tests/test_lock_platforms.py guards it.
     "cryptography<49 ; platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "cryptography>=50 ; platform_machine != 'x86_64' or sys_platform != 'darwin'",
 ]
 
 [project.urls]

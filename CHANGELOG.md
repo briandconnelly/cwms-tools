@@ -13,12 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cryptography` from source, which needs a Rust toolchain. cryptography 49+
   ships only arm64 macOS wheels, and it arrives transitively through FastMCP's
   auth dependencies. cwms-tools now declares `cryptography<49` for Intel Macs
-  only, so `uvx` installs and the `.mcpb` bundle there use a prebuilt wheel.
-  Fresh installs on every other platform still resolve the latest
-  cryptography; `uv.lock` (and so the bundle) stays on 48.x everywhere,
-  because uv's universal lock settles on one version that satisfies all
-  platforms.
-
+  (including x86_64 Python under Rosetta), so `uvx` installs and the `.mcpb`
+  bundle there use a prebuilt 48.x wheel. Every other platform requires
+  `cryptography>=50`, which includes the fix for CVE-2026-69247. `uv.lock`
+  carries both versions, one per platform.
 - The MCP server failed at startup with `ImportError: cannot import name
   'McpError' from 'mcp'` whenever it was installed fresh (e.g. the Claude
   Code/Codex plugin's `uvx cwms-tools==0.6.0 mcp serve`). 0.6.0 declared
@@ -34,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Now requires `cwms-python>=1.0.9`.
+- Now requires `cryptography>=50` on every platform except Intel Macs, which
+  are capped at `cryptography<49` (see Fixed).
 - `describe` summary mode prunes `project` to `project-owner` and
   `authorizing-law`. `--detail full` / `detail="full"` returns the upstream
   project verbatim, including its nested `location` — whose
