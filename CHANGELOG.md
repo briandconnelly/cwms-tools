@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns for an unknown resource URI, so the server reports "not found" with
   a single code. The `error.data` envelope (`machine_code: "not_found"`,
   `repair`, ...) is still the documented discriminator; it gains a `uri`
-  field naming the missing resource, which SEP-2164 recommends.
+  field naming the missing resource exactly as requested (query string
+  included), which SEP-2164 recommends.
 - The capability fingerprint moves: it folds in the FastMCP baseline this
   server was verified against, which is now 4.0.3.
 

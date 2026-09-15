@@ -320,6 +320,23 @@ def test_overview_chunk_resource_miss_raises_structured_jsonrpc_error(server) ->
     assert "recoverable" not in data
 
 
+def test_resource_miss_uri_preserves_query_form(server) -> None:
+    """SEP-2164 `error.data.uri` names the URI exactly as requested. `{?detail}`
+    is part of the registered template, so dropping the query would name a
+    different resource than the one that failed."""
+    from fastmcp.exceptions import McpError
+
+    uri = "cwms://overview/does-not-exist?detail=full"
+
+    async def go():
+        return await server.read_resource(uri)
+
+    with pytest.raises(McpError) as ex:
+        asyncio.run(go())
+    assert ex.value.error.code == -32602
+    assert ex.value.error.data["uri"] == uri
+
+
 def test_place_tools_register_with_read_only_hint(server) -> None:
     """The four M4 place tools must register cleanly with read-only annotations."""
 

@@ -11,11 +11,15 @@ in `cwms_tools.mcp.tools`; the discovery resources and the
 
 from __future__ import annotations
 
-from typing import Annotated, Any, NoReturn
+from typing import TYPE_CHECKING, Annotated, Any, NoReturn
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import McpError
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from mcp.types import ReadResourceRequestParams
 
 from cwms_tools import __version__ as PKG_VERSION
 from cwms_tools.core import overview
@@ -148,7 +152,7 @@ _RESOURCE_NOT_FOUND = -32602
 
 
 def _raise_resource_not_found(
-    *, uri: str, field: str, offending_value: str, message: str, repair: RepairHint
+    *, field: str, offending_value: str, message: str, repair: RepairHint
 ) -> NoReturn:
     """Resource-side failure: a JSON-RPC error carrying the same envelope tools use.
 
@@ -160,10 +164,8 @@ def _raise_resource_not_found(
     `message` already occupy those keys). One error, one shape, regardless of
     which carrier surfaces it (#64).
 
-    `error.data.uri` names the missing resource, as SEP-2164 asks and as
-    FastMCP's own `resources/read` miss does. Handlers never see the raw request
-    URI, so callers rebuild it from the template parameters; optional query
-    parameters such as `?detail=` are omitted.
+    `error.data.uri` (SEP-2164) is added by `_ResourceMissUri`, the one place
+    that sees the exact URI the client requested.
     """
     envelope = stamp_envelope(
         CwmsToolsError.of(
@@ -177,8 +179,30 @@ def _raise_resource_not_found(
     data = envelope.model_dump(mode="json")
     data["machine_code"] = data.pop("code")
     data["human_message"] = data.pop("message")
-    data["uri"] = uri
     raise McpError(code=_RESOURCE_NOT_FOUND, message=message, data=data)
+
+
+class _ResourceMissUri(Middleware):
+    """Add the requested URI to resource-miss errors as `error.data.uri`.
+
+    SEP-2164 asks a not-found error to name the URI that failed, and FastMCP's
+    own miss does. Resource handlers only receive the extracted template
+    parameters, so the URI is recorded here, exactly as sent — query string
+    (`{?detail}` is part of the template) and percent-encoding included.
+    """
+
+    async def on_read_resource(
+        self,
+        context: MiddlewareContext[ReadResourceRequestParams],
+        call_next: CallNext[ReadResourceRequestParams, Any],
+    ) -> Any:
+        try:
+            return await call_next(context)
+        except McpError as exc:
+            data = exc.error.data
+            if isinstance(data, dict) and "machine_code" in data:
+                data["uri"] = str(context.message.uri)
+            raise
 
 
 def build_server() -> FastMCP:
@@ -191,6 +215,7 @@ def build_server() -> FastMCP:
         name=SERVER_NAME,
         instructions=INSTRUCTIONS,
         version=PKG_VERSION,
+        middleware=[_ResourceMissUri()],
     )
 
     # ----------------------------------------------------------------------
@@ -261,7 +286,6 @@ def build_server() -> FastMCP:
         payload = overview_section_payload(section_id, detail=detail)
         if payload is None:
             _raise_resource_not_found(
-                uri=f"cwms://overview/{section_id}",
                 field="section_id",
                 offending_value=section_id,
                 message=(
@@ -293,7 +317,6 @@ def build_server() -> FastMCP:
         payload = overview_chunk_payload(section_id, chunk_id)
         if payload is None:
             _raise_resource_not_found(
-                uri=f"cwms://overview/{section_id}/chunk/{chunk_id}",
                 field="chunk_id",
                 offending_value=chunk_id,
                 message=(
