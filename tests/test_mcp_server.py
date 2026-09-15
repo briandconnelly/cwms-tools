@@ -270,6 +270,7 @@ def test_overview_section_resource_miss_raises_structured_jsonrpc_error(server) 
     assert data["human_message"]
     assert data["details"]["field"] == "section_id"
     assert data["details"]["value"] == "does-not-exist"
+    assert data["uri"] == "cwms://overview/does-not-exist"
     assert data["repair"]["tool"] == "cwms_get_overview_section"
     assert data["temporary"] is False
     assert data["request_id"]
@@ -313,6 +314,7 @@ def test_overview_chunk_resource_miss_raises_structured_jsonrpc_error(server) ->
     assert data["machine_code"] == "not_found"
     assert data["details"]["field"] == "chunk_id"
     assert data["details"]["value"] == "does-not-exist"
+    assert data["uri"] == f"cwms://overview/{sid}/chunk/does-not-exist"
     assert data["repair"]["tool"] == "cwms_get_overview_section"
     assert data["repair"]["arguments"]["section_id"] == sid
     assert "recoverable" not in data

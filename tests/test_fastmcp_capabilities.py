@@ -46,7 +46,7 @@ def test_installed_fastmcp_version_is_a_real_version_string() -> None:
 
 
 def test_fastmcp_drift_is_a_bool() -> None:
-    """Drift signal is part of the capability fingerprint."""
+    """Drift is a runtime diagnostic in the capabilities payload."""
     assert isinstance(fastmcp_drift(), bool)
     # Currently we are on baseline:
     assert installed_fastmcp_version() == VERIFIED_AGAINST

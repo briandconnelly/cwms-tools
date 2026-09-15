@@ -56,8 +56,9 @@ def installed_fastmcp_version() -> str:
 def fastmcp_drift() -> bool:
     """Return True if the installed FastMCP differs from the spike's baseline.
 
-    Surfaced in the capability fingerprint so consumers can re-run the spike
-    after upgrades.
+    Surfaced as a runtime diagnostic in the `cwms://capabilities` payload so
+    consumers can re-run the spike after upgrades. Not hashed into the
+    fingerprint, which folds in only `VERIFIED_AGAINST`.
     """
     return installed_fastmcp_version() != VERIFIED_AGAINST
 

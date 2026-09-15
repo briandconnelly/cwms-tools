@@ -17,16 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Now requires FastMCP 4 (`fastmcp>=4.0.3,<5`, built on MCP SDK v2). The new
-  upper bound keeps the next major FastMCP release from breaking installs the
-  same way. Resource-miss errors are now constructed the SDK v2 way, and the
+- Now requires FastMCP 4 (`fastmcp>=4.0.3,<4.1`, built on MCP SDK v2).
+  FastMCP allows breaking changes in minor releases, so the bound admits only
+  4.0.x patch releases; later minors are adopted deliberately after
+  re-verification instead of reaching fresh installs unannounced. Resource-miss errors are now constructed the SDK v2 way, and the
   contract introspection reads the snake_case protocol fields.
 - **Breaking (wire):** a `resources/read` for a missing overview section or
   chunk now returns JSON-RPC error code `-32602` (`INVALID_PARAMS`, per
   SEP-2164) instead of `-32002`. This matches the code FastMCP 4 itself
   returns for an unknown resource URI, so the server reports "not found" with
   a single code. The `error.data` envelope (`machine_code: "not_found"`,
-  `repair`, ...) is unchanged and is still the documented discriminator.
+  `repair`, ...) is still the documented discriminator; it gains a `uri`
+  field naming the missing resource, which SEP-2164 recommends.
 - The capability fingerprint moves: it folds in the FastMCP baseline this
   server was verified against, which is now 4.0.3.
 

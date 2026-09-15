@@ -148,7 +148,7 @@ _RESOURCE_NOT_FOUND = -32602
 
 
 def _raise_resource_not_found(
-    *, field: str, offending_value: str, message: str, repair: RepairHint
+    *, uri: str, field: str, offending_value: str, message: str, repair: RepairHint
 ) -> NoReturn:
     """Resource-side failure: a JSON-RPC error carrying the same envelope tools use.
 
@@ -159,6 +159,11 @@ def _raise_resource_not_found(
     (`code`->`machine_code`, `message`->`human_message`, since native `code`/
     `message` already occupy those keys). One error, one shape, regardless of
     which carrier surfaces it (#64).
+
+    `error.data.uri` names the missing resource, as SEP-2164 asks and as
+    FastMCP's own `resources/read` miss does. Handlers never see the raw request
+    URI, so callers rebuild it from the template parameters; optional query
+    parameters such as `?detail=` are omitted.
     """
     envelope = stamp_envelope(
         CwmsToolsError.of(
@@ -172,6 +177,7 @@ def _raise_resource_not_found(
     data = envelope.model_dump(mode="json")
     data["machine_code"] = data.pop("code")
     data["human_message"] = data.pop("message")
+    data["uri"] = uri
     raise McpError(code=_RESOURCE_NOT_FOUND, message=message, data=data)
 
 
@@ -255,6 +261,7 @@ def build_server() -> FastMCP:
         payload = overview_section_payload(section_id, detail=detail)
         if payload is None:
             _raise_resource_not_found(
+                uri=f"cwms://overview/{section_id}",
                 field="section_id",
                 offending_value=section_id,
                 message=(
@@ -286,6 +293,7 @@ def build_server() -> FastMCP:
         payload = overview_chunk_payload(section_id, chunk_id)
         if payload is None:
             _raise_resource_not_found(
+                uri=f"cwms://overview/{section_id}/chunk/{chunk_id}",
                 field="chunk_id",
                 offending_value=chunk_id,
                 message=(
