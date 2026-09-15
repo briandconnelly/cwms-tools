@@ -261,7 +261,7 @@ def register_place_tools(mcp: FastMCP) -> None:
 
         Location record, project metadata, parameters grouped by publisher,
         and last data timestamp. Sets `partial`/`partial_reasons` when a
-        sub-lookup degrades (e.g. a project-record format error).
+        sub-lookup degrades (e.g. the location is not a project).
         """
         raw = await _safe(
             places.describe_place,

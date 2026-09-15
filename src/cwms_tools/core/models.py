@@ -319,7 +319,15 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     office_id: str
     name: str
     location: dict[str, Any]
-    project: dict[str, Any] | None = None
+    project: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Upstream Project DTO; null if not a project. detail=summary keeps only "
+            "project-owner and authorizing-law ({} when neither is set); detail=full "
+            "is verbatim, and its nested location's 0.0 lat/lon are placeholders "
+            "(use the top-level location)."
+        ),
+    )
     partial: bool
     partial_reasons: list[str]
     parameters: list[str]
