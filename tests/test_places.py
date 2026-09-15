@@ -159,20 +159,11 @@ def test_describe_place_combines_all_subcalls(configured, mocked) -> None:
     assert payload["last_data_timestamp"] == "2026-05-17T18:00:00Z"
 
 
-def test_describe_place_falls_back_on_get_project_format_error(configured, mocked) -> None:
-    """The documented format-error response must trigger the Location fallback."""
-    mocked.add(
-        responses.GET,
-        f"{API_ROOT}catalog/LOCATIONS",
-        json=LOCATIONS_PAYLOAD,
-        status=200,
-    )
-    mocked.add(
-        responses.GET,
-        f"{API_ROOT}catalog/TIMESERIES",
-        json=TIMESERIES_PAYLOAD,
-        status=200,
-    )
+def test_describe_place_degrades_on_406_format_error_as_generic_4xx(configured, mocked) -> None:
+    """cwms-python <= 1.0.8 got a 406 "No Format" for every project (it asked
+    for the v2 JSON format). With the 1.0.9 floor that special case is gone, so
+    a 406 must still degrade gracefully — via the generic 4xx path, with no
+    workaround marker."""
     mocked.add(
         responses.GET,
         f"{API_ROOT}locations/FOSS",
@@ -190,11 +181,11 @@ def test_describe_place_falls_back_on_get_project_format_error(configured, mocke
         },
         status=406,
     )
-    project_resp = projects.get_one("SWT", "FOSS")
+    project_resp = projects.get_one("SWT", "FOSS", use_cache=False)
     assert project_resp["partial"] is True
-    assert "get_project_format_error" in project_resp["partial_reasons"]
+    assert project_resp["partial_reasons"] == ["project_lookup_4xx"]
     assert project_resp["project_metadata"] is None
-    assert project_resp["source_workaround"] == "project_format_error_fallback"
+    assert project_resp["source_workaround"] is None
     assert project_resp["upstream_status"] == 406
 
 
@@ -219,14 +210,12 @@ def test_describe_place_falls_back_when_location_is_not_a_project(configured, mo
     assert "not_a_project" in project_resp["partial_reasons"]
     assert project_resp["project_metadata"] is None
     assert project_resp["upstream_status"] == 404
-    # The format-error workaround marker must NOT be reused for the 404 case.
     assert project_resp["source_workaround"] is None
 
 
 def test_describe_place_falls_back_when_project_lookup_is_other_4xx(configured, mocked) -> None:
-    """Any 4xx that isn't 404 or the documented 406 format-error becomes a
-    `project_lookup_4xx` partial. Surfaces the upstream status so the agent
-    can decide whether to dig further."""
+    """Any 4xx that isn't 404 becomes a `project_lookup_4xx` partial. Surfaces
+    the upstream status so the agent can decide whether to dig further."""
     mocked.add(
         responses.GET,
         f"{API_ROOT}locations/FOSS",

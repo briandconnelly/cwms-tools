@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The MCP server failed at startup with `ImportError: cannot import name
+  'McpError' from 'mcp'` whenever it was installed fresh (e.g. the Claude
+  Code/Codex plugin's `uvx cwms-tools==0.6.0 mcp serve`). 0.6.0 declared
+  `fastmcp>=3.4.2` with no upper bound, so new installs resolved FastMCP 4.0
+  and MCP SDK v2, which renamed `McpError` to `MCPError`.
+- `place describe` / `cwms_describe_place` now return project metadata.
+  With cwms-python 1.0.8 and earlier, every project lookup failed upstream
+  with a 406 (`No Format for this content-type and data-type`), not just
+  NWDM/FTPK, so `project` was always `null` and the response was
+  `partial: true` with `get_project_format_error`. cwms-python 1.0.9 requests
+  the v1 JSON format that CDA can serve.
+
+### Changed
+
+- Now requires `cwms-python>=1.0.9`.
+- `describe` summary mode prunes `project` to `project-owner` and
+  `authorizing-law`. `--detail full` / `detail="full"` returns the upstream
+  project verbatim, including its nested `location` — whose
+  `latitude`/`longitude` CDA reports as 0.0 where the Location record has no
+  coordinates, so use the top-level `location` instead.
+- Retired the `project_format_error_fallback` workaround and the
+  `get_project_format_error` partial reason. A 406 from `/projects` now
+  degrades like any other 4xx (`project_lookup_4xx`). The capability
+  fingerprint moves because the active-workaround list changed.
+
+- Now requires FastMCP 4 (`fastmcp>=4.0.3,<4.1`, built on MCP SDK v2).
+  FastMCP allows breaking changes in minor releases, so the bound admits only
+  4.0.x patch releases; later minors are adopted deliberately after
+  re-verification instead of reaching fresh installs unannounced. Resource-miss errors are now constructed the SDK v2 way, and the
+  contract introspection reads the snake_case protocol fields.
+- **Breaking (wire):** a `resources/read` for a missing overview section or
+  chunk now returns JSON-RPC error code `-32602` (`INVALID_PARAMS`, per
+  SEP-2164) instead of `-32002`. This matches the code FastMCP 4 itself
+  returns for an unknown resource URI, so the server reports "not found" with
+  a single code. The `error.data` envelope (`machine_code: "not_found"`,
+  `repair`, ...) is still the documented discriminator; it gains a `uri`
+  field naming the missing resource exactly as requested (query string
+  included), which SEP-2164 recommends.
+- The capability fingerprint moves: it folds in the FastMCP baseline this
+  server was verified against, which is now 4.0.3.
+
 ## [0.6.0] - 2026-07-04
 
 ### Changed

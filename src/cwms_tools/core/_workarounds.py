@@ -12,7 +12,6 @@ from typing import Final
 #: Map of upstream issue → workaround identifier emitted in `error.source.workaround`.
 ACTIVE_WORKAROUNDS: Final[dict[str, str]] = {
     "issue-286": "seasonal_level_as_ts",
-    "ftpk_project_format_error": "project_format_error_fallback",
 }
 
 

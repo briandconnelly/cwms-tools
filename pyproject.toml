@@ -24,8 +24,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "cwms-python>=1.0.7",
-    "fastmcp>=3.4.2",
+    "cwms-python>=1.0.9",
+    "fastmcp>=4.0.3,<4.1",
     "typer>=0.15",
     "pydantic>=2",
     "platformdirs>=4",
