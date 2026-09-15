@@ -30,6 +30,41 @@ def test_place_full_preserves_everything() -> None:
     assert out == payload
 
 
+# A realistic v1 Project payload (SWT/FOSS as served by CDA via cwms-python
+# 1.0.9): nested location with 0.0 computed coordinates, zero costs, prose.
+PROJECT_V1 = {
+    "location": {"office-id": "SWT", "name": "FOSS", "latitude": 0.0, "longitude": 0.0},
+    "project-owner": "BUREAU OF RECLAMATION",
+    "sedimentation-desc": "verbose prose",
+    "federal-cost": 0,
+    "cost-unit": "$",
+}
+
+
+def test_place_summary_prunes_project_to_allowlist() -> None:
+    out = shaping.shape_place_detail({"project": PROJECT_V1}, Detail.SUMMARY)
+    # Nested location (bogus 0.0 coords), prose, and costs are dropped.
+    assert out["project"] == {"project-owner": "BUREAU OF RECLAMATION"}
+
+
+def test_place_full_preserves_project_verbatim() -> None:
+    out = shaping.shape_place_detail({"project": PROJECT_V1}, Detail.FULL)
+    assert out["project"] == PROJECT_V1
+
+
+def test_place_summary_leaves_null_project_null() -> None:
+    out = shaping.shape_place_detail({"project": None}, Detail.SUMMARY)
+    assert out["project"] is None
+
+
+def test_place_summary_does_not_mutate_nested_project() -> None:
+    import copy
+
+    payload = {"project": copy.deepcopy(PROJECT_V1)}
+    shaping.shape_place_detail(payload, Detail.SUMMARY)
+    assert payload == {"project": PROJECT_V1}
+
+
 def test_value_summary_strips_threshold_internals() -> None:
     payload = {
         "thresholds_active": [

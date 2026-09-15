@@ -227,7 +227,7 @@ Location.Parameter.Type.Interval.Duration.Version
 | Location | `FTPK`, `GWLW_S1-D3,0ft`, `Carlyle Lk` | Location id |
 | Parameter | `Elev`, `Flow-In`, `Temp-Water`, `Conc-DissolvedOxygen` | Measured quantity |
 | Type | `Inst`, `Ave`, `Total`, `Const` | Instantaneous, average, sum, constant |
-| Interval | `1Hour`, `~1Day`, `15Minutes`, `1Month`, `0` | Reporting cadence. `~` = irregular |
+| Interval | `1Hour`, `~1Day`, `15Minutes`, `1Month`, `0` | Reporting cadence. `0` = irregular; `~` = pseudo-regular (irregular storage with a nominal cadence). The older id format also uses `~` for local-regular series, which the newer format writes as e.g. `1DayLocal` |
 | Duration | `0`, `1Hour`, `1Day`, `8Hours` | Aggregation window (meaningful for `Ave`/`Total`) |
 | Version | `Best-MRBWM`, `CBT-REV`, `IRIDIUM-RAW`, `Computed`, `MANUAL` | **The publisher** (see §6.3) |
 
@@ -634,7 +634,8 @@ if you don't know about it.
 | Pandas is a required dependency | ~50MB install. Use `.json` accessor to avoid the conversion path. |
 | `get_level_as_timeseries` broken for seasonal levels | [Open issue #286, March 2026](https://github.com/HydrologicEngineeringCenter/cwms-python/issues/286). This is the keystone endpoint for value-with-context. Plan to either patch around it or hit CDA directly until upstream fixes. |
 | Error suppression in some write paths | Issues #255, #277, #287 note silent failures on api-down / multithreaded store / store chunk errors. Read paths are mostly fine; verify on writes. |
-| `get_project` returns format errors for some PROJECTs | Observed on `NWDM/FTPK`: `"Formatting error: No Format for this content-type and data-type (application/json;version=2, cwms.cda.data.dto.project.Project)"`. May affect other projects. Workaround: fetch the underlying Location instead. |
+| `get_project` 406 on cwms-python ≤ 1.0.8 | Those versions request `application/json;version=2`, which CDA cannot produce for Project: `"Formatting error: No Format for this content-type and data-type (application/json;version=2, cwms.cda.data.dto.project.Project)"`. This hit every project probed (NWDM/FTPK, NWDM/GAPT, SWT/FOSS, NWDP/CHJ), not just FTPK. Fixed in 1.0.9, which requests `version=1`. |
+| Project's nested `location` coordinates | The v1 Project payload embeds a Location whose `latitude`/`longitude` read 0.0 where the Location record itself has no coordinates (observed on NWDM/FTPK, SWT/FOSS, NWDP/CHJ). Take coordinates from `/locations`, not from the project. Cost fields are frequently 0; treat them as unconfirmed. |
 | `forecast-instance` "requires an id" | `office + location_id` isn't enough; supply `name` (spec id) or filter by `designator` + dates. |
 | `kind=PROJECT` filter is exact | If a location has null `kind`, it won't match. NWO records are all `kind=SITE` even when they represent dams. |
 | Match-everything regexes rejected | The catalog endpoint refuses `.`, `.*`, `.+`. Use a single common letter as a permissive probe. |
@@ -908,7 +909,7 @@ Each is a focused probe — a small number of CDA calls per item.
 ### Python wrapper (HydrologicEngineeringCenter/cwms-python)
 
 - Repository: [cwms-python](https://github.com/HydrologicEngineeringCenter/cwms-python)
-- Latest release: v1.0.7 (2026-03-31)
+- Latest release: v1.0.9 (2026-09-10)
 - Key modules:
   [`cwms/api.py`](https://github.com/HydrologicEngineeringCenter/cwms-python/blob/main/cwms/api.py) (HTTP core),
   [`cwms/timeseries/timeseries.py`](https://github.com/HydrologicEngineeringCenter/cwms-python/blob/main/cwms/timeseries/timeseries.py),
