@@ -3,7 +3,8 @@ revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
-    "python_full_version >= '3.12' and python_full_version < '3.14'",
+    "python_full_version == '3.13.*'",
+    "python_full_version == '3.12.*'",
     "python_full_version < '3.12'",
 ]
 
@@ -478,16 +479,17 @@ wheels = [
 
 [[package]]
 name = "cwms-python"
-version = "1.0.8"
+version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "numpy" },
     { name = "pandas" },
     { name = "requests" },
     { name = "requests-toolbelt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/a6/3440f1ae93f442713c71a62147be93012ebd98d40c80e38b06319899bf9e/cwms_python-1.0.8.tar.gz", hash = "sha256:1ff75098eec279c51a27a03431c880bf5baaf7ddc0ea3e10b6af0b4b4d35c527", size = 44370, upload-time = "2026-06-03T19:00:02.559Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3d/a1/121123e74d908a3eb159eaa65bfb97c0116e0bf25128bf2dd90e6f157453/cwms_python-1.0.9.tar.gz", hash = "sha256:1d6983e19a5df57bc4139869145794d5ce9ed2045e5752fe959b6e49afafaaf1", size = 46482, upload-time = "2026-09-10T23:44:35.876Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ac/14/b02c80f65ea40bfaa35fb1deeb97c92f6a1c9839cd87b71f56a748596537/cwms_python-1.0.8-py3-none-any.whl", hash = "sha256:9cdc2e6fb60be9561f680900ad2eb7d2cfda2c5c4157fc7fbb94ac3f4dd3f278", size = 69003, upload-time = "2026-06-03T19:00:01.182Z" },
+    { url = "https://files.pythonhosted.org/packages/de/6e/173fb1267c0484ad0cb45ca86b2ff6fd35ac2562e32e4272e9c13e2cf9c7/cwms_python-1.0.9-py3-none-any.whl", hash = "sha256:822a08862461f0356126eac78496088197a2b4a3a57b7b63e40c2b0b8263317f", size = 72276, upload-time = "2026-09-10T23:44:34.602Z" },
 ]
 
 [[package]]
@@ -521,7 +523,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4" },
-    { name = "cwms-python", specifier = ">=1.0.7" },
+    { name = "cwms-python", specifier = ">=1.0.9" },
     { name = "diskcache", specifier = ">=5" },
     { name = "fastmcp", specifier = ">=4.0.3,<4.1" },
     { name = "platformdirs", specifier = ">=4" },
