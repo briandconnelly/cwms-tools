@@ -27,6 +27,9 @@ jobs:
         include:
           - os: macos-latest
             python-version: "3.14"
+          # Intel macOS takes the cryptography<49 marker path in pyproject.toml.
+          - os: macos-15-intel
+            python-version: "3.14"
           - os: windows-latest
             python-version: "3.14"
     steps:
@@ -40,7 +43,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Sync dependencies
-        run: uv sync --all-extras
+        # cryptography must install from a wheel on every platform; a source
+        # build would hide a lock that sends Intel macOS to 49+ (see pyproject).
+        run: uv sync --all-extras --no-build-package cryptography
 
       - name: Lint (ruff check)
         run: uv run ruff check
