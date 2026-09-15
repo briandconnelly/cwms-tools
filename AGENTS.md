@@ -20,7 +20,7 @@ hydrologic data API.
 - **ty** for type checking (`uv run ty check`).
 - **prek** runs the pre-commit hooks; config in `prek.toml`. Run `prek run --all-files`
   before pushing.
-- **FastMCP 3** for the MCP server; **Typer** for the CLI.
+- **FastMCP 4** (on MCP SDK v2) for the MCP server; **Typer** for the CLI.
 
 ## Tests & coverage
 

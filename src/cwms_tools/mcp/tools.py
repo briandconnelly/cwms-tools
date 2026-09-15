@@ -124,7 +124,7 @@ def _error_tool_result(ref: ErrorRef) -> ToolResult:
 
     The structured envelope remains the stable, branchable contract — agents
     discriminate on the `ok` field — and `isError` is an additive signal layered
-    on top via FastMCP 3.4.x's `ToolResult(is_error=...)`. The text content
+    on top via FastMCP's `ToolResult(is_error=...)` (since 3.4). The text content
     mirrors the (unwrapped) JSON envelope so non-structured clients see the same
     payload without needing to know about the wrap convention.
 
@@ -134,7 +134,7 @@ def _error_tool_result(ref: ErrorRef) -> ToolResult:
     these tools' outputSchema and wraps *success* responses as
     `{"result": ...}`. `ToolResult(structured_content=...)` bypasses that
     automatic wrapping, so this mirrors it explicitly on the error path too
-    (FastMCP 3.4.x's own `Tool._convert_result`, `tools/base.py`). A parametrized
+    (FastMCP's own success-path wrapping in `tools/base.py`). A parametrized
     test (`test_mcp_tool_handlers.py`) guards the invariant that every
     `iserror_aware` tool's outputSchema is wrap-flagged, so this assumption
     fails loudly rather than silently if it ever stops holding.

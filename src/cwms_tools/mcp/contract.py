@@ -80,8 +80,8 @@ def tool_definitions() -> dict[str, dict[str, Any]]:
             defs[mcp_tool.name] = {
                 "title": mcp_tool.title,
                 "description": mcp_tool.description,
-                "input_schema": mcp_tool.inputSchema,
-                "output_schema": mcp_tool.outputSchema,
+                "input_schema": mcp_tool.input_schema,
+                "output_schema": mcp_tool.output_schema,
                 "annotations": (
                     annotations.model_dump(mode="json", exclude_none=True)
                     if annotations is not None
@@ -122,17 +122,17 @@ def resource_definitions() -> dict[str, dict[str, Any]]:
                 "name": mcp_resource.name,
                 "title": mcp_resource.title,
                 "description": mcp_resource.description,
-                "mime_type": mcp_resource.mimeType,
+                "mime_type": mcp_resource.mime_type,
                 "error_codes": error_codes_by_uri.get(uri, []),
             }
         for template in await mcp.list_resource_templates():
             mcp_template = template.to_mcp_template()
-            uri = mcp_template.uriTemplate
+            uri = mcp_template.uri_template
             defs[uri] = {
                 "name": mcp_template.name,
                 "title": mcp_template.title,
                 "description": mcp_template.description,
-                "mime_type": mcp_template.mimeType,
+                "mime_type": mcp_template.mime_type,
                 "error_codes": error_codes_by_uri.get(uri, []),
             }
         return defs
