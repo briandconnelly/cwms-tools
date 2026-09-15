@@ -45,13 +45,25 @@ LOCATION_SUMMARY_KEYS: tuple[str, ...] = (
     "timezone-name",
 )
 
+# The triage subset of the (v1, kebab-case) Project DTO surfaced in `summary`
+# mode. Left out: the nested `location` — it duplicates the top-level
+# `location`, and CDA reports its coordinates as 0.0 where the Location record
+# has none — the linked `pump-back-location`/`near-gage-location` records, the
+# verbose `*-desc`/`project-remarks` prose, and the cost fields (commonly 0).
+# `full` returns the upstream project verbatim.
+PROJECT_SUMMARY_KEYS: tuple[str, ...] = (
+    "project-owner",
+    "authorizing-law",
+)
+
 
 def shape_place_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
     """Shape a place response (`search_places` / `describe_place`).
 
-    Summary mode prunes a `location` record to `LOCATION_SUMMARY_KEYS` and drops
-    the verbose `raw` blob from each search `result`. Each branch is a no-op when
-    its key is absent, so one function serves both place tools.
+    Summary mode prunes a `location` record to `LOCATION_SUMMARY_KEYS`, a
+    describe `project` to `PROJECT_SUMMARY_KEYS`, and drops the verbose `raw`
+    blob from each search `result`. Each branch is a no-op when its key is
+    absent (or `project` is null), so one function serves both place tools.
     """
     if detail is Detail.FULL:
         return dict(payload)
@@ -59,6 +71,9 @@ def shape_place_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any
     loc = pruned.get("location")
     if isinstance(loc, dict):
         pruned["location"] = {k: loc.get(k) for k in LOCATION_SUMMARY_KEYS if k in loc}
+    project = pruned.get("project")
+    if isinstance(project, dict):
+        pruned["project"] = {k: project.get(k) for k in PROJECT_SUMMARY_KEYS if k in project}
     results = pruned.get("results")
     if isinstance(results, list):
         # The producer contract is a list of dict records; a non-dict entry is a

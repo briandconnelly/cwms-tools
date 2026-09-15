@@ -202,8 +202,9 @@ def capability_contract_payload() -> dict[str, Any]:
                 "resources/read failures surface as JSON-RPC errors carrying the "
                 "SAME ErrorEnvelope tool failures use in error.data, with only two "
                 "renames (code->machine_code, message->human_message, since native "
-                "code/message already occupy those keys) — no separate resource-side "
-                "vocabulary, and no `recoverable` flag."
+                "code/message already occupy those keys), plus `uri` naming the "
+                "resource that was not found (SEP-2164; JSON-RPC code -32602) — no "
+                "separate resource-side vocabulary, and no `recoverable` flag."
             ),
             "code_lists": (
                 "error_codes lists codes emittable today; error_codes_reserved are "
