@@ -366,8 +366,9 @@ def test_get_history_handler_rejects_bad_begin_iso(configured) -> None:
 def test_get_value_handler_rejects_unknown_unit(configured) -> None:
     """`unit` is `Literal["EN", "SI"]`. FastMCP/pydantic validates the
     argument before the tool body runs, so the schema itself rejects
-    invalid values (Codex review F5)."""
-    from pydantic import ValidationError
+    invalid values (Codex review F5). FastMCP 4 surfaces pydantic's error
+    as its own `ValidationError`."""
+    from fastmcp.exceptions import ValidationError
 
     server = build_server()
     with pytest.raises(ValidationError) as excinfo:
@@ -552,8 +553,8 @@ def test_search_places_tool_exposes_cursor_in_schema():
         return {t.name: t for t in await mcp.list_tools()}
 
     tools = asyncio.run(go())
-    assert "cursor" in tools["cwms_search_places"].to_mcp_tool().inputSchema["properties"]
-    assert "cursor" in tools["cwms_browse_region"].to_mcp_tool().inputSchema["properties"]
+    assert "cursor" in tools["cwms_search_places"].to_mcp_tool().input_schema["properties"]
+    assert "cursor" in tools["cwms_browse_region"].to_mcp_tool().input_schema["properties"]
 
 
 @pytest.mark.parametrize(
@@ -700,7 +701,7 @@ def test_every_inventoried_tool_is_iserror_aware_and_wrap_flagged() -> None:
     for name in TOOL_INVENTORY:
         tool = registered[name]
         assert getattr(tool.fn, "__iserror_aware__", False) is True, name
-        schema = tool.to_mcp_tool().outputSchema
+        schema = tool.to_mcp_tool().output_schema
         assert schema is not None
         assert schema.get("x-fastmcp-wrap-result") is True, name
 
