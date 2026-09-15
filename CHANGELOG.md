@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-15
+
 ### Fixed
 
 - Installing on an Intel (x86_64) Mac no longer requires building
@@ -43,12 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_project_format_error` partial reason. A 406 from `/projects` now
   degrades like any other 4xx (`project_lookup_4xx`). The capability
   fingerprint moves because the active-workaround list changed.
-
 - Now requires FastMCP 4 (`fastmcp>=4.0.3,<4.1`, built on MCP SDK v2).
   FastMCP allows breaking changes in minor releases, so the bound admits only
   4.0.x patch releases; later minors are adopted deliberately after
-  re-verification instead of reaching fresh installs unannounced. Resource-miss errors are now constructed the SDK v2 way, and the
-  contract introspection reads the snake_case protocol fields.
+  re-verification instead of reaching fresh installs unannounced.
+  Resource-miss errors are now constructed the SDK v2 way, and the contract
+  introspection reads the snake_case protocol fields.
 - **Breaking (wire):** a `resources/read` for a missing overview section or
   chunk now returns JSON-RPC error code `-32602` (`INVALID_PARAMS`, per
   SEP-2164) instead of `-32002`. This matches the code FastMCP 4 itself
@@ -804,7 +806,9 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   ~68 offices) in v0.1.0; `cwms_publishers_for_parameter` answers
   from cached + bounded-fetch offices only.
 
-[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.2.0...v0.3.0
