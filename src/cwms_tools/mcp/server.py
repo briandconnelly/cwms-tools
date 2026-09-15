@@ -1,4 +1,4 @@
-"""FastMCP 3 server construction. Tools register here; resources too.
+"""FastMCP server construction. Tools register here; resources too.
 
 Importing this module is side-effect-free — `build_server()` is the only
 factory and it returns a freshly-configured FastMCP instance. The CLI
@@ -14,8 +14,7 @@ from __future__ import annotations
 from typing import Annotated, Any, NoReturn
 
 from fastmcp import FastMCP
-from mcp import McpError
-from mcp.types import ErrorData
+from fastmcp.exceptions import McpError
 from pydantic import BaseModel, ConfigDict, Field
 
 from cwms_tools import __version__ as PKG_VERSION
@@ -143,8 +142,9 @@ def _overview_source() -> SourceMeta:
     return SourceMeta(fingerprint=canonical_fingerprint())
 
 
-# JSON-RPC error code for "resource not found" (MCP convention).
-_RESOURCE_NOT_FOUND = -32002
+# JSON-RPC error code for "resource not found": INVALID_PARAMS per SEP-2164,
+# matching FastMCP 4's own `resources/read` miss (was -32002 before MCP SDK v2).
+_RESOURCE_NOT_FOUND = -32602
 
 
 def _raise_resource_not_found(
@@ -172,7 +172,7 @@ def _raise_resource_not_found(
     data = envelope.model_dump(mode="json")
     data["machine_code"] = data.pop("code")
     data["human_message"] = data.pop("message")
-    raise McpError(ErrorData(code=_RESOURCE_NOT_FOUND, message=message, data=data))
+    raise McpError(code=_RESOURCE_NOT_FOUND, message=message, data=data)
 
 
 def build_server() -> FastMCP:

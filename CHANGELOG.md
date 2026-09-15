@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The MCP server failed at startup with `ImportError: cannot import name
+  'McpError' from 'mcp'` whenever it was installed fresh (e.g. the Claude
+  Code/Codex plugin's `uvx cwms-tools==0.6.0 mcp serve`). 0.6.0 declared
+  `fastmcp>=3.4.2` with no upper bound, so new installs resolved FastMCP 4.0
+  and MCP SDK v2, which renamed `McpError` to `MCPError`.
+
+### Changed
+
+- Now requires FastMCP 4 (`fastmcp>=4.0.3,<5`, built on MCP SDK v2). The new
+  upper bound keeps the next major FastMCP release from breaking installs the
+  same way. Resource-miss errors are now constructed the SDK v2 way, and the
+  contract introspection reads the snake_case protocol fields.
+- **Breaking (wire):** a `resources/read` for a missing overview section or
+  chunk now returns JSON-RPC error code `-32602` (`INVALID_PARAMS`, per
+  SEP-2164) instead of `-32002`. This matches the code FastMCP 4 itself
+  returns for an unknown resource URI, so the server reports "not found" with
+  a single code. The `error.data` envelope (`machine_code: "not_found"`,
+  `repair`, ...) is unchanged and is still the documented discriminator.
+- The capability fingerprint moves: it folds in the FastMCP baseline this
+  server was verified against, which is now 4.0.3.
+
 ## [0.6.0] - 2026-07-04
 
 ### Changed

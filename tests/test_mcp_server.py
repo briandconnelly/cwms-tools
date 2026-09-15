@@ -74,7 +74,7 @@ def test_overview_section_tool_is_registered_as_read_only(server) -> None:
         assert "cwms_get_overview_section" in names
         tool = next(t for t in tools if t.name == "cwms_get_overview_section")
         assert tool.annotations is not None
-        assert tool.annotations.readOnlyHint is True
+        assert tool.annotations.read_only_hint is True
         assert tool.output_schema is not None
 
     asyncio.run(go())
@@ -255,13 +255,15 @@ def test_overview_section_resource_miss_raises_structured_jsonrpc_error(server) 
     vocabulary, and no `recoverable` flag. `machine_code` is `not_found`, matching
     the code `cwms_get_overview_section` returns for the identical failure — one
     error, one code, regardless of carrier."""
-    from mcp import McpError
+    from fastmcp.exceptions import McpError
 
     async def go():
         return await server.read_resource("cwms://overview/does-not-exist")
 
     with pytest.raises(McpError) as ex:
         asyncio.run(go())
+    # SEP-2164: resource-not-found is INVALID_PARAMS, same as FastMCP's own miss.
+    assert ex.value.error.code == -32602
     data = ex.value.error.data
     assert isinstance(data, dict)
     assert data["machine_code"] == "not_found"
@@ -280,7 +282,7 @@ def test_overview_section_resource_miss_repair_hint_is_callable(server) -> None:
     """#65 F2: the not_found repair hint must be a real, callable arg set —
     not a placeholder like `{"section_id": "<one of the listed slugs>"}` — and
     the message must enumerate the actual valid slugs (small, static set)."""
-    from mcp import McpError
+    from fastmcp.exceptions import McpError
 
     async def go():
         return await server.read_resource("cwms://overview/does-not-exist")
@@ -297,7 +299,7 @@ def test_overview_section_resource_miss_repair_hint_is_callable(server) -> None:
 def test_overview_chunk_resource_miss_raises_structured_jsonrpc_error(server) -> None:
     """#64: the chunk resource's miss path uses the same envelope/carrier as the
     section miss path above — same code, same field names, no `recoverable`."""
-    from mcp import McpError
+    from fastmcp.exceptions import McpError
 
     sid = overview.section_ids()[0]
 
@@ -322,7 +324,7 @@ def test_place_tools_register_with_read_only_hint(server) -> None:
     async def go() -> dict[str, bool]:
         tools = {t.name: t for t in await server.list_tools()}
         return {
-            name: tools[name].annotations.readOnlyHint  # type: ignore[union-attr]
+            name: tools[name].annotations.read_only_hint  # type: ignore[union-attr]
             for name in (
                 "cwms_search_places",
                 "cwms_describe_place",
@@ -421,10 +423,10 @@ def test_cda_tools_declare_open_world_and_omit_idempotent_hint():
     tools = asyncio.run(go())
     for name in _CDA_TOOLS:
         ann = tools[name].annotations
-        assert ann.readOnlyHint is True
-        assert ann.openWorldHint is True
+        assert ann.read_only_hint is True
+        assert ann.open_world_hint is True
     overview = tools["cwms_get_overview_section"].annotations
-    assert overview.openWorldHint is False
+    assert overview.open_world_hint is False
 
 
 def test_every_read_only_tool_omits_idempotent_hint():
@@ -445,8 +447,8 @@ def test_every_read_only_tool_omits_idempotent_hint():
     assert tools  # sanity: the loop actually found and checked tools
     for tool in tools:
         ann = tool.to_mcp_tool().annotations
-        assert ann.readOnlyHint is True, f"{tool.name} is not read-only"
-        assert ann.idempotentHint is None, f"{tool.name} still declares idempotentHint"
+        assert ann.read_only_hint is True, f"{tool.name} is not read-only"
+        assert ann.idempotent_hint is None, f"{tool.name} still declares idempotentHint"
 
 
 def test_capabilities_declare_tool_latency():
@@ -480,7 +482,7 @@ def test_list_offices_tool_is_registered_and_matches_resource(server) -> None:
     tools = asyncio.run(go_tools())
     assert "cwms_list_offices" in tools
     tool = tools["cwms_list_offices"]
-    assert tool.annotations.readOnlyHint is True
+    assert tool.annotations.read_only_hint is True
     assert tool.output_schema is not None
 
     result = asyncio.run(go_call())

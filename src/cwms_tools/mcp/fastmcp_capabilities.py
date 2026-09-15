@@ -6,7 +6,8 @@ module records which assumptions held and which need a fallback. Findings are
 folded into the capability fingerprint via canonical_fingerprint's
 runtime_baseline input so changes are observable.
 
-Verified against fastmcp == 3.4.2 on 2026-06-10.
+Verified against fastmcp == 4.0.3 (MCP SDK v2) on 2026-09-15; originally
+spiked against 3.4.2 on 2026-06-10.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ VERIFIED: Final[dict[str, str]] = {
 FALLBACKS: Final[dict[str, str]] = {}
 
 #: Pinned version against which VERIFIED/FALLBACKS were measured.
-VERIFIED_AGAINST: Final[str] = "3.4.2"
+VERIFIED_AGAINST: Final[str] = "4.0.3"
 
 
 def installed_fastmcp_version() -> str:
