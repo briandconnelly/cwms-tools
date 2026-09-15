@@ -32,6 +32,10 @@ dependencies = [
     "diskcache>=5",
     "anyio>=4",
     "python-dateutil>=2.9",
+    # Not imported directly; arrives via FastMCP's auth deps. cryptography 49+
+    # ships no x86_64 macOS wheels, so keep Intel Macs on prebuilt 48.x wheels
+    # instead of a Rust source build.
+    "cryptography<49 ; platform_machine == 'x86_64' and sys_platform == 'darwin'",
 ]
 
 [project.urls]
