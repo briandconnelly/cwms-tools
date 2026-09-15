@@ -46,7 +46,7 @@ def test_installed_fastmcp_version_is_a_real_version_string() -> None:
 
 
 def test_fastmcp_drift_is_a_bool() -> None:
-    """Drift signal is part of the capability fingerprint."""
+    """Drift is a runtime diagnostic in the capabilities payload."""
     assert isinstance(fastmcp_drift(), bool)
     # Currently we are on baseline:
     assert installed_fastmcp_version() == VERIFIED_AGAINST
@@ -87,7 +87,7 @@ def test_tool_carries_read_only_hint_and_output_schema() -> None:
         tools = await mcp.list_tools()
         ping = next(t for t in tools if t.name == "ping")
         assert ping.annotations is not None
-        assert ping.annotations.readOnlyHint is True
+        assert ping.annotations.read_only_hint is True
         assert ping.annotations.title == "Ping"
         assert ping.output_schema is not None
         assert "pong" in ping.output_schema["properties"]
@@ -181,8 +181,8 @@ def test_spike_tool_error_produces_protocol_iserror() -> None:
     # Verify it round-trips to CallToolResult with isError=True + structuredContent
     mcp_wire_result = result.to_mcp_result()
     assert isinstance(mcp_wire_result, CallToolResult)
-    assert mcp_wire_result.isError is True
-    assert mcp_wire_result.structuredContent == {
+    assert mcp_wire_result.is_error is True
+    assert mcp_wire_result.structured_content == {
         "ok": False,
         "error": {"code": "test_error", "message": "test"},
     }
@@ -192,5 +192,5 @@ def test_capabilities_payload_exposes_baseline_and_drift() -> None:
     from cwms_tools.mcp.resources import capabilities_payload
 
     fm = capabilities_payload()["fastmcp"]
-    assert fm["verified_against"] == "3.4.2"
+    assert fm["verified_against"] == "4.0.3"
     assert isinstance(fm["drift"], bool)
