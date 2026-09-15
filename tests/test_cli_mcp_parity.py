@@ -105,6 +105,14 @@ DESCRIBE = {
         "office_id": "SWT",
         "name": "FOSS",
         "location": {"office-id": "SWT", "name": "FOSS", "description": "verbose"},
+        # A v1 Project payload as cwms-python >= 1.0.9 returns it: nested
+        # location with CDA's 0.0 coordinates, verbose prose, zero costs.
+        "project": {
+            "location": {"office-id": "SWT", "name": "FOSS", "latitude": 0.0, "longitude": 0.0},
+            "project-owner": "BUREAU OF RECLAMATION",
+            "sedimentation-desc": "verbose",
+            "federal-cost": 0,
+        },
         "partial": False,
         "partial_reasons": [],
         "parameters": ["Elev"],
@@ -116,7 +124,13 @@ DESCRIBE = {
     "cli": ["place", "describe", "SWT/FOSS"],
     "mcp": ("cwms_describe_place", {"office": "SWT", "name": "FOSS"}),
     "cli_extract": lambda d: d,
-    "has_internal": lambda d: "description" in d["location"],
+    # Summary must strip BOTH the location prose and the project's nested
+    # location/prose on each surface; full keeps them.
+    "has_internal": lambda d: (
+        "description" in d["location"]
+        or "location" in d["project"]
+        or "sedimentation-desc" in d["project"]
+    ),
 }
 VALUE = {
     "model": M.ValueWithContextResponse,

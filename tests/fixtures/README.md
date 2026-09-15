@@ -8,7 +8,6 @@ recordings land alongside the tool implementations in M3–M6.
 | Fixture                            | Exercises |
 |------------------------------------|---|
 | `swt_foss_happy.json`              | Standard Tulsa flood-control reservoir — `cwms_get_value`, `cwms_get_history`, `cwms_describe_place` happy paths. |
-| `nwdm_ftpk_project_format_error.json` | The `get_project` format-error fallback in `core/projects.py`. |
 | `nwdm_ftpk_levels_seasonal.json`   | Seasonal-level workaround branch — direct-CDA endpoint, not via wrapper. |
 | `nwo_becr_ghost.json`              | Ghost location; verifies `error.code = ghost_location` + repair hint. |
 | `swt_chou_lock_zero_params.json`   | Co-located but zero-publishing variant — ghost detection at parameter level. |
