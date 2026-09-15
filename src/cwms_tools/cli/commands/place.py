@@ -199,8 +199,9 @@ def describe(
         typer.Option(
             "--detail",
             help=(
-                "'summary' returns the triage subset of the location DTO; "
-                "'full' returns every field."
+                "'summary' returns the triage subset of the location DTO and trims "
+                f"`project` to {', '.join(shaping.PROJECT_SUMMARY_KEYS)} (dropping its "
+                "nested location, costs, and prose); 'full' returns every field."
             ),
         ),
     ] = Detail.SUMMARY,

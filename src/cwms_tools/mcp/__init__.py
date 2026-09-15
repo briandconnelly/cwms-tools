@@ -1,1 +1,1 @@
-"""FastMCP 3 server adapter over the core."""
+"""FastMCP server adapter over the core."""
