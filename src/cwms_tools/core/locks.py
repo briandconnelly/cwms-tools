@@ -110,11 +110,11 @@ def _lock_names(office: str, project: str, *, use_cache: bool) -> list[str]:
     key = build_cache_key("locks", office, "list", project, api_root=current_config().api_root)
     if use_cache and (hit := cache.get(key)) is not None:
         return hit
-    with upstream_call("/projects/locks", operation=f"lock list for {project}"):
+    with upstream_call("/projects/locks", operation="lock list"):
         data = locks_api.get_locks(office_id=office, project_id=project)
     payload = data.json if hasattr(data, "json") else data
     if not isinstance(payload, list) or not all(isinstance(e, dict) for e in payload):
-        raise _malformed("/projects/locks", operation=f"lock list for {project}")
+        raise _malformed("/projects/locks", operation="lock list")
     names = [n for entry in payload if isinstance(n := _lock_name(entry), str)]
     cache.set(key, names, ttl=cache.ttl_for("location_catalog"))
     return names
