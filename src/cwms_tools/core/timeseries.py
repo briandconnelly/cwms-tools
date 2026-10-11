@@ -50,7 +50,7 @@ def fetch_window(
     concurrency) and detects silent truncation at the wrapper's 300 000-point
     cap so callers can warn agents instead of returning partial data.
     """
-    with upstream_call("/timeseries", operation=f"timeseries fetch for {ts_id}"):
+    with upstream_call("/timeseries", operation="timeseries fetch"):
         data = ts_api.get_timeseries(
             ts_id=ts_id,
             office_id=office,
