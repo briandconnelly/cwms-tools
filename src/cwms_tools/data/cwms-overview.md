@@ -480,7 +480,7 @@ scope, cadence, and template. Observed publishers:
 |---|---|---|---|
 | `Best-MRBWM` *(Missouri River Basin Water Management)* | Mainstem Missouri reservoirs (Fort Peck, Fort Randall, Big Bend, Gavins Point, Garrison, Oahe) | Hourly + ~daily | **10 params:** Elev, Stor, Flow-In, Flow-Out, Energy, Precip, Temp-Air, Conc-DissolvedOxygen |
 | `Raw-A2W` | Same scope, higher-frequency flow companion | 1Hour | Flow-In, Flow-Out |
-| `CBT-RAW`, `CBT-REV`, `CBT-COMPUTED-REV` *(Columbia Basin Team, inferred)* | Columbia/Snake hydropower, published on NWDP PROJECT-kind parent records. Parameter counts observed 2026-10-11: CHJ (Chief Joseph) 14, LWG (Lower Granite) 10, BON (Bonneville) 9, IHR (Ice Harbor) 7, MCN (McNary) 7, JDA (John Day) 6, LGS (Little Goose) 6, GCL (Grand Coulee) 5, TDA (The Dalles) 5. Companion publishers seen on the same parents: `GOES-RAW` (BON), `Best` (IHR), `CENWDP-FRM-FCST` (GCL) | Hourly + ~daily | **5–18 params:** adds Flow-Spill, Flow-Gen, Elev-Tailwater, %-Saturation-TDG, Temp-Water |
+| `CBT-RAW`, `CBT-REV`, `CBT-COMPUTED-REV` *(Columbia Basin Team, inferred)* | Columbia/Snake hydropower, published on NWDP PROJECT-kind parent records. Parameter counts observed 2026-10-11: CHJ (Chief Joseph) 14, LWG (Lower Granite) 10, BON (Bonneville) 9, IHR (Ice Harbor) 7, MCN (McNary) 7, JDA (John Day) 6, LGS (Little Goose) 6, GCL (Grand Coulee) 5, TDA (The Dalles) 5. Companion publishers seen on the same parents: `GOES-RAW` (BON), `Best` (IHR), `CENWDP-FRM-FCST` (GCL) | Hourly + ~daily | **5–18 params** (5–14 in the 2026-10-11 sample above; up to 18 in earlier sampling): adds Flow-Spill, Flow-Gen, Elev-Tailwater, %-Saturation-TDG, Temp-Water |
 | `CENWP-CALC` *(Corps of Engineers Northwest Portland, inferred)* | NWDP Portland District projects (Cougar Reservoir, ...) | Mixed | **5 params:** Elev-Forebay, Elev-RuleCurve, Flow-In, Flow-Out, Stor |
 
 #### District operational teams
@@ -650,7 +650,7 @@ if you don't know about it.
 | Catalog `PROJECT` kind vs `/projects` | In data-publishing offices the catalog kind is a good, not identical, proxy for project membership. Observed 2026-10-11 in NWDM, NWDP, SWT, MVS: every name returned by `/projects` is a location-catalog row with `location_kind=PROJECT`; NWDM additionally has 4 catalog PROJECT rows that `/projects` does not list. Not checked in stub offices (see the row above). |
 | Lock `maximum-lock-lift` sentinel | Lock records (`cwms.locks`, 1.1.0+) carry width, length, normal/maximum lift, volume-per-lockage, minimum draft, their units, and high/low-water upper/lower pool level links. Unset numeric fields can surface as a converted `-9999 m` sentinel: observed 2026-10-11 on SWT/WEBB, `maximum-lock-lift` = -32805.118 ft with `unit=EN`. Treat large negative dimensions as missing. |
 | Lock endpoints: sporadic 500s and empty lists | Observed 2026-10-11: `get_locks` populated for SWT (WEBB, CHOU) and LRN (BARKLEY), but `get_lock(BARKLEY-Lock, LRN)` → 500, `get_locks(MVR, IL02)` → 500, and `get_locks(NWDP, BON)` / `(NWDP, IHR)` → `[]`, although BON's own Location public name is "Bonneville Lock and Dam". An empty list or a 500 does not mean the project has no lock. |
-| Water-supply modules need credentials | cwms-python 1.1.0 also added `water_users` / `water_contracts`; both returned 401 without credentials on 2026-10-11, so they are not usable read-only. |
+| Water-supply modules need credentials | cwms-python 1.1.0 also added `water_users` / `water_contracts`; both returned 401 to an anonymous session on 2026-10-11, so reading them requires credentials (an `api_key` or token in `init_session`). |
 | Response parsing changed in 1.1.x | Invalid JSON in a 200 response raises `ApiError` (earlier versions returned the text); an empty body returns `{}`. `get_multi_timeseries_df` raises `cwms.api.BatchError` collecting every failed series instead of silently dropping them. `get_timeseries` infers its multithreaded chunk size from the series interval. |
 | Match-everything regexes rejected | The catalog endpoint refuses `.`, `.*`, `.+`. Use a single common letter as a permissive probe. |
 | Cursors are session-bound | If the catalog snapshot shifts mid-pagination, the cursor returns `NOT_FOUND`. Re-issue the query without the cursor. |
@@ -877,12 +877,6 @@ through to a confident answer:
   ts_ids adopt, and whether file-attachment or linked-ts_ids
   dominates for which kinds of forecasts is unknown. Worth a focused
   probe of `/forecast-spec` against representative offices.
-- ~~**Pacific NW major hydropower parent records.**~~ *Resolved
-  2026-10-11:* NWDP carries PROJECT-kind parent records (`BON`, `GCL`,
-  `TDA`, `JDA`, `MCN`, `IHR`, `LGS`, `LWG`, alongside `CHJ`), and they
-  publish timeseries under `CBT-*` publishers; data lives on the
-  parent, not only across the unit sub-locations. `get_project
-  NWDP/BON` returns public name "Bonneville Lock and Dam". See §6.3.
 - **Coverage of MVD / LRD / NAD / SAD / SPD / POD divisions** beyond
   the MVS / SWT spot checks. District publishing patterns there may
   diverge from what's documented here.
