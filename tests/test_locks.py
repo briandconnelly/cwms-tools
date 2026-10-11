@@ -338,3 +338,33 @@ def test_cli_mcp_parity_for_locks(configured, scenario: str, detail: str) -> Non
     assert _strip_top_nulls(mcp_out) == _strip_top_nulls(cli_out)
     if scenario == "omitted":
         assert not LOCK_KEYS & cli_out.keys()
+
+
+@pytest.mark.parametrize(
+    ("which", "body"),
+    [
+        ("list", "<html>maintenance</html>"),
+        ("list", {"locks": []}),
+        ("detail", "<html>x</html>"),
+        ("detail", {"lock-width": 1.0}),
+    ],
+)
+def test_malformed_lock_response_fails_and_is_not_cached(
+    configured, mocked, which: str, body: Any
+) -> None:
+    """A 200 whose body isn't the expected shape (e.g. an HTML error page, which
+    cwms-python returns as a string) must report failure, not an empty `ok`,
+    and must not be cached."""
+    kwargs: dict[str, Any] = (
+        {"body": body, "content_type": "text/html"} if isinstance(body, str) else {"json": body}
+    )
+    if which == "list":
+        mocked.add(responses.GET, f"{API_ROOT}projects/locks", status=200, **kwargs)
+    else:
+        _arm_lock_list(mocked)
+        mocked.add(responses.GET, f"{API_ROOT}projects/locks/WEBB-Lock", status=200, **kwargs)
+    out = locks.lookup("SWT", "WEBB", "PROJECT")
+    assert out["lock_lookup_status"] == "failed"
+    before = len(mocked.calls)
+    locks.lookup("SWT", "WEBB", "PROJECT")
+    assert len(mocked.calls) > before, "a malformed response must not be cached"

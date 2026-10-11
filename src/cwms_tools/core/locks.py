@@ -14,7 +14,8 @@ cwms-python 1.1.0 added `cwms.locks`. Two upstream quirks shape this module
 A lock lookup never fails the describe: failures degrade into
 `lock_lookup_status` (`ok` | `partial` | `failed` | `not_applicable`), a
 per-lock `error` code, and `lock_upstream_status` when an HTTP status is
-known. Successful upstream reads are cached; failures are not.
+known. Successful upstream reads are cached; failures — including a 200
+whose body isn't a lock payload — are not.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import cwms.locks.locks as locks_api
 from cwms.api import ApiError
 
 from cwms_tools.core.cache import build_cache_key, get_cache
-from cwms_tools.core.errors import CwmsToolsError
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.session import current_config
 from cwms_tools.core.upstream import upstream_call
 
@@ -112,11 +113,9 @@ def _lock_names(office: str, project: str, *, use_cache: bool) -> list[str]:
     with upstream_call("/projects/locks", operation=f"lock list for {project}"):
         data = locks_api.get_locks(office_id=office, project_id=project)
     payload = data.json if hasattr(data, "json") else data
-    names = [
-        n
-        for entry in (payload if isinstance(payload, list) else [])
-        if isinstance(n := (entry.get("location") or {}).get("name"), str)
-    ]
+    if not isinstance(payload, list) or not all(isinstance(e, dict) for e in payload):
+        raise _malformed("/projects/locks", operation=f"lock list for {project}")
+    names = [n for entry in payload if isinstance(n := _lock_name(entry), str)]
     cache.set(key, names, ttl=cache.ttl_for("location_catalog"))
     return names
 
@@ -131,9 +130,29 @@ def _lock_detail(office: str, name: str, *, use_cache: bool) -> dict[str, Any]:
     with upstream_call(f"/projects/locks/{name}", operation="lock lookup"):
         data = locks_api.get_lock(name=name, office_id=office, unit=_UNIT)
     payload = data.json if hasattr(data, "json") else data
-    record = normalize(payload if isinstance(payload, dict) else {})
+    if not isinstance(payload, dict) or _lock_name(payload) is None:
+        raise _malformed(f"/projects/locks/{name}", operation="lock lookup")
+    record = normalize(payload)
     cache.set(key, record, ttl=cache.ttl_for("location_catalog"))
     return dict(record)
+
+
+def _lock_name(entry: dict[str, Any]) -> str | None:
+    location = entry.get("location")
+    name = location.get("name") if isinstance(location, dict) else None
+    return name if isinstance(name, str) else None
+
+
+def _malformed(endpoint: str, *, operation: str) -> CwmsToolsError:
+    """A 200 whose body isn't a lock payload (e.g. an HTML error page, which
+    cwms-python returns as a string). Raised before caching, so it degrades
+    like any other failed lock call and is retried next time."""
+    return CwmsToolsError.of(
+        ErrorCode.UPSTREAM_ERROR,
+        f"{operation}: unexpected upstream response shape for {endpoint}.",
+        endpoints_called=[endpoint],
+        temporary=True,
+    )
 
 
 def _with_status(out: dict[str, Any], err: CwmsToolsError) -> dict[str, Any]:
