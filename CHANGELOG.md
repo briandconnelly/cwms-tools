@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Require FastMCP 4.0.11 or newer (still below 4.1), up from 4.0.3. FastMCP
+  4.0.4–4.0.11 include security fixes, among them Host/Origin protection on
+  the SSE transport and bounded schema handling in the client. The verified
+  FastMCP baseline in `cwms://capabilities` (`fastmcp.verified_against`) is
+  now 4.0.11, so the capability fingerprint changes.
+
 ## [0.7.0] - 2026-09-15
 
 ### Fixed
