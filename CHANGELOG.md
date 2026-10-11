@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Require cwms-python 1.1.2 or newer, up from 1.0.9 (#130). Failed upstream
+  calls no longer print an unstructured `CDA Error: ...` line to stderr next to
+  the structured error envelope: cwms-python 1.1 stopped logging failures to
+  the root logger, so cwms-tools drops the log filter it used to suppress them.
+  A CDA response with an unparseable JSON body now surfaces as an
+  `upstream_error` envelope instead of failing later. The capability
+  fingerprint changes because it includes the cwms-python version.
+
 - Require FastMCP 4.0.11 or newer (still below 4.1), up from 4.0.3. FastMCP
   4.0.4–4.0.11 include security fixes, among them Host/Origin protection on
   the SSE transport and bounded schema handling in the client. The verified

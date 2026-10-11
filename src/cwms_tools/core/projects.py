@@ -8,7 +8,7 @@ Recoverable failure modes:
 - Other 4xx → partial with `project_lookup_4xx` + the captured status. This
   includes the 406 "No Format for this content-type and data-type" that
   cwms-python <= 1.0.8 triggered for every project by requesting the v2 JSON
-  format; 1.0.9 requests v1 and is the declared floor.
+  format; 1.0.9 fixed it by requesting v1 (the declared floor is now 1.1.2).
 
 5xx → propagated as a temporary UPSTREAM_ERROR.
 """
