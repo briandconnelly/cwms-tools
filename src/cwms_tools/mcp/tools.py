@@ -330,6 +330,11 @@ def register_place_tools(mcp: FastMCP) -> None:
         north: Annotated[float | None, "Bounding box north latitude, decimal degrees."] = None,
         east: Annotated[float | None, "Bounding box east longitude, decimal degrees."] = None,
         state: Annotated[str | None, "Two-letter US state code (e.g. MT, OK)."] = None,
+        kind: Annotated[
+            str | None,
+            "CDA location kind, e.g. PROJECT, LOCK, SITE, STREAM (case-insensitive). "
+            "PROJECT follows the catalog, not /projects.",
+        ] = None,
         limit: Annotated[
             int,
             "Result cap (default 50; 0 = no cap). Data-bearing rows sort ahead "
@@ -373,6 +378,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             office=office,
             bbox=bbox,
             state=state,
+            kind=kind,
             limit=effective_limit,
             cursor=cursor,
             _repair_call=(
@@ -384,6 +390,7 @@ def register_place_tools(mcp: FastMCP) -> None:
                         else {}
                     ),
                     **({"state": state} if state is not None else {}),
+                    **({"kind": kind} if kind is not None else {}),
                     "limit": limit,
                     **({"cursor": cursor} if cursor is not None else {}),
                     "detail": detail.value,

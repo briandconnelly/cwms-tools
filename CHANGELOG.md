@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cwms_browse_region` and `cwms-tools region browse` accept an optional
+  location `kind` filter (`--kind` on the CLI), e.g. `PROJECT`, `LOCK`,
+  `SITE`, or `STREAM`, matched case-insensitively against each catalog row's
+  `location_kind`. The normalized kind is echoed as `kind` in the response
+  when set, and is part of the pagination cursor, so a cursor from a browse
+  with a different kind is rejected as `invalid_cursor`. Cursors from browses
+  without a kind keep working. `PROJECT` follows the catalog's classification,
+  not `/projects`. The new tool parameter changes the capability
+  fingerprint (#133).
+
 ### Changed
 
 - Require FastMCP 4.0.11 or newer (still below 4.1), up from 4.0.3. FastMCP
