@@ -1,0 +1,48 @@
+{
+ "project-id": {
+  "office-id": "SWT",
+  "name": "WEBB"
+ },
+ "location": {
+  "office-id": "SWT",
+  "name": "WEBB-Lock",
+  "latitude": 35.58666666666671,
+  "longitude": -95.1683333333333,
+  "active": true,
+  "public-name": "Lock",
+  "timezone-name": "US/Central",
+  "location-kind": "LOCK",
+  "nation": "US",
+  "state-initial": "OK",
+  "county-name": "Muskogee",
+  "nearest-city": "Gore, OK",
+  "horizontal-datum": "NAD83",
+  "published-longitude": 95.1683333333333,
+  "published-latitude": 35.5866666666667,
+  "vertical-datum": "NGVD29",
+  "elevation": 149.352,
+  "bounding-office-id": "SWT",
+  "elevation-units": "m"
+ },
+ "lock-width": 109.99999999999999,
+ "lock-length": 599.9999999999999,
+ "normal-lock-lift": 29.999999999999996,
+ "maximum-lock-lift": -32805.11811023622,
+ "length-units": "ft",
+ "volume-units": "ft3",
+ "volume-per-lockage": 1987200.0,
+ "minimum-draft": 9.0,
+ "high-water-upper-pool-location-level": {
+  "level-link": "/locks/WEBB.Elev-Closure.Inst.0.High Water Upper Pool?office=SWT"
+ },
+ "low-water-lower-pool-location-level": {
+  "level-link": "/locks/WEBB.Elev-Closure.Inst.0.Low Water Lower Pool?office=SWT"
+ },
+ "high-water-lower-pool-location-level": {
+  "level-link": "/locks/WEBB.Elev-Closure.Inst.0.High Water Lower Pool?office=SWT"
+ },
+ "low-water-upper-pool-location-level": {
+  "level-link": "/locks/WEBB.Elev-Closure.Inst.0.Low Water Upper Pool?office=SWT"
+ },
+ "elevation-units": "ft"
+}

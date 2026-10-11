@@ -56,13 +56,34 @@ PROJECT_SUMMARY_KEYS: tuple[str, ...] = (
     "authorizing-law",
 )
 
+# The per-lock subset surfaced in `summary` mode (#134): identity, the chamber
+# dimensions and their units, the nulled-sentinel list, and a failed lookup's
+# `error`. Left out: the nested `location` and `project-id` records and the
+# high/low-water pool level links. `full` returns every normalized field.
+LOCK_SUMMARY_KEYS: tuple[str, ...] = (
+    "name",
+    "public-name",
+    "lock-width",
+    "lock-length",
+    "normal-lock-lift",
+    "maximum-lock-lift",
+    "volume-per-lockage",
+    "minimum-draft",
+    "length-units",
+    "volume-units",
+    "elevation-units",
+    "invalid_fields",
+    "error",
+)
+
 
 def shape_place_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any]:
     """Shape a place response (`search_places` / `describe_place`).
 
     Summary mode prunes a `location` record to `LOCATION_SUMMARY_KEYS`, a
-    describe `project` to `PROJECT_SUMMARY_KEYS`, and drops the verbose `raw`
-    blob from each search `result`. Each branch is a no-op when its key is
+    describe `project` to `PROJECT_SUMMARY_KEYS`, each describe `locks` entry
+    to `LOCK_SUMMARY_KEYS`, and drops the verbose `raw` blob from each search
+    `result`. Each branch is a no-op when its key is
     absent (or `project` is null), so one function serves both place tools.
     """
     if detail is Detail.FULL:
@@ -74,6 +95,11 @@ def shape_place_detail(payload: dict[str, Any], detail: Detail) -> dict[str, Any
     project = pruned.get("project")
     if isinstance(project, dict):
         pruned["project"] = {k: project.get(k) for k in PROJECT_SUMMARY_KEYS if k in project}
+    lock_records = pruned.get("locks")
+    if isinstance(lock_records, list):
+        pruned["locks"] = [
+            {k: lock[k] for k in LOCK_SUMMARY_KEYS if k in lock} for lock in lock_records
+        ]
     results = pruned.get("results")
     if isinstance(results, list):
         # The producer contract is a list of dict records; a non-dict entry is a
@@ -134,6 +160,7 @@ def shape_publishers_detail(payload: dict[str, Any], detail: Detail) -> dict[str
 
 __all__ = [
     "LOCATION_SUMMARY_KEYS",
+    "LOCK_SUMMARY_KEYS",
     "shape_history_detail",
     "shape_place_detail",
     "shape_profile_detail",

@@ -205,6 +205,18 @@ def describe(
             ),
         ),
     ] = Detail.SUMMARY,
+    include_locks: Annotated[
+        bool,
+        typer.Option(
+            "--include-locks",
+            help=(
+                "Add navigation-lock dimensions (width, length, lift, draft) for a "
+                "PROJECT or LOCK location. A PROJECT adds one list call plus one call "
+                "per lock; a LOCK adds one call. A failed lock lookup sets `partial` "
+                "instead of failing the command."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Print everything about one place in a single call.
 
@@ -215,7 +227,7 @@ def describe(
     """
     office, name = _parse_office_slash_name(spec)
     try:
-        payload = places.describe_place(office, name)
+        payload = places.describe_place(office, name, include_locks=include_locks)
     except CwmsToolsError as err:
         # No `--office` flag on this command — `spec` is the retryable arg.
         # Repair targets the actual CLI invocation (#69 review): `spec` isn't
@@ -227,7 +239,10 @@ def describe(
             tool="cwms-tools place describe",
             spec_key="spec",
             spec_suffix=name,
-            args={"detail": detail.value},
+            args={
+                **({"include_locks": True} if include_locks else {}),
+                "detail": detail.value,
+            },
         )
         emit_error(err)
     shaped = shaping.shape_place_detail(payload, detail)
