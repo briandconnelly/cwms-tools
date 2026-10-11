@@ -1,0 +1,78 @@
+"""Translate cwms-python / HTTP failures into structured `CwmsToolsError`s.
+
+`core.errors` stays decoupled from any specific upstream client; this module is
+the one place that knows cwms-python's exception types. Wrap each upstream call
+in `upstream_call(...)` so a failure reaches the MCP `_safe` / CLI `emit_error`
+boundary as an envelope instead of a raw exception (#131):
+
+- `cwms.api.ApiError` → classified by HTTP status (`upstream_error_from_status`):
+  404 not_found, 429 rate_limited, other 4xx permanent, 5xx temporary. A 2xx
+  `ApiError` means cwms-python could not parse the body (1.1.x raises instead
+  of returning the text) and is reported as an unreadable, temporary failure.
+- `requests.RequestException` (incl. `ConnectionError`, `Timeout`,
+  `RetryError`) and `urllib3.exceptions.HTTPError` → temporary upstream_error.
+
+Messages are bounded: operation, endpoint, and the status or exception class —
+never `str(exc)`, whose URL and response body can run to kilobytes. The
+original exception stays reachable as `__cause__`. Anything else (a
+programming error) propagates untouched.
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from typing import TYPE_CHECKING
+
+from cwms.api import ApiError
+from requests import RequestException
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
+
+from cwms_tools.core.errors import (
+    CwmsToolsError,
+    ErrorCode,
+    retry_after_ms_from_response,
+    upstream_error_from_status,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+
+def from_api_error(exc: ApiError, *, endpoint: str, operation: str) -> CwmsToolsError:
+    """Status-classified envelope for an `ApiError`, with a bounded message."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if isinstance(status, int) and 200 <= status < 300:
+        message = f"{operation}: unreadable upstream response (HTTP {status}) for {endpoint}."
+    else:
+        message = f"{operation}: upstream returned {status or 'an error'} for {endpoint}."
+    return upstream_error_from_status(
+        status,
+        endpoint=endpoint,
+        message=message,
+        retry_after_ms=retry_after_ms_from_response(response),
+    )
+
+
+def from_transport_error(exc: BaseException, *, endpoint: str, operation: str) -> CwmsToolsError:
+    """Temporary envelope for a connection/timeout/retry failure (no HTTP status)."""
+    return CwmsToolsError.of(
+        ErrorCode.UPSTREAM_ERROR,
+        f"{operation}: upstream request to {endpoint} failed ({type(exc).__name__}).",
+        endpoints_called=[endpoint],
+        temporary=True,
+    )
+
+
+@contextmanager
+def upstream_call(endpoint: str, *, operation: str) -> Iterator[None]:
+    """Re-raise upstream failures inside the block as `CwmsToolsError`."""
+    try:
+        yield
+    except ApiError as exc:
+        raise from_api_error(exc, endpoint=endpoint, operation=operation) from exc
+    except (RequestException, Urllib3HTTPError) as exc:
+        raise from_transport_error(exc, endpoint=endpoint, operation=operation) from exc
+
+
+__all__ = ["from_api_error", "from_transport_error", "upstream_call"]

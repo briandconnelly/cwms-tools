@@ -19,38 +19,13 @@ from typing import Any
 from urllib.parse import quote
 
 import cwms.catalog.catalog as catalog_api
-from cwms.api import ApiError
 
 from cwms_tools.core import publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
-from cwms_tools.core.errors import (
-    CwmsToolsError,
-    retry_after_ms_from_response,
-    upstream_error_from_status,
-)
 from cwms_tools.core.geo import GeoPoint, co_located
 from cwms_tools.core.offices import NW_STUBS, ghost_office_error
 from cwms_tools.core.session import current_config
-
-
-def _wrap_api_error(exc: ApiError, *, endpoint: str) -> CwmsToolsError:
-    """Turn a cwms-python ApiError into a status-classified CwmsToolsError.
-
-    The user-facing `message` deliberately omits `ApiError.__str__()`, which
-    embeds the full request URL — for broad searches the URL contains a
-    multi-kilobyte alternation regex and floods the response. The endpoint
-    path is already in `endpoints_called`; the original exception is still
-    reachable via `__cause__` for debugging.
-    """
-    response = getattr(exc, "response", None)
-    status = getattr(response, "status_code", None)
-    return upstream_error_from_status(
-        status,
-        endpoint=endpoint,
-        message=f"Upstream returned {status or 'error'} for {endpoint}.",
-        retry_after_ms=retry_after_ms_from_response(response),
-    )
-
+from cwms_tools.core.upstream import upstream_call
 
 # URL-encoded byte budget for the ts catalog `like` parameter. CDA rejects
 # very large alternation regexes with a 500; the empirical threshold is
@@ -78,10 +53,8 @@ def get_locations_catalog(
         hit = cache.get(key)
         if hit is not None:
             return hit
-    try:
+    with upstream_call("/catalog/LOCATIONS", operation="locations catalog"):
         data = catalog_api.get_locations_catalog(office_id=office_id, like=like)
-    except ApiError as exc:
-        raise _wrap_api_error(exc, endpoint="/catalog/LOCATIONS") from exc
     payload = data.json
     cache.set(key, payload, ttl=ttl)
     return payload
@@ -120,12 +93,10 @@ def get_timeseries_catalog(
         hit = cache.get(key)
         if hit is not None:
             return hit
-    try:
+    with upstream_call("/catalog/TIMESERIES", operation="timeseries catalog"):
         data = catalog_api.get_timeseries_catalog(
             office_id=office_id, like=like, include_extents=include_extents
         )
-    except ApiError as exc:
-        raise _wrap_api_error(exc, endpoint="/catalog/TIMESERIES") from exc
     payload = data.json
     cache.set(key, payload, ttl=ttl)
     return payload

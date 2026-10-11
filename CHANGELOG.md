@@ -31,6 +31,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   module and its observed quirks; and other 1.1.x behavior changes.
   The document hash changes.
 
+### Fixed
+
+- Upstream failures that used to escape the structured error envelope now
+  return `{ok: false, error: {...}}` with `code: upstream_error` (#131). A CDA
+  500 on a value, history, or profile fetch, a dropped connection or timeout,
+  and a `RetryError` all reached agents as a raw exception with no `temporary`
+  flag. They are now classified (404 `not_found`, 429 `rate_limited`, 5xx and
+  transport failures temporary `upstream_error`). `value profile` /
+  `cwms_get_profile` degrade only the failing sensor, and
+  `cwms_publishers_for_parameter` records a failing office in its coverage
+  instead of failing the whole call. Catalog error messages now name the
+  operation, e.g. `locations catalog: upstream returned 500 for
+  /catalog/LOCATIONS.`
+
 ## [0.7.0] - 2026-09-15
 
 ### Fixed
