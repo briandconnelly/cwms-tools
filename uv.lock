@@ -507,17 +507,18 @@ wheels = [
 
 [[package]]
 name = "cwms-python"
-version = "1.0.9"
+version = "1.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "requests" },
     { name = "requests-toolbelt" },
+    { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/a1/121123e74d908a3eb159eaa65bfb97c0116e0bf25128bf2dd90e6f157453/cwms_python-1.0.9.tar.gz", hash = "sha256:1d6983e19a5df57bc4139869145794d5ce9ed2045e5752fe959b6e49afafaaf1", size = 46482, upload-time = "2026-09-10T23:44:35.876Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/87/7ab0db5c06118a766a4b68c7bea8c8884005f6b353a013c24089a49054ab/cwms_python-1.1.2.tar.gz", hash = "sha256:b773373a46a1007450b230d22a4179fccc4539433c028850e53ac39bb385bea6", size = 51392, upload-time = "2026-09-28T23:46:41.269Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/6e/173fb1267c0484ad0cb45ca86b2ff6fd35ac2562e32e4272e9c13e2cf9c7/cwms_python-1.0.9-py3-none-any.whl", hash = "sha256:822a08862461f0356126eac78496088197a2b4a3a57b7b63e40c2b0b8263317f", size = 72276, upload-time = "2026-09-10T23:44:34.602Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/a2/761c63deede69ba2965d2908d2887b238fb2751f25c8ce32fd458641c24b/cwms_python-1.1.2-py3-none-any.whl", hash = "sha256:a0ab89beea488d3ec553eee115842f0732a998e46b54ca96b69e8efc51d49f40", size = 78810, upload-time = "2026-09-28T23:46:39.845Z" },
 ]
 
 [[package]]
@@ -555,7 +556,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4" },
     { name = "cryptography", marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'", specifier = ">=50" },
     { name = "cryptography", marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'", specifier = "<49" },
-    { name = "cwms-python", specifier = ">=1.0.9" },
+    { name = "cwms-python", specifier = ">=1.1.2" },
     { name = "diskcache", specifier = ">=5" },
     { name = "fastmcp", specifier = ">=4.0.11,<4.1" },
     { name = "platformdirs", specifier = ">=4" },
