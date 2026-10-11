@@ -78,6 +78,9 @@ package = true
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
+# Ruff 0.17 formats Python code blocks in Markdown. Keep vendored agent skills
+# and archived plan docs verbatim.
+extend-exclude = [".agents/skills", ".claude/skills", "docs/superpowers"]
 
 [tool.ruff.lint]
 select = [
@@ -97,6 +100,7 @@ select = [
 ]
 ignore = [
     "PLR0913",  # too many arguments — common in API wrappers
+    "PLR0917",  # too many positional args — Typer/FastMCP signatures are the CLI/tool schema
     "PLR2004",  # magic value used in comparison — noisy in tests
 ]
 
