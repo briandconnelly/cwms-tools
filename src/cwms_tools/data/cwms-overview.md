@@ -480,7 +480,7 @@ scope, cadence, and template. Observed publishers:
 |---|---|---|---|
 | `Best-MRBWM` *(Missouri River Basin Water Management)* | Mainstem Missouri reservoirs (Fort Peck, Fort Randall, Big Bend, Gavins Point, Garrison, Oahe) | Hourly + ~daily | **10 params:** Elev, Stor, Flow-In, Flow-Out, Energy, Precip, Temp-Air, Conc-DissolvedOxygen |
 | `Raw-A2W` | Same scope, higher-frequency flow companion | 1Hour | Flow-In, Flow-Out |
-| `CBT-RAW`, `CBT-REV` *(Columbia Basin Team, inferred)* | Columbia/Snake hydropower (Chief Joseph; presumably Bonneville, Grand Coulee, Dalles parents not yet located) | Hourly + ~daily | **10–18 params:** adds Flow-Spill, Flow-Gen, Elev-Tailwater, %-Saturation-TDG, Temp-Water |
+| `CBT-RAW`, `CBT-REV`, `CBT-COMPUTED-REV` *(Columbia Basin Team, inferred)* | Columbia/Snake hydropower, published on NWDP PROJECT-kind parent records. Parameter counts observed 2026-10-11: CHJ (Chief Joseph) 14, LWG (Lower Granite) 10, BON (Bonneville) 9, IHR (Ice Harbor) 7, MCN (McNary) 7, JDA (John Day) 6, LGS (Little Goose) 6, GCL (Grand Coulee) 5, TDA (The Dalles) 5. Companion publishers seen on the same parents: `GOES-RAW` (BON), `Best` (IHR), `CENWDP-FRM-FCST` (GCL) | Hourly + ~daily | **5–18 params** (5–14 in the 2026-10-11 sample above; up to 18 in earlier sampling): adds Flow-Spill, Flow-Gen, Elev-Tailwater, %-Saturation-TDG, Temp-Water |
 | `CENWP-CALC` *(Corps of Engineers Northwest Portland, inferred)* | NWDP Portland District projects (Cougar Reservoir, ...) | Mixed | **5 params:** Elev-Forebay, Elev-RuleCurve, Flow-In, Flow-Out, Stor |
 
 #### District operational teams
@@ -557,7 +557,8 @@ Each subpackage maps to a CDA resource family:
 | `cwms.api` | Low-level HTTP (`get`, `post`, `patch`, `delete`, `get_with_paging`) |
 | `cwms.catalog` (`.catalog`, `.blobs`, `.clobs`) | Paginated catalog search; blobs/clobs |
 | `cwms.locations` | Location CRUD |
-| `cwms.projects` | Project metadata |
+| `cwms.projects` | Project metadata (single project and per-office list) |
+| `cwms.locks` (`.locks`) | Navigation lock records under a project (added in 1.1.0) |
 | `cwms.timeseries` (`.timeseries`, `.timeseries_bin`, `.timeseries_group`, `.timeseries_identifier`, `.timeseries_profile`, `.timeseries_profile_instance`, `.timeseries_profile_parser`, `.timeseries_txt`) | All timeseries variants |
 | `cwms.levels` (`.location_levels`, `.specified_levels`) | Location levels + vocabulary |
 | `cwms.forecast` (`.forecast_spec`, `.forecast_instance`) | Forecasts |
@@ -571,7 +572,14 @@ Each subpackage maps to a CDA resource family:
 # Locations / projects
 cwms.locations.get_location(office_id, location_id, unit="EN")
 cwms.locations.get_locations(office_id=None, location_ids=None, units="EN", ...)
-cwms.projects.get_project(office_id, project_id)
+cwms.projects.get_project(office_id, name) -> Data
+cwms.projects.get_projects(
+    office_id, id_mask=None, page=None, page_size=None
+) -> Data  # paged via next-page; 406 on cwms-python <= 1.0.9 (see §8)
+
+# Locks (cwms-python >= 1.1.0)
+cwms.locks.get_locks(office_id, project_id) -> Data  # GET /projects/locks
+cwms.locks.get_lock(name, office_id, unit="SI") -> Data  # GET /projects/locks/{name}
 
 # Timeseries
 cwms.timeseries.get_timeseries(
@@ -635,9 +643,15 @@ if you don't know about it.
 | `get_level_as_timeseries` broken for seasonal levels | [Open issue #286, March 2026](https://github.com/HydrologicEngineeringCenter/cwms-python/issues/286). This is the keystone endpoint for value-with-context. Plan to either patch around it or hit CDA directly until upstream fixes. |
 | Error suppression in some write paths | Issues #255, #277, #287 note silent failures on api-down / multithreaded store / store chunk errors. Read paths are mostly fine; verify on writes. |
 | `get_project` 406 on cwms-python ≤ 1.0.8 | Those versions request `application/json;version=2`, which CDA cannot produce for Project: `"Formatting error: No Format for this content-type and data-type (application/json;version=2, cwms.cda.data.dto.project.Project)"`. This hit every project probed (NWDM/FTPK, NWDM/GAPT, SWT/FOSS, NWDP/CHJ), not just FTPK. Fixed in 1.0.9, which requests `version=1`. |
+| `get_projects` (list) 406 on cwms-python ≤ 1.0.9 | Distinct from the single-project row above. The list call sent a header CDA rejects: `"Formatting error:Format header application/json;version=2 could not be parsed"`. Works from 1.0.10 (verified on 1.0.10 and 1.1.2, 2026-10-11). Observed per-office project counts on 2026-10-11: NWDM 109, NWDP 95, SPK 64, SWT 49, LRN 28, MVR 25, MVS 15. Results page via `next-page`; each entry carries project-owner, authorizing-law, cost, and description fields where set. |
 | Project's nested `location` coordinates | The v1 Project payload embeds a Location whose `latitude`/`longitude` read 0.0 where the Location record itself has no coordinates (observed on NWDM/FTPK, SWT/FOSS, NWDP/CHJ). Take coordinates from `/locations`, not from the project. Cost fields are frequently 0; treat them as unconfirmed. |
 | `forecast-instance` "requires an id" | `office + location_id` isn't enough; supply `name` (spec id) or filter by `designator` + dates. |
 | `kind=PROJECT` filter is exact | If a location has null `kind`, it won't match. NWO records are all `kind=SITE` even when they represent dams. |
+| Catalog `PROJECT` kind vs `/projects` | In data-publishing offices the catalog kind is a good, not identical, proxy for project membership. Observed 2026-10-11 in NWDM, NWDP, SWT, MVS: every name returned by `/projects` is a location-catalog row with `location_kind=PROJECT`; NWDM additionally has 4 catalog PROJECT rows that `/projects` does not list. Not checked in stub offices (see the row above). |
+| Lock `maximum-lock-lift` sentinel | Lock records (`cwms.locks`, 1.1.0+) carry width, length, normal/maximum lift, volume-per-lockage, minimum draft, their units, and high/low-water upper/lower pool level links. Unset numeric fields can surface as a converted `-9999 m` sentinel: observed 2026-10-11 on SWT/WEBB, `maximum-lock-lift` = -32805.118 ft with `unit=EN`. Treat large negative dimensions as missing. |
+| Lock endpoints: sporadic 500s and empty lists | Observed 2026-10-11: `get_locks` populated for SWT (WEBB, CHOU) and LRN (BARKLEY), but `get_lock(BARKLEY-Lock, LRN)` → 500, `get_locks(MVR, IL02)` → 500, and `get_locks(NWDP, BON)` / `(NWDP, IHR)` → `[]`, although BON's own Location public name is "Bonneville Lock and Dam". An empty list or a 500 does not mean the project has no lock. |
+| Water-supply modules need credentials | cwms-python 1.1.0 also added `water_users` / `water_contracts`; both returned 401 to an anonymous session on 2026-10-11, so reading them requires credentials (an `api_key` or token in `init_session`). |
+| Response parsing changed in 1.1.x | Invalid JSON in a 200 response raises `ApiError` (earlier versions returned the text); an empty body returns `{}`. `get_multi_timeseries_df` raises `cwms.api.BatchError` collecting every failed series instead of silently dropping them. `get_timeseries` infers its multithreaded chunk size from the series interval. |
 | Match-everything regexes rejected | The catalog endpoint refuses `.`, `.*`, `.+`. Use a single common letter as a permissive probe. |
 | Cursors are session-bound | If the catalog snapshot shifts mid-pagination, the cursor returns `NOT_FOUND`. Re-issue the query without the cursor. |
 | Forecast value location | `spec.timeSeriesIds` is a *list* of ts_ids holding the forecast values. The instance may also carry a binary `fileData` attachment. Either or both. |
@@ -863,12 +877,6 @@ through to a confident answer:
   ts_ids adopt, and whether file-attachment or linked-ts_ids
   dominates for which kinds of forecasts is unknown. Worth a focused
   probe of `/forecast-spec` against representative offices.
-- **Pacific NW major hydropower parent records.** Bonneville, Grand
-  Coulee, Dalles — sub-locations and unit records are observable
-  (`BON-U1`, `GCL-Original`, `TDA-U19`), but whether PROJECT-kind
-  parent records exist for these (analogous to `CHJ`) wasn't
-  confirmed. Unknown whether data for these projects lives on a
-  parent or only across the unit sub-locations.
 - **Coverage of MVD / LRD / NAD / SAD / SPD / POD divisions** beyond
   the MVS / SWT spot checks. District publishing patterns there may
   diverge from what's documented here.
@@ -909,7 +917,7 @@ Each is a focused probe — a small number of CDA calls per item.
 ### Python wrapper (HydrologicEngineeringCenter/cwms-python)
 
 - Repository: [cwms-python](https://github.com/HydrologicEngineeringCenter/cwms-python)
-- Latest release: v1.0.9 (2026-09-10)
+- Latest release: v1.1.2 (2026-09-28)
 - Key modules:
   [`cwms/api.py`](https://github.com/HydrologicEngineeringCenter/cwms-python/blob/main/cwms/api.py) (HTTP core),
   [`cwms/timeseries/timeseries.py`](https://github.com/HydrologicEngineeringCenter/cwms-python/blob/main/cwms/timeseries/timeseries.py),

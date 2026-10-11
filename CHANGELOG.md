@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the SSE transport and bounded schema handling in the client. The verified
   FastMCP baseline in `cwms://capabilities` (`fastmcp.verified_against`) is
   now 4.0.11, so the capability fingerprint changes.
+- The `cwms://overview` orientation doc records cwms-python 1.1.x findings
+  (#132): NWDP's PROJECT-kind parent records for the Pacific NW mainstem
+  hydropower projects (Bonneville, Grand Coulee, The Dalles, and others),
+  which publish `CBT-*` timeseries, resolving an open question; the
+  `get_projects` list call's 406 on cwms-python 1.0.9 and earlier; how the
+  catalog's PROJECT kind compares to `/projects`; the new `cwms.locks`
+  module and its observed quirks; and other 1.1.x behavior changes.
+  The document hash changes.
 
 ### Fixed
 
