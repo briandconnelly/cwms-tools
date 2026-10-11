@@ -339,3 +339,62 @@ def test_cli_mcp_parity(case: dict, detail: str, configured, monkeypatch) -> Non
     check: Callable[[dict], bool] = case["has_internal"]
     assert check(cli_data) is want_internal
     assert check(mcp_data) is want_internal
+
+
+def _strip_nulls(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _strip_nulls(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_strip_nulls(v) for v in value]
+    return value
+
+
+_KIND_ROWS = [
+    {
+        "office_id": "SWT",
+        "name": name,
+        "location_kind": kind,
+        "parameter_count": count,
+        "parameters": ["Elev"] if count else [],
+        "publishers": [],
+        "co_located": [],
+        "raw": {"state": "OK"},
+    }
+    for name, kind, count in [("FOSS", "PROJECT", 2), ("CHOU-Lock", "LOCK", 0), ("GAGE", None, 1)]
+]
+
+
+@pytest.mark.parametrize("kind", [None, "lock"], ids=["kind_unset", "kind_set"])
+def test_browse_region_kind_parity_real_producer(kind, configured, monkeypatch) -> None:
+    """#133: `kind` parity driven through the REAL `browse_region` producer.
+
+    The table-driven cases above stub the producer with a model-cleaned payload,
+    which would hide a null-vs-omitted `kind` divergence (the CLI emits raw
+    producer dicts; MCP null-strips). Here only the catalog is stubbed, so the
+    producer's own dict reaches both surfaces.
+    """
+    monkeypatch.setattr(
+        places.catalog, "enrich_locations", lambda office, use_cache=True: copy.deepcopy(_KIND_ROWS)
+    )
+    raw = places.browse_region(office="SWT", kind=kind)
+    cli_data = _cli_data(
+        BROWSE_REGION, ["region", "browse", "--office", "SWT", *(["--kind", kind] if kind else [])]
+    )
+    mcp_data = _mcp_data(
+        "cwms_browse_region", {"office": "SWT", **({"kind": kind} if kind else {})}
+    )
+
+    if kind is None:
+        # The key must be ABSENT (not null) at the producer, so the CLI's raw
+        # dict and MCP's null-stripped model agree on presence.
+        assert "kind" not in raw
+        assert "kind" not in cli_data
+        assert "kind" not in mcp_data
+        assert cli_data["total_count"] == 3
+    else:
+        assert raw["kind"] == cli_data["kind"] == mcp_data["kind"] == "LOCK"
+        assert [r["name"] for r in cli_data["results"]] == ["CHOU-Lock"]
+    # Pre-existing (out of #133 scope): the CLI keeps other producer nulls
+    # (`bbox`, `state`, `next_cursor`, per-row nulls) that MCP strips, so compare
+    # the rest after null-stripping; `kind` presence is asserted exactly above.
+    assert _strip_nulls(cli_data) == _strip_nulls(mcp_data)

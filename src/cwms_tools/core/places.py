@@ -22,7 +22,7 @@ from cwms_tools.core import (
     publishers,
 )
 from cwms_tools.core.cache import build_cache_key, get_cache
-from cwms_tools.core.errors import CwmsToolsError
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
 from cwms_tools.core.session import current_config
 
@@ -645,11 +645,12 @@ def browse_region(
     office: str,
     bbox: BBox | None = None,
     state: str | None = None,
+    kind: str | None = None,
     limit: int | None = DEFAULT_BROWSE_LIMIT,
     cursor: str | None = None,
     use_cache: bool = True,
 ) -> dict[str, Any]:
-    """`cwms_browse_region` — enriched catalog filtered by office, bbox, or state.
+    """`cwms_browse_region` — enriched catalog filtered by office, bbox, state, or kind.
 
     Filtering happens client-side because CDA doesn't expose bbox or radius
     queries. Co-location is computed across the office's full catalog before
@@ -666,15 +667,20 @@ def browse_region(
 
     Pass the opaque `next_cursor` from a prior response as `cursor` to fetch
     the next page. The cursor encodes the request fingerprint; passing a cursor
-    from a different request (different office/state/bbox) raises
+    from a different request (different office/state/bbox/kind) raises
     ``INVALID_CURSOR``.
+
+    `kind` filters on the catalog row's `location_kind` (case-insensitive;
+    rows with no kind never match). It reflects the catalog's classification,
+    not membership in `/projects`. An empty/blank `kind` is a usage error.
     """
     if limit is not None and limit < 0:
         raise ValueError("limit must be a non-negative integer or None")
     if limit == 0:
         limit = None  # 0 means "no cap"
 
-    req = pagination.request_hash({"office": office, "bbox": _bbox_to_dict(bbox), "state": state})
+    norm_kind = _normalize_kind(kind)
+    req = _browse_request_hash(office=office, bbox=bbox, state=state, kind=norm_kind)
     decoded: dict[str, Any] | None = None
     offset = 0
     if cursor is not None:
@@ -689,29 +695,7 @@ def browse_region(
         offset = pagination.validate_continuation(decoded, kind="browse_region", req=req)
 
     enriched = catalog.enrich_locations(office, use_cache=use_cache)
-    rows = enriched
-
-    if state:
-        target = state.upper()
-
-        # CDA returns the two-letter state code as `state` on the catalog row
-        # and as `state-initial` on the single-location response. Check both
-        # so the filter works regardless of which shape arrived.
-        def _matches_state(r: dict[str, Any]) -> bool:
-            s = _row_state(r)
-            return s is not None and s.upper() == target
-
-        rows = [r for r in rows if _matches_state(r)]
-
-    if bbox is not None:
-        geopoints = [
-            GeoPoint(office_id=r["office_id"], name=r["name"], latitude=lat, longitude=lon)
-            for r in rows
-            if isinstance((lat := r.get("latitude")), (int, float))
-            and isinstance((lon := r.get("longitude")), (int, float))
-        ]
-        in_bbox = {(g.office_id, g.name) for g in filter_by_bbox(geopoints, bbox)}
-        rows = [r for r in rows if (r["office_id"], r["name"]) in in_bbox]
+    rows = _filter_browse_rows(enriched, state=state, kind=norm_kind, bbox=bbox)
 
     # Data-bearing first, then ghosts; stable by office/name. Mirrors
     # `cwms_search_places` so a capped browse keeps the useful rows.
@@ -740,7 +724,7 @@ def browse_region(
 
     # Index the FULL office catalog (pre-filter) so a barren row can name
     # co-located siblings that publish data even when those siblings fall
-    # outside the bbox/state filter — matching the `data_at` repair hint from
+    # outside the bbox/state/kind filter — matching the `data_at` repair hint from
     # search and the co-location-before-filtering note above.
     by_name = {r["name"]: r for r in enriched}
 
@@ -785,12 +769,80 @@ def browse_region(
             for r in rows
         ],
     }
+    if norm_kind is not None:
+        # Echo only when set: the CLI emits raw dicts without null-stripping,
+        # so an absent key (not None) keeps it in lockstep with MCP.
+        response["kind"] = norm_kind
     if has_more:
         response["truncation_hint"] = (
             f"returned {len(rows)} of {total_count}; fetch the next page with the "
             "`next_cursor`, or pass --limit 0 for all rows"
         )
     return response
+
+
+def _normalize_kind(kind: str | None) -> str | None:
+    """Normalize a browse `kind` filter; a blank string is a usage error."""
+    if kind is None:
+        return None
+    norm = kind.strip().upper()
+    if not norm:
+        raise CwmsToolsError.of(
+            ErrorCode.USAGE_ERROR,
+            "kind must be a non-empty location kind (e.g. PROJECT, LOCK, SITE).",
+            field="kind",
+            value=kind,
+            reason="Pass a location kind, or omit kind to browse every kind.",
+        )
+    return norm
+
+
+def _browse_request_hash(
+    *, office: str, bbox: BBox | None, state: str | None, kind: str | None
+) -> str:
+    """Cursor fingerprint for a browse request.
+
+    `kind` joins the hash only when set, so the no-kind hash input is
+    byte-identical to the pre-#133 form and existing cursors still validate.
+    """
+    parts: dict[str, Any] = {"office": office, "bbox": _bbox_to_dict(bbox), "state": state}
+    if kind is not None:
+        parts["kind"] = kind
+    return pagination.request_hash(parts)
+
+
+def _filter_browse_rows(
+    rows: list[dict[str, Any]], *, state: str | None, kind: str | None, bbox: BBox | None
+) -> list[dict[str, Any]]:
+    """Apply the browse state/kind/bbox filters (an AND) to enriched catalog rows."""
+    if state:
+        target = state.upper()
+
+        # CDA returns the two-letter state code as `state` on the catalog row
+        # and as `state-initial` on the single-location response. Check both
+        # so the filter works regardless of which shape arrived.
+        def _matches_state(r: dict[str, Any]) -> bool:
+            s = _row_state(r)
+            return s is not None and s.upper() == target
+
+        rows = [r for r in rows if _matches_state(r)]
+
+    if kind is not None:
+        # `kind` is already normalized (uppercased); rows with no kind never match.
+        rows = [
+            r for r in rows if isinstance((k := r.get("location_kind")), str) and k.upper() == kind
+        ]
+
+    if bbox is not None:
+        geopoints = [
+            GeoPoint(office_id=r["office_id"], name=r["name"], latitude=lat, longitude=lon)
+            for r in rows
+            if isinstance((lat := r.get("latitude")), (int, float))
+            and isinstance((lon := r.get("longitude")), (int, float))
+        ]
+        in_bbox = {(g.office_id, g.name) for g in filter_by_bbox(geopoints, bbox)}
+        rows = [r for r in rows if (r["office_id"], r["name"]) in in_bbox]
+    return rows
 
 
 def _bbox_to_dict(bbox: BBox | None) -> dict[str, float] | None:
