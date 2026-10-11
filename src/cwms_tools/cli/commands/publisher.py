@@ -8,8 +8,9 @@ import typer
 
 from cwms_tools.cli.render import emit, emit_error
 from cwms_tools.core import publishers_index, shaping
+from cwms_tools.core._compact import surface_payload
 from cwms_tools.core.errors import CwmsToolsError
-from cwms_tools.core.models import Detail
+from cwms_tools.core.models import Detail, PublishersForParameterResponse
 
 app = typer.Typer(
     name="publisher",
@@ -65,4 +66,8 @@ def for_parameter(
         )
     except CwmsToolsError as err:
         emit_error(err)
-    emit(shaping.shape_publishers_detail(payload, detail))
+    emit(
+        surface_payload(
+            PublishersForParameterResponse, shaping.shape_publishers_detail(payload, detail)
+        )
+    )

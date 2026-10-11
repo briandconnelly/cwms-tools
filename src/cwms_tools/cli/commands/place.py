@@ -20,8 +20,14 @@ from cwms_tools.cli.render import (
     rewrite_error_field,
 )
 from cwms_tools.core import places, shaping
+from cwms_tools.core._compact import surface_payload
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
-from cwms_tools.core.models import Detail
+from cwms_tools.core.models import (
+    DescribePlaceResponse,
+    Detail,
+    ListParametersResponse,
+    SearchPlacesResponse,
+)
 
 app = typer.Typer(
     name="place",
@@ -185,7 +191,7 @@ def search(
         emit_error(
             attach_ghost_office_repair(err, tool="cwms-tools place search", args=repair_args)
         )
-    emit(shaping.shape_place_detail(payload, detail))
+    emit(surface_payload(SearchPlacesResponse, shaping.shape_place_detail(payload, detail)))
 
 
 @app.command("describe")
@@ -251,7 +257,7 @@ def describe(
     # pure noise leaking into every response — drop them for parity (#74).
     shaped.pop("source_workaround", None)
     shaped.pop("upstream_status", None)
-    emit(shaped)
+    emit(surface_payload(DescribePlaceResponse, shaped))
 
 
 @app.command("parameters")
@@ -281,4 +287,6 @@ def parameters(
     # No `--detail` toggle here; routed through the shared shaper (a no-op for
     # this response shape) to stay structurally in lockstep with the
     # `cwms_list_parameters` MCP tool, which applies the same place shaper.
-    emit(shaping.shape_place_detail(payload, Detail.SUMMARY))
+    emit(
+        surface_payload(ListParametersResponse, shaping.shape_place_detail(payload, Detail.SUMMARY))
+    )
