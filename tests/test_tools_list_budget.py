@@ -29,6 +29,13 @@ docstrings.
 #76 later grew the error envelope's own wire shape (`details`, richer
 `repair`, `rate_limit_remaining`), moving the measured size to ~58.4k
 chars — see `BUDGET_CHARS` below for that adjustment.
+
+#142: the per-component ceilings were never enforced until then. Under
+FastMCP 4, `model_dump()` without `by_alias=True` emits snake_case keys
+(`input_schema`/`output_schema`), so the camelCase lookups found nothing and
+every schema counted as `{}`. Both tests now dump with `by_alias=True` (the
+camelCase keys a client actually receives on the wire), and the component
+test asserts each tool has non-empty schemas so a key mismatch fails loudly.
 """
 
 from __future__ import annotations
@@ -46,8 +53,26 @@ from cwms_tools.mcp.server import build_server
 BUDGET_CHARS = 62_000
 
 
+#: Per-component ceilings, set deliberately in #142 (2026-10-11) when these
+#: were first actually measured: input=9,034, output=45,298, description=2,937
+#: chars. Each leaves ~6-36% headroom; output schemas dominate and sit closest.
+INPUT_CEILING = 11_000
+OUTPUT_CEILING = 48_000
+DESCRIPTION_CEILING = 4_000
+
+#: Floors: a subtotal below this means the schema lookup is broken (#142),
+#: not that the surface shrank.
+SCHEMA_FLOOR = 1_000
+
+
+def _dump_tool(tool) -> dict:
+    # by_alias=True yields the wire's camelCase keys (`inputSchema`,
+    # `outputSchema`); without it FastMCP 4 emits snake_case (#142).
+    return tool.to_mcp_tool().model_dump(mode="json", exclude_none=True, by_alias=True)
+
+
 def _serialize_tool(tool) -> str:
-    return json.dumps(tool.to_mcp_tool().model_dump(mode="json", exclude_none=True))
+    return json.dumps(_dump_tool(tool))
 
 
 async def _tools():
@@ -76,15 +101,21 @@ async def test_tools_list_component_budget() -> None:
     tools = await _tools()
     input_total = output_total = desc_total = 0
     for tool in tools:
-        dumped = tool.to_mcp_tool().model_dump(mode="json", exclude_none=True)
-        input_total += len(json.dumps(dumped.get("inputSchema", {})))
-        output_total += len(json.dumps(dumped.get("outputSchema", {})))
+        dumped = _dump_tool(tool)
+        input_schema = dumped.get("inputSchema")
+        output_schema = dumped.get("outputSchema")
+        assert input_schema, f"{tool.name}: no inputSchema in dump keys {sorted(dumped)}"
+        assert output_schema, f"{tool.name}: no outputSchema in dump keys {sorted(dumped)}"
+        input_total += len(json.dumps(input_schema))
+        output_total += len(json.dumps(output_schema))
         desc_total += len(dumped.get("description") or "")
     print(
         f"tools/list breakdown: input={input_total} output={output_total} description={desc_total}"
     )
     # Loose per-component ceilings so a single runaway tool's schema or
     # docstring is caught even while the total stays under BUDGET_CHARS.
-    assert input_total <= 15_000
-    assert output_total <= 45_000
-    assert desc_total <= 5_000
+    assert input_total > SCHEMA_FLOOR
+    assert output_total > SCHEMA_FLOOR
+    assert input_total <= INPUT_CEILING
+    assert output_total <= OUTPUT_CEILING
+    assert desc_total <= DESCRIPTION_CEILING
