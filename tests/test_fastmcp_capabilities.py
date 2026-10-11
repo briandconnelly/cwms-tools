@@ -192,5 +192,5 @@ def test_capabilities_payload_exposes_baseline_and_drift() -> None:
     from cwms_tools.mcp.resources import capabilities_payload
 
     fm = capabilities_payload()["fastmcp"]
-    assert fm["verified_against"] == "4.0.3"
+    assert fm["verified_against"] == "4.0.11"
     assert isinstance(fm["drift"], bool)
