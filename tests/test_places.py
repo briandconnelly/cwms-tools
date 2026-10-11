@@ -1117,3 +1117,119 @@ def test_search_places_single_office_reraises_unexpected_error(
     monkeypatch.setattr(locations, "search", boom)
     with pytest.raises(RuntimeError):
         places.search_places("FOSS", office="SWT")
+
+
+# --- browse_region `kind` filter (#133) --------------------------------------
+
+
+def _kind_rows() -> list[dict[str, object]]:
+    def row(name, kind, state, count, co_located=()):
+        return {
+            "office_id": "SWT",
+            "name": name,
+            "location_kind": kind,
+            "parameter_count": count,
+            "parameters": ["Elev"] if count else [],
+            "publishers": [],
+            "co_located": list(co_located),
+            "raw": {"state": state} if state else {},
+        }
+
+    no_kind = row("NOKIND", None, "OK", 1)
+    del no_kind["location_kind"]
+    return [
+        row("DAM1", "PROJECT", "OK", 3, co_located=["DAM1-GAGE"]),
+        row("dam2", "project", "TX", 1),
+        row("LOCK1", "LOCK", "OK", 0),
+        row("GHOSTDAM", "Project", "OK", 0, co_located=["DAM1-SITE"]),
+        # Data-bearing sibling of GHOSTDAM that the PROJECT filter excludes.
+        row("DAM1-SITE", "SITE", "OK", 2),
+        row("DAM1-GAGE", None, "OK", 1),
+        no_kind,
+    ]
+
+
+@pytest.fixture
+def kind_catalog(monkeypatch):
+    monkeypatch.setattr(
+        places.catalog, "enrich_locations", lambda office, use_cache=True: _kind_rows()
+    )
+
+
+def test_browse_region_kind_filter_is_case_insensitive(kind_catalog) -> None:
+    for kind in ("PROJECT", "project", "  Project "):
+        payload = places.browse_region(office="SWT", kind=kind)
+        assert {r["name"] for r in payload["results"]} == {"DAM1", "dam2", "GHOSTDAM"}
+        assert payload["kind"] == "PROJECT"
+
+
+def test_browse_region_kind_excludes_rows_without_kind(kind_catalog) -> None:
+    payload = places.browse_region(office="SWT", kind="SITE")
+    # DAM1-GAGE (location_kind None) and NOKIND (key absent) never match.
+    assert [r["name"] for r in payload["results"]] == ["DAM1-SITE"]
+
+
+def test_browse_region_kind_combines_with_state_and_counts_filtered_set(kind_catalog) -> None:
+    payload = places.browse_region(office="SWT", kind="project", state="OK", limit=1)
+    assert payload["total_count"] == 2  # DAM1 + GHOSTDAM; dam2 is TX
+    assert payload["ghost_count"] == 1  # GHOSTDAM
+    assert payload["result_count"] == 1
+    assert [r["name"] for r in payload["results"]] == ["DAM1"]  # data-bearing first
+    assert payload["has_more"] is True
+
+
+def test_browse_region_kind_absent_from_payload_when_unset(kind_catalog) -> None:
+    payload = places.browse_region(office="SWT")
+    assert "kind" not in payload
+    assert payload["total_count"] == 7
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_browse_region_blank_kind_is_usage_error(kind_catalog, blank) -> None:
+    with pytest.raises(CwmsToolsError) as exc:
+        places.browse_region(office="SWT", kind=blank)
+    env = exc.value.envelope
+    assert env.code is ErrorCode.USAGE_ERROR
+    assert env.details is not None and env.details.field == "kind"
+
+
+def test_browse_region_cursor_from_other_kind_is_rejected(kind_catalog) -> None:
+    p1 = places.browse_region(office="SWT", kind="PROJECT", limit=1)
+    assert p1["next_cursor"]
+    with pytest.raises(CwmsToolsError) as exc:
+        places.browse_region(office="SWT", kind="LOCK", limit=1, cursor=p1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+    # The same kind in another case normalizes to the same request: still valid.
+    p2 = places.browse_region(office="SWT", kind="project", limit=1, cursor=p1["next_cursor"])
+    assert p2["result_count"] == 1
+
+
+def test_browse_region_cursor_without_kind_rejected_when_kind_added(kind_catalog) -> None:
+    p1 = places.browse_region(office="SWT", limit=2)
+    with pytest.raises(CwmsToolsError) as exc:
+        places.browse_region(office="SWT", kind="PROJECT", limit=2, cursor=p1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_browse_region_no_kind_request_hash_is_unchanged(kind_catalog) -> None:
+    """A pre-#133 cursor (hash over office/bbox/state only) must still validate."""
+    legacy_req = pagination.request_hash({"office": "SWT", "bbox": None, "state": "OK"})
+    assert places._browse_request_hash(office="SWT", bbox=None, state="OK", kind=None) == legacy_req
+    legacy_cursor = pagination.encode_cursor(
+        {
+            "v": pagination.CURSOR_VERSION,
+            "kind": "browse_region",
+            "off": 1,
+            "req": legacy_req,
+            "total": 6,  # rows with state OK
+        }
+    )
+    page = places.browse_region(office="SWT", state="OK", limit=1, cursor=legacy_cursor)
+    assert page["result_count"] == 1
+
+
+def test_browse_region_kind_data_at_uses_full_catalog(kind_catalog) -> None:
+    payload = places.browse_region(office="SWT", kind="PROJECT")
+    ghost = next(r for r in payload["results"] if r["name"] == "GHOSTDAM")
+    # DAM1-SITE is a SITE (filtered out by kind) but still named as a data sibling.
+    assert ghost["data_at"] == ["DAM1-SITE"]

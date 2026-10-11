@@ -91,6 +91,9 @@ uv run cwms-tools value history NWDM/FTPK/Elev \
 # Browse an office catalog by state.
 uv run cwms-tools region browse --office SWT --state OK
 
+# Browse only one location kind (case-insensitive), e.g. the office's locks.
+uv run cwms-tools region browse --office SWT --kind LOCK
+
 # Page through a large browse result. Pass the prior response's `next_cursor`
 # value as --cursor to continue without re-issuing the same search.
 uv run cwms-tools region browse --office NWDM --cursor <next_cursor>
@@ -176,7 +179,7 @@ The MCP server exposes task-level tools rather than raw endpoint mirrors:
 | `cwms_list_parameters` | List parameters published at a location, grouped by publisher. |
 | `cwms_get_value` | Read the latest observation, optionally with threshold status. |
 | `cwms_get_history` | Read raw observations across a bounded time window. |
-| `cwms_browse_region` | Browse one office's locations, optionally by state or bounding box. |
+| `cwms_browse_region` | Browse one office's locations, optionally by state, bounding box, or location kind. |
 | `cwms_publishers_for_parameter` | List publishers reporting a parameter across selected offices. |
 | `cwms_get_overview_section` | Read bundled CWMS orientation content. |
 

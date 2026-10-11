@@ -368,6 +368,23 @@ def test_region_browse_returns_ghost_office_error_for_nwo() -> None:
     assert repair["arguments"] == {"office": "NWDM", "state": "MT", "limit": 10}
 
 
+def test_region_browse_ghost_office_repair_echoes_kind() -> None:
+    result = runner.invoke(app, ["region", "browse", "--office", "NWO", "--kind", "lock"])
+    assert result.exit_code == 12
+    repair = json.loads(result.stderr)["error"]["repair"]
+    assert repair["arguments"] == {"office": "NWDM", "kind": "lock", "limit": 50}
+
+
+def test_region_browse_blank_kind_is_usage_error() -> None:
+    """#133: core validates `kind`; the CLI surfaces it as a structured envelope."""
+    result = runner.invoke(app, ["region", "browse", "--office", "SWT", "--kind", " "])
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    err = json.loads(result.stderr)["error"]
+    assert err["code"] == "usage_error"
+    assert err["details"]["field"] == "kind"
+
+
 def test_region_browse_ghost_office_repair_echoes_bbox() -> None:
     result = runner.invoke(
         app,

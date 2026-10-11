@@ -1,4 +1,4 @@
-"""`cwms-tools region browse` — enriched catalog browse filtered by office/bbox/state."""
+"""`cwms-tools region browse` — enriched catalog browse filtered by office/bbox/state/kind."""
 
 from __future__ import annotations
 
@@ -14,7 +14,10 @@ from cwms_tools.core.models import Detail
 
 app = typer.Typer(
     name="region",
-    help=("Browse the catalog of one office, optionally filtered by bounding box and/or US state."),
+    help=(
+        "Browse the catalog of one office, optionally filtered by bounding box, "
+        "US state, and/or location kind."
+    ),
     no_args_is_help=True,
 )
 
@@ -67,6 +70,17 @@ def browse(
         str | None,
         typer.Option("--state", help="Two-letter US state code (e.g. MT, OK)."),
     ] = None,
+    kind: Annotated[
+        str | None,
+        typer.Option(
+            "--kind",
+            help=(
+                "CDA location kind, e.g. PROJECT, LOCK, SITE, STREAM (case-insensitive). "
+                "Matches the catalog's `location_kind`; PROJECT follows the catalog, "
+                "not /projects."
+            ),
+        ),
+    ] = None,
     limit: Annotated[
         int,
         typer.Option(
@@ -97,7 +111,7 @@ def browse(
     """Browse the locations published by one office, with optional filters.
 
     All four bounding-box corners must be set together or none. When
-    `--state` and a bbox are both set, both filters apply. Returns the same
+    `--state`, `--kind`, and a bbox are combined, all filters apply. Returns the same
     enriched per-place records as `place search` (including `parameters` and
     the `data_at` repair hint), with `result_count`, `ghost_count`, and
     `total_count` totals at the top. Depth-tagged WQ sensor rows
@@ -136,6 +150,7 @@ def browse(
             office=office,
             bbox=bbox,
             state=state,
+            kind=kind,
             limit=None if limit == 0 else limit,
             cursor=cursor,
         )
@@ -145,6 +160,8 @@ def browse(
             repair_args.update(south=south, west=west, north=north, east=east)
         if state is not None:
             repair_args["state"] = state
+        if kind is not None:
+            repair_args["kind"] = kind
         repair_args["limit"] = limit
         if cursor is not None:
             repair_args["cursor"] = cursor

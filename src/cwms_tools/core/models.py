@@ -378,6 +378,7 @@ class BrowseRegionResponse(CompactDumpMixin, BaseModel):
     office: str
     bbox: dict[str, float] | None = None
     state: str | None = None
+    kind: str | None = Field(default=None, description="Applied location-kind filter, uppercased.")
     result_count: int = Field(
         default=0,
         description="Number of rows actually returned in `results` (after the `limit` cap).",

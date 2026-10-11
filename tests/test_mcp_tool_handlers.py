@@ -245,6 +245,26 @@ def test_browse_region_handler_rejects_negative_limit(configured) -> None:
     assert payload["error"]["details"]["field"] == "limit"
 
 
+def test_browse_region_handler_rejects_blank_kind(configured) -> None:
+    """#133: core raises CwmsToolsError for a blank kind; `_safe` surfaces it in-band."""
+    server = build_server()
+    result = _call(server, "cwms_browse_region", {"office": "SWT", "kind": "  "})
+    payload = _branch(result.structured_content)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "usage_error"
+    assert payload["error"]["details"]["field"] == "kind"
+
+
+def test_browse_region_handler_ghost_office_repair_echoes_kind(configured) -> None:
+    server = build_server()
+    result = _call(server, "cwms_browse_region", {"office": "NWO", "kind": "project"})
+    payload = _branch(result.structured_content)
+    assert payload["error"]["code"] == "ghost_office"
+    repair = payload["error"]["repair"]
+    assert repair["arguments"]["office"] == "NWDM"
+    assert repair["arguments"]["kind"] == "project"
+
+
 def test_search_places_handler_rejects_negative_limit(configured) -> None:
     server = build_server()
     result = _call(server, "cwms_search_places", {"query": "x", "office": "SWT", "limit": -1})
