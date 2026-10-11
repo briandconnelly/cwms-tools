@@ -543,3 +543,43 @@ def test_upstream_error_message_does_not_embed_long_url(configured, mocked) -> N
     assert "|" not in env.message
     # And it must stay reasonably compact — well under 200 chars.
     assert len(env.message) < 200
+
+
+def test_malformed_json_200_surfaces_as_upstream_error(configured, mocked) -> None:
+    """cwms-python 1.1.x raises `ApiError` for an unparseable 200 body instead of
+    handing back the raw text (#130). That must land in the structured envelope,
+    not crash later on a `str` payload."""
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/LOCATIONS",
+        status=200,
+        content_type="application/json",
+        body="{not json",
+    )
+    with pytest.raises(CwmsToolsError) as ex_info:
+        catalog.get_locations_catalog("SWT", use_cache=False)
+    env = ex_info.value.envelope
+    assert env.code is ErrorCode.UPSTREAM_ERROR
+    assert env.source.endpoints_called == ["/catalog/LOCATIONS"]
+
+
+def test_upstream_failure_emits_no_warning_or_error_log_records(
+    configured, mocked, caplog: pytest.LogCaptureFixture
+) -> None:
+    """We report upstream failures in the structured envelope, so a failing call
+    must not also print an unstructured log line. cwms-python <= 1.0.x wrote
+    `logging.error(...)` to the root logger (we filtered it); 1.1.x logs at
+    DEBUG on `cwms.api` instead, which this pins (#130)."""
+    import logging
+
+    mocked.add(
+        method=responses.GET,
+        url=f"{API_ROOT}catalog/LOCATIONS",
+        status=500,
+        body="Internal Server Error",
+    )
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(CwmsToolsError):
+        catalog.get_locations_catalog("SWT", use_cache=False)
+    loud = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert loud == [], [r.getMessage() for r in loud]
