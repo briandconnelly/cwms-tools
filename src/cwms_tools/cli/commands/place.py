@@ -211,8 +211,9 @@ def describe(
             "--include-locks",
             help=(
                 "Add navigation-lock dimensions (width, length, lift, draft) for a "
-                "PROJECT or LOCK location. One extra upstream call per lock; a failed "
-                "lock lookup sets `partial` instead of failing the command."
+                "PROJECT or LOCK location. A PROJECT adds one list call plus one call "
+                "per lock; a LOCK adds one call. A failed lock lookup sets `partial` "
+                "instead of failing the command."
             ),
         ),
     ] = False,

@@ -336,13 +336,19 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     ts_ids: list[str]
     last_data_timestamp: str | None = None
     lock_lookup_status: Literal["ok", "partial", "failed", "not_applicable"] | None = Field(
-        default=None, description="Set only with include_locks."
+        default=None,
+        description="Only with include_locks; partial/failed also set partial.",
     )
     locks: list[dict[str, Any]] | None = Field(
         default=None,
-        description="Sentinel (negative) dimensions are null, named in invalid_fields.",
+        description=(
+            "Failed lock: {name, error}. Sentinel dimensions are null, named in invalid_fields."
+        ),
     )
-    lock_upstream_status: int | None = None
+    lock_upstream_status: int | None = Field(
+        default=None,
+        description="HTTP status of a failed lock call (source.upstream_status is the project's).",
+    )
     source: SourceMeta
 
 

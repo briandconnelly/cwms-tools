@@ -257,8 +257,8 @@ def register_place_tools(mcp: FastMCP) -> None:
         name: Annotated[str, "Location id within the office (e.g. FTPK, FOSS)."],
         include_locks: Annotated[
             bool,
-            "Add navigation-lock dimensions for a PROJECT or LOCK location "
-            "(one extra call per lock).",
+            "Add navigation-lock dimensions for a PROJECT (1 list call + 1 per "
+            "lock) or LOCK (1 call) location.",
         ] = False,
         detail: Detail = Detail.SUMMARY,
     ) -> DescribePlaceResponse | ErrorRef:

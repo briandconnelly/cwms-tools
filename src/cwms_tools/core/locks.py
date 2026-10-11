@@ -68,12 +68,12 @@ def lookup(
         return {"lock_lookup_status": "not_applicable", "locks": []}
 
     records: list[dict[str, Any]] = []
-    first_error: CwmsToolsError | None = None
+    errors: list[CwmsToolsError] = []
     for lock_name in names:
         try:
             records.append(_lock_detail(office, lock_name, use_cache=use_cache))
         except CwmsToolsError as err:
-            first_error = first_error or err
+            errors.append(err)
             records.append({"name": lock_name, "error": err.envelope.code.value})
     failures = sum(1 for r in records if "error" in r)
     if failures == 0:
@@ -83,7 +83,13 @@ def lookup(
     else:
         status = "partial"
     out: dict[str, Any] = {"lock_lookup_status": status, "locks": records}
-    return _with_status(out, first_error) if first_error is not None else out
+    # Prefer a failure that carried an HTTP status: a leading transport error
+    # must not hide a later lock's 500.
+    for err in errors:
+        _with_status(out, err)
+        if "lock_upstream_status" in out:
+            break
+    return out
 
 
 def normalize(payload: dict[str, Any]) -> dict[str, Any]:

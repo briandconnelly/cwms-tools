@@ -204,7 +204,10 @@ def _commands() -> list[dict[str, Any]]:
                     "--include-locks",
                     "boolean",
                     default=False,
-                    help="Add lock dimensions for a PROJECT or LOCK location.",
+                    help=(
+                        "Add lock dimensions. PROJECT: 1 list call + 1 per lock; "
+                        "LOCK: 1 call. Failures set partial."
+                    ),
                 ),
             ],
             "error_codes": _errs(

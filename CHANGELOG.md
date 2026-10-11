@@ -36,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reports `ok`, `partial`, `failed`, or `not_applicable`; a failed lock call
   marks the response `partial` (`lock_lookup_failed`) with
   `lock_upstream_status` instead of failing the describe. One extra upstream
-  call per lock, and only when requested. The capability fingerprint changes.
+  list call plus one call per lock for a PROJECT (one call for a LOCK),
+  and only when requested. The capability fingerprint changes.
 
 ### Fixed
 

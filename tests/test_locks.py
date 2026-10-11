@@ -368,3 +368,21 @@ def test_malformed_lock_response_fails_and_is_not_cached(
     before = len(mocked.calls)
     locks.lookup("SWT", "WEBB", "PROJECT")
     assert len(mocked.calls) > before, "a malformed response must not be cached"
+
+
+def test_upstream_status_prefers_a_status_bearing_failure(configured, mocked) -> None:
+    """A transport error on the first lock must not hide a later lock's HTTP 500."""
+    import requests
+
+    second = json.loads(json.dumps(LOCKS_LIST[0]))
+    second["location"]["name"] = "WEBB-Lock2"
+    _arm_lock_list(mocked, body=[LOCKS_LIST[0], second])
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}projects/locks/WEBB-Lock",
+        body=requests.exceptions.ConnectionError("refused"),
+    )
+    _arm_lock_detail(mocked, name="WEBB-Lock2", status=500)
+    out = locks.lookup("SWT", "WEBB", "PROJECT")
+    assert out["lock_lookup_status"] == "failed"
+    assert out["lock_upstream_status"] == 500
