@@ -255,6 +255,11 @@ def register_place_tools(mcp: FastMCP) -> None:
     async def cwms_describe_place(
         office: Annotated[str, _OFFICE_HINT],
         name: Annotated[str, "Location id within the office (e.g. FTPK, FOSS)."],
+        include_locks: Annotated[
+            bool,
+            "Add navigation-lock dimensions for a PROJECT or LOCK location "
+            "(one extra call per lock).",
+        ] = False,
         detail: Detail = Detail.SUMMARY,
     ) -> DescribePlaceResponse | ErrorRef:
         """Read everything about one place in a single call.
@@ -267,7 +272,15 @@ def register_place_tools(mcp: FastMCP) -> None:
             places.describe_place,
             office,
             name,
-            _repair_call=("cwms_describe_place", {"name": name, "detail": detail.value}),
+            include_locks=include_locks,
+            _repair_call=(
+                "cwms_describe_place",
+                {
+                    "name": name,
+                    **({"include_locks": True} if include_locks else {}),
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw

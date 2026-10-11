@@ -15,6 +15,7 @@ from cwms_tools.core import (
     concurrency,
     depth,
     locations,
+    locks,
     offices,
     pagination,
     projects,
@@ -523,6 +524,7 @@ def describe_place(
     office: str,
     name: str,
     *,
+    include_locks: bool = False,
     use_cache: bool = True,
 ) -> dict[str, Any]:
     """`cwms_describe_place` — full Location + Project + publisher fingerprint.
@@ -531,6 +533,12 @@ def describe_place(
     get_timeseries_catalog, freshness derivation). When any sub-call fails
     in a way we can recover from, the response carries `partial: true` and
     `partial_reasons: [...]` so the agent sees the truncation.
+
+    `include_locks` (#134) adds `locks`/`lock_lookup_status` (and
+    `lock_upstream_status` when a failed lock call carried an HTTP status)
+    for PROJECT and LOCK locations — see `core.locks`. A failed or partial
+    lock lookup appends `lock_lookup_failed` to `partial_reasons`; it never
+    fails the describe. Without it, none of those keys are present.
     """
     location = locations.get_one(office, name, use_cache=use_cache)
     project_resp = projects.get_one(office, name, use_cache=use_cache)
@@ -539,13 +547,14 @@ def describe_place(
     pub_facts = publishers.aggregate_publishers(ts_ids)
     freshness = catalog.freshness_for_location(office, name, use_cache=use_cache)
 
-    return {
+    response: dict[str, Any] = {
         "office_id": office,
         "name": name,
         "location": location,
         "project": project_resp.get("project_metadata"),
         "partial": project_resp.get("partial", False),
-        "partial_reasons": project_resp.get("partial_reasons", []),
+        # A new list: the project response is cached, so never mutate its own.
+        "partial_reasons": list(project_resp.get("partial_reasons", [])),
         "parameters": sorted(param_counts.keys()),
         "parameter_count": len(param_counts),
         "publishers": [
@@ -562,6 +571,13 @@ def describe_place(
         "source_workaround": project_resp.get("source_workaround"),
         "upstream_status": project_resp.get("upstream_status"),
     }
+    if include_locks:
+        lock_resp = locks.lookup(office, name, location.get("location-kind"), use_cache=use_cache)
+        response.update(lock_resp)
+        if lock_resp["lock_lookup_status"] in {"failed", "partial"}:
+            response["partial"] = True
+            response["partial_reasons"].append("lock_lookup_failed")
+    return response
 
 
 def list_parameters(

@@ -13,6 +13,8 @@ recordings land alongside the tool implementations in M3–M6.
 | `swt_chou_lock_zero_params.json`   | Co-located but zero-publishing variant — ghost detection at parameter level. |
 | `multi_id_value.json`              | List input to `cwms_get_value`; exercises `core/concurrency.py`. |
 | `catalog_truncated_at_page_cap.json` | `get_timeseries` silent-truncation detection. |
+| `swt_webb_locks_list.json`         | Raw `GET /projects/locks?office=SWT&project-id=WEBB` body (recorded 2026-10-11). The list endpoint returns every dimension as `0.0` with no units — only identity is usable. |
+| `swt_webb_lock_en.json`            | Raw `GET /projects/locks/WEBB-Lock?office=SWT&unit=EN` body (recorded 2026-10-11). Real dimensions plus the `maximum-lock-lift` -9999 m sentinel (-32805.118 ft). |
 | `cda_429_rate_limited.json`        | Recorded 429 + `Retry-After`; drives `test_get_locations_catalog_wraps_429_as_rate_limited_with_retry_after`. |
 | `cda_503_upstream_error.json`      | `error.code = upstream_error`, `temporary: true`. |
 | `auth_unconfigured.json`           | Anonymous-session verification (`whoami`, `env`). |

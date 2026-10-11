@@ -335,6 +335,14 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     publishers: list[PublisherFingerprint]
     ts_ids: list[str]
     last_data_timestamp: str | None = None
+    lock_lookup_status: Literal["ok", "partial", "failed", "not_applicable"] | None = Field(
+        default=None, description="Set only with include_locks."
+    )
+    locks: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Sentinel (negative) dimensions are null, named in invalid_fields.",
+    )
+    lock_upstream_status: int | None = None
     source: SourceMeta
 
 

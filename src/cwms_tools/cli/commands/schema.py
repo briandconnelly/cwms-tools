@@ -198,7 +198,15 @@ def _commands() -> list[dict[str, Any]]:
             "reads_stdin": False,
             "latency_class": "network",
             "arguments": [_arg("spec", "string", help="OFFICE/NAME, e.g. NWDM/FTPK.")],
-            "options": [_opt("--detail", "string", default="summary", enum=["summary", "full"])],
+            "options": [
+                _opt("--detail", "string", default="summary", enum=["summary", "full"]),
+                _opt(
+                    "--include-locks",
+                    "boolean",
+                    default=False,
+                    help="Add lock dimensions for a PROJECT or LOCK location.",
+                ),
+            ],
             "error_codes": _errs(
                 "ghost_office", "not_found", "rate_limited", "upstream_error", "usage_error"
             ),

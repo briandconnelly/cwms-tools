@@ -23,6 +23,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   FastMCP baseline in `cwms://capabilities` (`fastmcp.verified_against`) is
   now 4.0.11, so the capability fingerprint changes.
 
+### Added
+
+- `cwms_describe_place` / `place describe` take an opt-in `include_locks` /
+  `--include-locks` (#134). For a PROJECT location it lists the project's
+  navigation locks; for a LOCK location it reads that lock. Each lock carries
+  chamber width, length, normal and maximum lift, volume per lockage, minimum
+  draft, and their units (e.g. SWT/WEBB: 110 × 600 ft, 30 ft lift, 9 ft
+  draft); `detail=full` adds the nested location and pool-level links. CDA's
+  -9999 m "unset" sentinel (it arrives converted, e.g. -32805 ft) is returned
+  as `null` and named in the lock's `invalid_fields`. `lock_lookup_status`
+  reports `ok`, `partial`, `failed`, or `not_applicable`; a failed lock call
+  marks the response `partial` (`lock_lookup_failed`) with
+  `lock_upstream_status` instead of failing the describe. One extra upstream
+  call per lock, and only when requested. The capability fingerprint changes.
+
 ### Fixed
 
 - Upstream failures that used to escape the structured error envelope now
