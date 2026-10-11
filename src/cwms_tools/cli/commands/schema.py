@@ -233,7 +233,14 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--north", "number"),
                 _opt("--east", "number"),
                 _opt("--state", "string", help="Two-letter US state code."),
-                _opt("--kind", "string", help="Location kind, e.g. PROJECT, LOCK (any case)."),
+                _opt(
+                    "--kind",
+                    "string",
+                    help=(
+                        "CDA location kind, e.g. PROJECT, LOCK, SITE, STREAM (any case). "
+                        "PROJECT follows the catalog, not /projects."
+                    ),
+                ),
                 _opt("--limit", "integer", default=50, help="Result cap; 0 = no cap."),
                 _opt("--cursor", "string", help="Pagination cursor from prior next_cursor."),
             ],
