@@ -72,6 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of failing the whole call. Catalog error messages now name the
   operation, e.g. `locations catalog: upstream returned 500 for
   /catalog/LOCATIONS.`
+- Cached results now expire inside a long-running MCP server (#135). The
+  in-memory cache tier ignored TTLs, so a location catalog, office list, or
+  other cached lookup could be served stale for the life of the process. The
+  documented namespace TTLs (e.g. 6 h for the location catalog) were enforced
+  only after a restart. In-memory entries now carry the same expiry as the
+  on-disk cache.
 
 ## [0.7.0] - 2026-09-15
 

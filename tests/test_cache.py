@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -118,3 +119,56 @@ def test_isolated_cache_fixture_yields_unique_dir(isolated_cache: Cache, tmp_pat
     assert str(tmp_path) in str(isolated_cache.directory)
     # And the env override does not leak across tests:
     assert os.environ.get("CWMS_TOOLS_CACHE_DIR") in {None, str(isolated_cache.directory.parent)}
+
+
+class _FakeClock:
+    """Injectable wall clock: starts at real time so diskcache expiries line up."""
+
+    def __init__(self) -> None:
+        self.now = time.time()
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_l1_entry_expires_after_ttl(tmp_path: Path) -> None:
+    clock = _FakeClock()
+    cache = Cache(directory=tmp_path / "c", clock=clock)
+    try:
+        cache.set("k", "v", ttl=60)
+        # Drop L2 so any hit can only come from L1.
+        cache._l2.delete("k")
+        clock.now += 59
+        assert cache.get("k") == "v"
+        clock.now += 1
+        assert cache.get("k") is None
+    finally:
+        cache.close()
+
+
+def test_l1_entry_without_ttl_never_expires(tmp_path: Path) -> None:
+    clock = _FakeClock()
+    cache = Cache(directory=tmp_path / "c", clock=clock)
+    try:
+        cache.set("k", "v", ttl=None)
+        cache._l2.delete("k")
+        clock.now += 10 * 365 * 24 * 3600
+        assert cache.get("k") == "v"
+    finally:
+        cache.close()
+
+
+def test_l1_refill_from_l2_keeps_l2_expiry(tmp_path: Path) -> None:
+    clock = _FakeClock()
+    cache = Cache(directory=tmp_path / "c", clock=clock)
+    try:
+        cache.set("k", "v", ttl=60)
+        cache._l1.clear()
+        clock.now += 30
+        # Refills L1 from L2; the entry must keep L2's expiry, not get a fresh TTL.
+        assert cache.get("k") == "v"
+        cache._l2.delete("k")
+        clock.now += 31
+        assert cache.get("k") is None
+    finally:
+        cache.close()
