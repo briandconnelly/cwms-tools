@@ -347,6 +347,9 @@ def test_cli_mcp_parity_for_locks(configured, scenario: str, detail: str) -> Non
         ("list", {"locks": []}),
         ("detail", "<html>x</html>"),
         ("detail", {"lock-width": 1.0}),
+        ("list", [{}]),
+        ("list", [{"location": {"name": 42}}]),
+        ("list", [LOCKS_LIST[0], {"location": {}}]),
     ],
 )
 def test_malformed_lock_response_fails_and_is_not_cached(

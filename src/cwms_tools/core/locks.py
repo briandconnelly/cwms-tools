@@ -119,9 +119,11 @@ def _lock_names(office: str, project: str, *, use_cache: bool) -> list[str]:
     with upstream_call("/projects/locks", operation="lock list"):
         data = locks_api.get_locks(office_id=office, project_id=project)
     payload = data.json if hasattr(data, "json") else data
-    if not isinstance(payload, list) or not all(isinstance(e, dict) for e in payload):
+    entries = payload if isinstance(payload, list) else None
+    names = [n for e in entries or [] if isinstance(e, dict) and (n := _lock_name(e)) is not None]
+    # Every entry must name a lock; dropping bad rows would cache a silent `ok`.
+    if entries is None or len(names) != len(entries):
         raise _malformed("/projects/locks", operation="lock list")
-    names = [n for entry in payload if isinstance(n := _lock_name(entry), str)]
     cache.set(key, names, ttl=cache.ttl_for("location_catalog"))
     return names
 
