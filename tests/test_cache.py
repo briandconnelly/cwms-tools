@@ -172,3 +172,16 @@ def test_l1_refill_from_l2_keeps_l2_expiry(tmp_path: Path) -> None:
         assert cache.get("k") is None
     finally:
         cache.close()
+
+
+def test_get_returns_none_on_cold_and_expired_miss(tmp_path: Path) -> None:
+    # diskcache wraps `default` as `(default, None)` when `expire_time=True`,
+    # so a miss in both tiers must surface as a plain `None`.
+    clock = _FakeClock()
+    cache = Cache(directory=tmp_path / "c", clock=clock)
+    try:
+        assert cache.get("never-set") is None
+        cache.set("k", "v", ttl=0)
+        assert cache.get("k") is None
+    finally:
+        cache.close()
