@@ -15,14 +15,9 @@ from cwms.api import ApiError
 from cwms.locations.physical_locations import get_location
 
 from cwms_tools.core import catalog
-from cwms_tools.core.errors import (
-    CwmsToolsError,
-    ErrorCode,
-    ErrorDetails,
-    retry_after_ms_from_response,
-    upstream_error_from_status,
-)
+from cwms_tools.core.errors import ErrorCode, ErrorDetails
 from cwms_tools.core.offices import NW_STUBS, ghost_office_error
+from cwms_tools.core.upstream import from_api_error, from_transport_error
 
 # NW Division district stubs — publish no data in CDA. Documented in
 # cwms-overview.md §6.1. Mirror the short-circuit from `core.catalog` so
@@ -66,23 +61,13 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
     try:
         data = get_location(location_id=name, office_id=office_id)
     except ApiError as exc:
-        response = getattr(exc, "response", None)
-        status = getattr(response, "status_code", None)
-        err = upstream_error_from_status(
-            status,
-            endpoint=endpoint,
-            message=f"Location {office_id}/{name} unavailable upstream: {exc}",
-            retry_after_ms=retry_after_ms_from_response(response),
-        )
+        err = from_api_error(exc, endpoint=endpoint, operation=f"Location {office_id}/{name}")
         if err.envelope.code is ErrorCode.NOT_FOUND:
             err.envelope.details = ErrorDetails(field="name", value=name)
         raise err from exc
-    except Exception as exc:  # pragma: no cover - defensive for non-ApiError surprises
-        raise CwmsToolsError.of(
-            ErrorCode.UPSTREAM_ERROR,
-            f"Location {office_id}/{name} upstream call failed: {exc}",
-            endpoints_called=[endpoint],
-            temporary=True,
+    except Exception as exc:  # defensive for non-ApiError surprises (transport errors)
+        raise from_transport_error(
+            exc, endpoint=endpoint, operation=f"Location {office_id}/{name}"
         ) from exc
     payload = data.json if hasattr(data, "json") else data
     cache.set(key, payload, ttl=cache.ttl_for("location_catalog"))

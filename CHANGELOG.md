@@ -61,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Error messages from failed location, project, and location-level lookups no
+  longer include the upstream exception text, which carried the full request
+  URL and response body (#136). They now name the operation, the endpoint or
+  place, and the HTTP status (or the exception class for a transport
+  failure), matching the catalog and timeseries paths. Error codes and
+  `temporary` flags are unchanged.
 - Upstream failures that used to escape the structured error envelope now
   return `{ok: false, error: {...}}` with `code: upstream_error` (#131). A CDA
   500 on a value, history, or profile fetch, a dropped connection or timeout,
