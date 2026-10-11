@@ -11,14 +11,18 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from collections import OrderedDict
 from contextlib import suppress
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import diskcache
 from platformdirs import user_cache_dir
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Bump this when the cached payload schema changes in a backwards-incompatible way.
 # v2: ts catalog now requires include_extents=True; enrich_locations dedupes by name.
@@ -83,22 +87,39 @@ def build_cache_key(
 
 
 class _LRU:
-    """Tiny in-process LRU used as the L1 tier."""
+    """Tiny in-process LRU used as the L1 tier.
 
-    def __init__(self, max_entries: int = _L1_MAX_ENTRIES) -> None:
+    Each entry carries an absolute expiry on the same wall clock diskcache uses
+    (`None` = never expires), so a long-running process honors namespace TTLs
+    without waiting for a restart or an LRU eviction.
+    """
+
+    def __init__(
+        self,
+        max_entries: int = _L1_MAX_ENTRIES,
+        *,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
         self._max = max_entries
-        self._data: OrderedDict[str, Any] = OrderedDict()
+        self._clock = clock
+        self._data: OrderedDict[str, tuple[Any, float | None]] = OrderedDict()
 
     def get(self, key: str) -> Any | None:
-        if key not in self._data:
+        entry = self._data.get(key)
+        if entry is None:
+            return None
+        value, expire_time = entry
+        # Same boundary as diskcache: an entry is live only while expire_time > now.
+        if expire_time is not None and expire_time <= self._clock():
+            self._data.pop(key, None)
             return None
         self._data.move_to_end(key)
-        return self._data[key]
+        return value
 
-    def set(self, key: str, value: Any) -> None:
+    def set(self, key: str, value: Any, *, expire_time: float | None) -> None:
         if key in self._data:
             self._data.move_to_end(key)
-        self._data[key] = value
+        self._data[key] = (value, expire_time)
         while len(self._data) > self._max:
             self._data.popitem(last=False)
 
@@ -112,10 +133,18 @@ class _LRU:
 class Cache:
     """Two-tier cache façade. Pass-through `use_cache=False` honored at call sites."""
 
-    def __init__(self, directory: Path | None = None) -> None:
+    def __init__(
+        self,
+        directory: Path | None = None,
+        *,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
         self._dir = directory if directory is not None else resolve_cache_dir()
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._l1 = _LRU()
+        # `clock` must read the wall clock diskcache stamps expiries with; it is
+        # injectable so tests can expire L1 entries without sleeping.
+        self._clock = clock
+        self._l1 = _LRU(clock=clock)
         self._l2 = diskcache.Cache(str(self._dir))
 
     @property
@@ -129,13 +158,15 @@ class Cache:
         hit = self._l1.get(key)
         if hit is not None:
             return hit
-        value = self._l2.get(key, default=None)
+        # Refill L1 with L2's absolute expiry, not a fresh TTL.
+        value, expire_time = self._l2.get(key, default=None, expire_time=True)
         if value is not None:
-            self._l1.set(key, value)
+            self._l1.set(key, value, expire_time=expire_time)
         return value
 
     def set(self, key: str, value: Any, *, ttl: int | None) -> None:
-        self._l1.set(key, value)
+        expire_time = None if ttl is None else self._clock() + ttl
+        self._l1.set(key, value, expire_time=expire_time)
         self._l2.set(key, value, expire=ttl)
 
     def delete(self, key: str) -> None:
