@@ -14,6 +14,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from cwms_tools.core import catalog, concurrency, publishers
+from cwms_tools.core import offices as offices_mod
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, RepairHint
 from cwms_tools.core.session import current_config
@@ -29,58 +30,13 @@ def _budget() -> int:
 
 
 def _cached_offices() -> set[str]:
-    """Best-effort: which office IDs already have ts_catalog cache entries.
+    """Offices whose unfiltered ts_catalog is already on disk.
 
-    diskcache exposes iteration over keys; we filter to our ts_catalog
-    namespace prefix. The lookup is O(cache size), bounded by our own keyspace.
+    diskcache keys are hashed, so we cannot enumerate them; probe the curated
+    candidate set (`offices_mod.discovery_office_candidates()`) instead. Only
+    offices that are *actually* cached come back — nothing is fetched here.
     """
-    cache = get_cache()
-    cfg = current_config()
-    offices: set[str] = set()
-    try:
-        for raw_key in cache._l2.iterkeys():
-            if not isinstance(raw_key, str) or not raw_key.startswith("ts_catalog:"):
-                continue
-            # We can't easily reverse the SHA-256 hash to the office id, so
-            # instead match against a precomputed key for every known office.
-            # For now, return all NW + likely-active offices as the candidate
-            # set; the actual cache hits are validated in `_office_has_cache`.
-            offices.update(_KNOWN_LIKELY_OFFICES)
-            break
-    except Exception:  # pragma: no cover - diskcache iter failure is non-fatal
-        pass
-    cached: set[str] = set()
-    for office in offices:
-        key = build_cache_key("ts_catalog", office, "", api_root=cfg.api_root)
-        if cache.get(key) is not None:
-            cached.add(office)
-    return cached
-
-
-#: Heuristic candidate set for the "implicit all-offices" lookup. We never
-#: fetch any of these eagerly — they are *only* sampled when the caller does
-#: not name an office. cwms-overview.md §6.1 office list.
-_KNOWN_LIKELY_OFFICES = (
-    "NWDM",
-    "NWDP",
-    "MVS",
-    "MVK",
-    "MVM",
-    "MVN",
-    "MVP",
-    "MVR",
-    "SWT",
-    "SWL",
-    "SWG",
-    "SWF",
-    "LRB",
-    "LRC",
-    "LRE",
-    "LRH",
-    "LRL",
-    "LRN",
-    "LRP",
-)
+    return {o for o in offices_mod.discovery_office_candidates() if _office_has_cache(o)}
 
 
 def publishers_for_parameter(

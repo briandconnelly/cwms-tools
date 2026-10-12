@@ -84,31 +84,37 @@ def ghost_office_repair(office_id: str, *, tool: str, args: dict[str, Any]) -> R
     )
 
 
-# Documented degraded fallback. Used only when the upstream offices fetch
-# fails — never as the default scope for fanout. Mirrors the candidate set
-# in `core/publishers_index.py` so the fallback names a realistic, mostly
-# data-bearing slice rather than the full theoretical office surface.
-_FALLBACK_OFFICES: tuple[str, ...] = (
+#: Curated data-bearing offices in *priority order*: the regional rollups
+#: first, then district-publishing offices roughly by how many published
+#: projects they carried in the 2026-10-11 survey (cwms-overview.md §8:
+#: NWDM 109, NWDP 95, SWT 49, LRN 28, MVR 25, MVS 15), then the remaining
+#: MVD/SWD/LRD districts. This is a curated priority, not a measurement of
+#: richness. It is the fan-out order of the name-first repair chain (#161),
+#: the implicit candidate set `publishers_for_parameter` probes for cached
+#: offices (#164), and the degraded office-directory fallback. One copy:
+#: `publishers_index` used to carry a duplicate.
+DISCOVERY_OFFICE_PRIORITY: tuple[str, ...] = (
     "NWDM",
     "NWDP",
+    "SWT",
     "MVS",
+    "LRN",
+    "MVR",
+    "MVP",
     "MVK",
     "MVM",
     "MVN",
-    "MVP",
-    "MVR",
-    "SWT",
     "SWL",
     "SWG",
     "SWF",
+    "LRL",
+    "LRH",
+    "LRP",
     "LRB",
     "LRC",
     "LRE",
-    "LRH",
-    "LRL",
-    "LRN",
-    "LRP",
 )
+_FALLBACK_OFFICES: tuple[str, ...] = DISCOVERY_OFFICE_PRIORITY
 
 # CDA `/offices` `type` codes → human label. Unknown codes pass through as
 # themselves (see `_type_label`) so a new upstream code degrades gracefully
@@ -208,9 +214,11 @@ def discovery_office_candidates() -> list[str]:
     the same heuristic slice `cached_offices_for_locations` probes — regional
     rollups (NWDM/NWDP) plus the district-publishing offices — so the agent
     gets a realistic, mostly data-bearing starting set rather than the full
-    ~68-office surface.
+    ~68-office surface. Returned in curated priority order (see
+    `DISCOVERY_OFFICE_PRIORITY`); the fan-out budget takes the first N on a
+    cold start.
     """
-    return sorted(_FALLBACK_OFFICES)
+    return list(DISCOVERY_OFFICE_PRIORITY)
 
 
 def _fallback_records() -> list[dict[str, Any]]:
@@ -257,6 +265,7 @@ def _parse_office_records(raw: Any) -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "DISCOVERY_OFFICE_PRIORITY",
     "NW_ROLLUP_TARGETS",
     "NW_STUBS",
     "cached_offices_for_locations",
