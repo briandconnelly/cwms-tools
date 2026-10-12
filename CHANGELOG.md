@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-12
+
 ### Added
 
 - `cwms://capabilities` carries `issues_url`, where a defect in cwms-tools
@@ -31,7 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a kind keep working. `PROJECT` follows the catalog's classification,
   not `/projects`. The new tool parameter changes the capability
   fingerprint (#133).
-
 - `cwms_describe_place` / `place describe` take an opt-in `include_locks` /
   `--include-locks` (#134). For a PROJECT location it lists the project's
   navigation locks; for a LOCK location it reads that lock. Each lock carries
@@ -69,7 +70,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A CDA response with an unparseable JSON body now surfaces as an
   `upstream_error` envelope instead of failing later. The capability
   fingerprint changes because it includes the cwms-python version.
-
 - Require FastMCP 4.0.11 or newer (still below 4.1), up from 4.0.3. FastMCP
   4.0.4–4.0.11 include security fixes, among them Host/Origin protection on
   the SSE transport and bounded schema handling in the client. The verified
@@ -104,7 +104,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   degrades as before: a failed levels listing is still
   `level_lookup_status: unavailable`, and a level whose value cannot be read
   is still left out of the classification.
-
 - A location or project lookup that comes back with an empty body is now
   reported instead of passed off as a record (#137). cwms-python 1.1.2+ turns
   an empty 200/204 body into `{}`. A location lookup then fails with a
@@ -973,7 +972,8 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   ~68 offices) in v0.1.0; `cwms_publishers_for_parameter` answers
   from cached + bounded-fetch offices only.
 
-[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.4.0...v0.5.0
