@@ -15,6 +15,7 @@ front of both. Live CDA hits go through `core.session` for the User-Agent
 from __future__ import annotations
 
 import difflib
+import math
 import re
 from typing import Any
 from urllib.parse import quote
@@ -24,7 +25,7 @@ import cwms.catalog.catalog as catalog_api
 from cwms_tools.core import publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint, RepairIntent
-from cwms_tools.core.geo import GeoPoint, co_located
+from cwms_tools.core.geo import GeoPoint, co_located_index
 from cwms_tools.core.offices import NW_STUBS, ghost_office_error
 from cwms_tools.core.session import current_config
 from cwms_tools.core.upstream import empty_collection_error, upstream_call
@@ -336,7 +337,9 @@ def enrich_locations(
         return []
 
     geopoints: list[GeoPoint] = [g for g in (_to_geopoint(r) for r in rows) if g is not None]
-    geopoint_index = {(g.office_id, g.name): g for g in geopoints}
+    # One-pass sibling index (#169): the pairwise form was O(N²) and took
+    # 160 s on NWDM's 10 k rows even with the catalog on disk.
+    siblings_by_key = co_located_index(geopoints)
 
     # Scope the ts-catalog query to the matched names when a name filter
     # is in play. Without a filter the ts catalog is too large to fetch
@@ -365,10 +368,7 @@ def enrich_locations(
         loc_ts = by_location.get(name, [])
         params = publishers.parameter_counts(loc_ts)
         pubs = [f.publisher for f in publishers.aggregate_publishers(loc_ts)]
-        target_gp = geopoint_index.get((office_id, name))
-        siblings = (
-            [g.name for g in co_located(target_gp, geopoints)] if target_gp is not None else []
-        )
+        siblings = [g.name for g in siblings_by_key.get((office_id, name), [])]
         entry: dict[str, Any] = {
             "office_id": office_id,
             "name": name,
@@ -454,6 +454,8 @@ def _to_geopoint(row: dict[str, Any]) -> GeoPoint | None:
         or not isinstance(lat, (int, float))
         or not isinstance(lon, (int, float))
     ):
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon)):
         return None
     return GeoPoint(office_id=office, name=name, latitude=float(lat), longitude=float(lon))
 

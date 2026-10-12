@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import math
+import random
+
+import pytest
 
 from cwms_tools.core import geo
 
@@ -55,3 +58,121 @@ def test_co_located_radius_is_configurable() -> None:
     assert [c.name for c in siblings] == ["C"]
     siblings = geo.co_located(target, [a_far, near], radius_m=2000.0)
     assert {c.name for c in siblings} == {"B", "C"}
+
+
+def _brute(points, radius_m):
+    return {(p.office_id, p.name): geo.co_located(p, points, radius_m=radius_m) for p in points}
+
+
+def test_co_located_index_matches_brute_force_on_random_cluster() -> None:
+    rng = random.Random(1234)
+    pts = [
+        geo.GeoPoint(
+            "X", f"P{i}", 48.0 + rng.uniform(-0.003, 0.003), -100.0 + rng.uniform(-0.005, 0.005)
+        )
+        for i in range(300)
+    ]
+    assert geo.co_located_index(pts, radius_m=100.0) == _brute(pts, 100.0)
+
+
+def test_co_located_index_catches_pair_that_straddles_degree_grid_cells() -> None:
+    """Codex counterexample for a 0.001-degree grid: 89 m apart at 48 N but two
+    longitude cells apart. The ECEF hash must still pair them."""
+    a = geo.GeoPoint("X", "A", 48.0, -100.0001)
+    b = geo.GeoPoint("X", "B", 48.0, -99.9989)
+    assert geo.haversine_m(a.latitude, a.longitude, b.latitude, b.longitude) < 100.0
+    idx = geo.co_located_index([a, b], radius_m=100.0)
+    assert [p.name for p in idx[("X", "A")]] == ["B"]
+    assert [p.name for p in idx[("X", "B")]] == ["A"]
+
+
+@pytest.mark.parametrize(
+    ("lat", "lon"),
+    [(0.0, 0.0), (0.0, 179.9999), (0.0, -179.9999), (89.9, 10.0), (-89.9, -10.0)],
+)
+def test_co_located_index_matches_brute_force_at_antimeridian_and_poles(lat, lon) -> None:
+    pts = [
+        geo.GeoPoint("X", "A", lat, lon),
+        geo.GeoPoint("X", "B", lat + 0.0005, lon),
+        geo.GeoPoint("X", "C", lat, lon - 0.0004 if lon > 0 else lon + 0.0004),
+        geo.GeoPoint("X", "D", lat - 0.05, lon),
+    ]
+    assert geo.co_located_index(pts, radius_m=100.0) == _brute(pts, 100.0)
+
+
+def test_co_located_index_preserves_input_order_and_excludes_self() -> None:
+    pts = [
+        geo.GeoPoint("NWDM", "BECR", 39.6331, -105.2931),
+        geo.GeoPoint("NWO", "BECR", 39.633, -105.293),
+        geo.GeoPoint("NWD", "BECR", 39.6332, -105.2932),
+        geo.GeoPoint("SWT", "FOSS", 35.55, -98.97),
+    ]
+    idx = geo.co_located_index(pts)
+    assert [p.office_id for p in idx[("NWO", "BECR")]] == ["NWDM", "NWD"]
+    assert idx[("SWT", "FOSS")] == []
+
+
+def test_co_located_index_handles_empty_and_singleton() -> None:
+    """Review focus #2: the index must accept an empty list and a single point
+    without error (callers drop rows lacking coordinates before building points)."""
+    assert geo.co_located_index([]) == {}
+    only = geo.GeoPoint("X", "A", 1.0, 1.0)
+    assert geo.co_located_index([only]) == {("X", "A"): []}
+
+
+def test_co_located_index_identical_coordinates_across_offices() -> None:
+    a = geo.GeoPoint("NWO", "BECR", 39.633, -105.293)
+    b = geo.GeoPoint("NWDM", "BECR", 39.633, -105.293)
+    far = geo.GeoPoint("SWT", "FOSS", 35.55, -98.97)
+    pts = [a, b, far]
+    idx = geo.co_located_index(pts)
+    assert idx[("NWO", "BECR")] == [b]
+    assert idx[("NWDM", "BECR")] == [a]
+    assert idx[("SWT", "FOSS")] == []
+    for p in pts:
+        assert idx[(p.office_id, p.name)] == geo.co_located(p, pts)
+
+
+def test_co_located_index_pairs_points_straddling_the_antimeridian() -> None:
+    a = geo.GeoPoint("X", "A", 10.0, 179.9997)
+    b = geo.GeoPoint("X", "B", 10.0, -179.9997)
+    assert geo.haversine_m(a.latitude, a.longitude, b.latitude, b.longitude) < 100.0
+    pts = [a, b]
+    idx = geo.co_located_index(pts, radius_m=100.0)
+    assert idx[("X", "A")] == [b]
+    assert idx[("X", "B")] == [a]
+    assert idx == _brute(pts, 100.0)
+
+
+def test_co_located_index_zero_radius_matches_brute_force() -> None:
+    pts = [
+        geo.GeoPoint("X", "A", 39.633, -105.293),
+        geo.GeoPoint("Y", "A", 39.633, -105.293),
+        geo.GeoPoint("X", "Z", 35.55, -98.97),
+    ]
+    idx = geo.co_located_index(pts, radius_m=0.0)
+    assert idx == _brute(pts, 0.0)
+    assert idx[("X", "A")] == [pts[1]]
+
+
+def test_co_located_index_nan_radius_matches_pairwise() -> None:
+    # 10 m apart; NaN compares false everywhere, so nothing is a sibling.
+    pts = [
+        geo.GeoPoint("X", "A", 39.633, -105.293),
+        geo.GeoPoint("X", "B", 39.633, -105.293 + 0.000117),
+    ]
+    idx = geo.co_located_index(pts, radius_m=float("nan"))
+    assert idx == _brute(pts, float("nan"))
+    assert all(v == [] for v in idx.values())
+    assert set(idx) == {("X", "A"), ("X", "B")}
+
+
+def test_co_located_index_infinite_radius_matches_pairwise() -> None:
+    pts = [
+        geo.GeoPoint("X", "A", 39.633, -105.293),
+        geo.GeoPoint("X", "B", 39.633, -105.293 + 0.000117),
+        geo.GeoPoint("Y", "C", -33.0, 151.0),
+    ]
+    idx = geo.co_located_index(pts, radius_m=float("inf"))
+    assert idx == _brute(pts, float("inf"))
+    assert idx[("X", "A")] == [pts[1], pts[2]]

@@ -759,3 +759,50 @@ def test_data_bearing_siblings_filters_by_parameter(configured, mocked) -> None:
         "GWLW_S1-D3,0ft"
     ]
     assert catalog.data_bearing_siblings("NWDP", "NOPE") == []
+
+
+def test_enrich_locations_builds_co_location_in_one_pass(configured, mocked, monkeypatch) -> None:
+    """#169: enrichment must not call the pairwise `co_located` per row."""
+    from cwms_tools.core import geo
+
+    rows = [
+        {"office-id": "SWT", "name": f"S{i}", "latitude": 35.0 + i * 0.0001, "longitude": -98.0}
+        for i in range(50)
+    ]
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": rows}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    calls = {"pairwise": 0}
+    real = geo.co_located
+
+    def counting(*a, **k):
+        calls["pairwise"] += 1
+        return real(*a, **k)
+
+    monkeypatch.setattr(catalog, "co_located", counting, raising=False)
+    monkeypatch.setattr(geo, "co_located", counting)
+    enriched = catalog.enrich_locations("SWT")
+    assert calls["pairwise"] == 0
+    # ~11 m spacing: every row is within 100 m of its 9 nearest neighbours.
+    assert "S1" in next(r for r in enriched if r["name"] == "S0")["co_located"]
+
+
+def test_enrich_locations_row_without_coordinates_is_never_a_sibling(configured, mocked) -> None:
+    rows = [
+        {"office-id": "SWT", "name": "A1", "latitude": 35.0, "longitude": -98.0},
+        {"office-id": "SWT", "name": "A2", "latitude": 35.0, "longitude": -98.0},
+        {"office-id": "SWT", "name": "NOLAT", "latitude": None, "longitude": -98.0},
+    ]
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": rows}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    by_name = {r["name"]: r for r in catalog.enrich_locations("SWT")}
+    assert by_name["NOLAT"]["co_located"] == []
+    assert by_name["A1"]["co_located"] == ["A2"]
+    assert by_name["A2"]["co_located"] == ["A1"]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_to_geopoint_rejects_non_finite_coordinates(bad) -> None:
+    base = {"office-id": "SWT", "name": "A", "latitude": 35.0, "longitude": -98.0}
+    assert catalog._to_geopoint(base) is not None
+    assert catalog._to_geopoint({**base, "latitude": bad}) is None
+    assert catalog._to_geopoint({**base, "longitude": bad}) is None
