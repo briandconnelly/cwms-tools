@@ -140,23 +140,102 @@ def test_classify_returns_unknown_for_no_observation() -> None:
     assert status == "unknown"
 
 
-def test_classify_below_all_thresholds_is_nominal() -> None:
-    thresholds = [
-        {"specified_level_id": "Flood Stage", "value": 1700.0, "unit": "ft"},
-        {"specified_level_id": "Action Stage", "value": 1680.0, "unit": "ft"},
-    ]
-    status, annotated = levels.classify(1650.0, thresholds)
+def _t(name: str, value: float) -> dict:
+    return {"specified_level_id": name, "value": value, "unit": "ft"}
+
+
+FOSS_FT = [  # SWT/FOSS Elev vocabulary observed live 2026-10-12 (metres -> ft, approx.)
+    _t("Streambed", 1563.0),
+    _t("Top of Inactive", 1597.2),
+    _t("Bottom of Conservation", 1597.2),
+    _t("Bottom of Normal", 1597.2),
+    _t("Top of Conservation", 1642.0),
+    _t("Top of Normal", 1642.0),
+    _t("Pool of Record", 1648.2),
+    _t("24-hr Surveillance Begins", 1655.0),
+    _t("Top of Flood", 1662.2),
+    _t("Spillway Crest", 1668.6),
+    _t("Maximum Pool", 1694.2),
+    _t("Top of Dam", 1697.0),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "zone"),
+    [
+        ("Top of Flood", "flood"),
+        ("Flood Stage", "flood"),
+        ("Bottom of Flood", "watch"),
+        ("Action Stage", "action"),
+        ("24-hr Surveillance Begins", "action"),
+        ("Watch Stage", "watch"),
+        ("Top of Conservation", "watch"),
+        ("Rule Curve", "watch"),
+        ("Top of Normal", "watch"),
+        ("Top of Multipurpose", "watch"),
+        ("Top of Inactive", "nominal"),
+        ("Bottom of Conservation", "nominal"),
+        ("Streambed", "nominal"),
+        ("Dead Pool", "nominal"),
+        ("Minimum Pool", "nominal"),
+        ("Pool of Record", None),
+        ("Spillway Crest", None),
+        ("Top of Dam", None),
+    ],
+)
+def test_level_zone_vocabulary(name, zone) -> None:
+    assert levels.level_zone(name) == zone
+
+
+def test_classify_inside_conservation_zone_is_nominal() -> None:
+    """The reviewer's Foss case: 4.4 ft below Top of Conservation read 'watch'."""
+    status, annotated = levels.classify(1637.6, FOSS_FT)
     assert status == "nominal"
-    # Each annotated threshold has the relation field.
+    crossed = [t["specified_level_id"] for t in annotated if t["relation"] != "below"]
+    assert set(crossed) == {
+        "Streambed",
+        "Top of Inactive",
+        "Bottom of Conservation",
+        "Bottom of Normal",
+    }
+    assert all(t["zone"] == "nominal" for t in annotated if t["relation"] != "below")
+
+
+def test_classify_in_flood_pool_is_watch_then_action_then_flood() -> None:
+    assert levels.classify(1645.0, FOSS_FT)[0] == "watch"  # above Top of Conservation
+    assert levels.classify(1656.0, FOSS_FT)[0] == "action"  # above 24-hr Surveillance Begins
+    assert levels.classify(1663.0, FOSS_FT)[0] == "flood"  # above Top of Flood
+
+
+def test_classify_unrecognized_level_cannot_downgrade_a_recognized_crossing() -> None:
+    """Codex counterexample: Flood Stage=10, unknown=20, observation 25 must be flood."""
+    status, _ = levels.classify(25.0, [_t("Flood Stage", 10.0), _t("Mystery", 20.0)])
+    assert status == "flood"
+
+
+def test_classify_only_unrecognized_crossed_is_unknown() -> None:
+    assert levels.classify(25.0, [_t("Mystery", 20.0), _t("Flood Stage", 30.0)])[0] == "unknown"
+
+
+def test_classify_no_thresholds_is_unknown_not_nominal() -> None:
+    assert levels.classify(5.0, [])[0] == "unknown"
+
+
+def test_classify_below_everything_is_nominal() -> None:
+    status, annotated = levels.classify(1500.0, FOSS_FT)
+    assert status == "nominal"
     assert all(t["relation"] == "below" for t in annotated)
 
 
-def test_classify_above_action_stage_is_action() -> None:
-    thresholds = [
-        {"specified_level_id": "Action Stage", "value": 1680.0, "unit": "ft"},
-    ]
-    status, _ = levels.classify(1690.0, thresholds)
-    assert status == "action"
+def test_classify_equal_valued_levels_is_deterministic() -> None:
+    """Top of Conservation == Top of Normal; ordering and class must not depend
+    on listing order."""
+    a = [_t("Top of Normal", 1642.0), _t("Top of Conservation", 1642.0)]
+    b = list(reversed(a))
+    sa, la = levels.classify(1642.0, a)
+    sb, lb = levels.classify(1642.0, b)
+    assert sa == sb == "watch"
+    assert [t["specified_level_id"] for t in la] == [t["specified_level_id"] for t in lb]
 
 
 AT = datetime(2026, 10, 12, 14, tzinfo=UTC)

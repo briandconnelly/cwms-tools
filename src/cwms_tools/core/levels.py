@@ -212,15 +212,57 @@ def fetch_level_value(
     }
 
 
+# Vocabulary -> zone. Order matters: a "Bottom of Flood" is the conservation
+# ceiling (watch), not a floor; floors are checked before "flood" so "Bottom
+# of Flood Control" never reads as a flood crossing. Everything else is an
+# unrecognized name (zone None) -- it never downgrades a recognized crossing.
+_CEILING_TERMS = (
+    "top of conservation",
+    "top of constant conservation",
+    "top of multipurpose",
+    "top of normal",
+    "top of joint",
+    "rule curve",
+    "guide curve",
+    "bottom of flood",
+)
+_FLOOR_TERMS = ("inactive", "bottom", "streambed", "dead", "invert", "minimum")
+_FLOOD_TERMS = ("flood",)
+_ACTION_TERMS = ("action", "warning", "surveillance")
+_WATCH_TERMS = ("watch", "monitor")
+_SEVERITY = {"nominal": 0, "watch": 1, "action": 2, "flood": 3}
+
+
+def level_zone(specified_level_id: str) -> str | None:
+    """The zone a crossed level implies, from its name; None when unrecognized."""
+    name = specified_level_id.casefold()
+    if any(term in name for term in _CEILING_TERMS):
+        return "watch"
+    if any(term in name for term in _FLOOR_TERMS):
+        return "nominal"
+    if any(term in name for term in _FLOOD_TERMS):
+        return "flood"
+    if any(term in name for term in _ACTION_TERMS):
+        return "action"
+    if any(term in name for term in _WATCH_TERMS):
+        return "watch"
+    return None
+
+
 def classify(
     observation: float | None,
     thresholds: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Classify an observation against the active thresholds.
+    """Classify an observation against the active thresholds (#162).
 
-    Returns `(status_class, sorted_thresholds)`. `status_class` is one of
-    `nominal | watch | action | flood | unknown`, derived from the highest
-    threshold the observation has crossed.
+    Returns `(status_class, annotated_thresholds)`. Each threshold is annotated
+    with `relation` (above/at/below), `delta`, and `zone` (`level_zone`).
+    `status_class` is the most severe zone among crossed (at/above) recognized
+    levels -- flood > action > watch > nominal -- so a crossed floor or an
+    unrecognized level can never mask a crossed flood stage. `unknown` when
+    there is no observation, no thresholds, or only unrecognized levels were
+    crossed; `nominal` when thresholds exist and none is crossed. Annotated
+    thresholds are sorted by value descending, then name, for determinism.
     """
     if observation is None:
         return "unknown", thresholds
@@ -229,32 +271,25 @@ def classify(
         value = t.get("value")
         if not isinstance(value, (int, float)):
             continue
-        if observation > value:
-            relation = "above"
-        elif observation < value:
-            relation = "below"
-        else:
-            relation = "at"
+        relation = "above" if observation > value else "below" if observation < value else "at"
         annotated.append(
             {
                 **t,
                 "relation": relation,
                 "delta": observation - value,
+                "zone": level_zone(str(t.get("specified_level_id", ""))),
             }
         )
-    above = [t for t in annotated if t["relation"] in {"above", "at"}]
-    annotated.sort(key=lambda t: -t["value"])
-    if not above:
+    annotated.sort(key=lambda t: (-t["value"], str(t.get("specified_level_id", ""))))
+    if not annotated:
+        return "unknown", annotated
+    crossed = [t for t in annotated if t["relation"] in {"above", "at"}]
+    if not crossed:
         return "nominal", annotated
-    highest = max((t["specified_level_id"] for t in above), key=str.casefold, default="")
-    name = highest.lower()
-    if "flood" in name:
-        return "flood", annotated
-    if "action" in name or "warning" in name:
-        return "action", annotated
-    if "watch" in name or "monitor" in name:
-        return "watch", annotated
-    return "watch", annotated
+    recognized = [t["zone"] for t in crossed if t["zone"] is not None]
+    if not recognized:
+        return "unknown", annotated
+    return max(recognized, key=lambda z: _SEVERITY[z]), annotated
 
 
 # --------------------------------------------------------------------------
@@ -399,6 +434,7 @@ __all__ = [
     "applicable_revisions",
     "classify",
     "fetch_level_value",
+    "level_zone",
     "list_levels",
     "resolve_applicable_level",
 ]
