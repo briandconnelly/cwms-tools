@@ -348,6 +348,13 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     publishers: list[PublisherFingerprint]
     ts_ids: list[str]
     last_data_timestamp: str | None = None
+    data_at: list[str] | None = Field(
+        default=None,
+        description=(
+            "Only when parameter_count is 0: co-located records (within ~100 m) that "
+            "publish data; describe or read one of these instead. Omitted otherwise."
+        ),
+    )
     lock_lookup_status: Literal["ok", "partial", "failed", "not_applicable"] | None = Field(
         default=None,
         description=(

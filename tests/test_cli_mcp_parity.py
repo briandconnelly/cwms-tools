@@ -114,6 +114,7 @@ SEARCH = {
 DESCRIBE = {
     "model": M.DescribePlaceResponse,
     "fields": {
+        "data_at": None,
         "office_id": "SWT",
         "name": "FOSS",
         "location": {
@@ -529,3 +530,19 @@ def test_publishers_cold_cache_repair_parity_real_producer(detail: str, configur
     assert cli_data == mcp_data
     assert cli_data["coverage"]["complete"] is False
     assert cli_data["repair"]["next_step"] == "index_curated_offices"
+
+
+@pytest.mark.parametrize("detail", ["summary", "full"])
+def test_describe_place_data_at_parity(configured, monkeypatch, detail) -> None:
+    raw = {
+        **_producer_payload(DESCRIBE),
+        "parameters": [],
+        "parameter_count": 0,
+        "publishers": [],
+        "ts_ids": [],
+        "data_at": ["GARR"],
+    }
+    monkeypatch.setattr(places, "describe_place", lambda *a, **k: copy.deepcopy(raw))
+    cli_data = _cli_data(DESCRIBE, ["place", "describe", "SWT/FOSS", "--detail", detail])
+    mcp_data = _mcp_data("cwms_describe_place", {"office": "SWT", "name": "FOSS", "detail": detail})
+    assert cli_data == mcp_data and cli_data["data_at"] == ["GARR"]

@@ -696,7 +696,13 @@ def describe_place(
     fails the describe. Without it, none of those keys are present.
     """
     office = offices.require_known_office(office)
-    location = locations.get_one(office, name, use_cache=use_cache)
+    try:
+        location = locations.get_one(office, name, use_cache=use_cache)
+    except CwmsToolsError as err:
+        details = err.envelope.details
+        if err.envelope.code is ErrorCode.NOT_FOUND and details and details.field == "name":
+            raise catalog.location_not_found_error(office, name, use_cache=use_cache) from err
+        raise
     project_resp = projects.get_one(office, name, use_cache=use_cache)
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
     param_counts = publishers.parameter_counts(ts_ids)
@@ -724,6 +730,9 @@ def describe_place(
         ],
         "ts_ids": ts_ids,
         "last_data_timestamp": freshness,
+        "data_at": catalog.data_bearing_siblings(office, name, use_cache=use_cache)
+        if not ts_ids
+        else None,
         "source_workaround": project_resp.get("source_workaround"),
         "upstream_status": project_resp.get("upstream_status"),
     }
@@ -752,6 +761,8 @@ def list_parameters(
     """
     office = offices.require_known_office(office)
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
+    if not ts_ids and catalog.location_catalog_row(office, name, use_cache=use_cache) is None:
+        raise catalog.location_not_found_error(office, name, use_cache=use_cache)
     pub_facts = publishers.aggregate_publishers(ts_ids)
     freshness = catalog.freshness_for_location(office, name, use_cache=use_cache)
     return {

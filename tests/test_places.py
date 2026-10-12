@@ -1619,3 +1619,68 @@ def test_search_places_all_invalid_explicit_offices_raise(
     assert env.code is ErrorCode.INVALID_FIELD
     assert env.details is not None and env.details.field == "office_id"
     assert env.repair is not None and env.repair.tool == "cwms_list_offices"
+
+
+def test_list_parameters_missing_name_is_not_found_with_suggestion(configured, mocked) -> None:
+    _arm_all(mocked)
+    mocked.replace(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.list_parameters("SWT", "Foss")
+    assert ex.value.envelope.code is ErrorCode.NOT_FOUND
+    assert ex.value.envelope.details is not None
+    assert ex.value.envelope.details.field == "name"
+    assert ex.value.repair_intent is not None
+    assert ex.value.repair_intent.overrides == {"name": "FOSS"}
+
+
+def test_describe_place_404_name_carries_suggestion(configured, mocked) -> None:
+    _arm_all(mocked)
+    mocked.add(responses.GET, f"{API_ROOT}locations/Foss", json={"detail": "nope"}, status=404)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.describe_place("SWT", "Foss")
+    assert ex.value.envelope.code is ErrorCode.NOT_FOUND
+    assert "did you mean 'FOSS'" in ex.value.envelope.message
+    assert ex.value.repair_intent is not None
+    assert ex.value.repair_intent.overrides == {"name": "FOSS"}
+
+
+def test_describe_place_ghost_carries_data_at(configured, mocked) -> None:
+    """#170: describe on a ghost names the co-located records that publish."""
+    locations = {
+        "locations": [
+            {
+                "office-id": "NWDM",
+                "name": "GARR-Garrison_Dam",
+                "latitude": 47.5,
+                "longitude": -101.4,
+            },
+            {"office-id": "NWDM", "name": "GARR", "latitude": 47.5001, "longitude": -101.4},
+        ]
+    }
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=locations, status=200)
+    mocked.add(
+        responses.GET,
+        re.compile(rf"{re.escape(API_ROOT)}catalog/TIMESERIES\?.*[?&]like=.*"),
+        json={"entries": []},
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        json={"entries": [{"name": "GARR.Elev.Inst.1Hour.0.Best-MRBWM"}]},
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/GARR-Garrison_Dam",
+        json={"office-id": "NWDM", "name": "GARR-Garrison_Dam"},
+        status=200,
+    )
+    mocked.add(
+        responses.GET, f"{API_ROOT}projects/GARR-Garrison_Dam", json={"detail": "no"}, status=404
+    )
+    payload = places.describe_place("NWDM", "GARR-Garrison_Dam")
+    assert payload["parameter_count"] == 0
+    assert payload["data_at"] == ["GARR"]
+    _arm_all(mocked)
+    assert places.describe_place("SWT", "FOSS")["data_at"] is None
