@@ -345,7 +345,11 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     last_data_timestamp: str | None = None
     lock_lookup_status: Literal["ok", "partial", "failed", "not_applicable"] | None = Field(
         default=None,
-        description="Only with include_locks; partial/failed also set partial.",
+        description=(
+            "Only with include_locks. `ok` with an empty `locks` means CDA listed no "
+            "locks for the project, not that none exist (CDA returns [] for some "
+            "lock-and-dam projects); partial/failed also set partial."
+        ),
     )
     locks: list[dict[str, Any]] | None = Field(
         default=None,

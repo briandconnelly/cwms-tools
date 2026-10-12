@@ -12,6 +12,7 @@ from cwms_tools.cli.render import (
     attach_ghost_office_spec_repair,
     emit,
     emit_error,
+    emit_model,
     rewrite_error_field,
 )
 from cwms_tools.core import shaping, values
@@ -257,7 +258,7 @@ def history(
             unit=unit.value,
             rollup=rollup.value,
         )
-        emit(surface_payload(HistoryResponse, shaping.shape_history_detail(payload, detail)))
+        emit_model(HistoryResponse, shaping.shape_history_detail(payload, detail))
     except CwmsToolsError as err:
         # No `--office` flag on this command — `id_spec` (the declared CLI
         # argument, per `cli/commands/schema.py`) is the retryable arg.
@@ -328,7 +329,7 @@ def profile(
         payload = values.get_profile(
             office, name, parameter, window=timedelta(hours=window_hours), unit=unit.value
         )
-        emit(surface_payload(ProfileResponse, shaping.shape_profile_detail(payload, detail)))
+        emit_model(ProfileResponse, shaping.shape_profile_detail(payload, detail))
     except CwmsToolsError as err:
         # No `--office` flag on this command — `id_spec` (this command's
         # actual positional argument, matching `history`'s) is the retryable

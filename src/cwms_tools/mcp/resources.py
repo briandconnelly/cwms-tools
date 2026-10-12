@@ -46,8 +46,9 @@ TOOL_INVENTORY: list[str] = [
 #: yet. Advertised separately so agents don't write dead branches. Moving a
 #: code from reserved to live is additive; it lands in a tool's
 #: TOOL_ERROR_CODES entry when wired.
-# wrapper_bug has no emission path: failures on the issue-286 seasonal-level bypass
+# wrapper_bug has no MCP emission path: failures on the issue-286 seasonal-level bypass
 # are classified as ordinary upstream failures (tagged `source.workaround`) (#153).
+# The CLI emits it when a producer payload fails its response model (#158).
 RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable", "wrapper_bug"]
 
 #: Per-tool error catalog. The codes each tool can return as `error.code`, so an
@@ -224,9 +225,10 @@ def capability_contract_payload() -> dict[str, Any]:
                 "separate resource-side vocabulary, and no `recoverable` flag."
             ),
             "code_lists": (
-                "error_codes lists codes emittable today; error_codes_reserved are "
-                "planned codes with no emission path yet; tool_error_codes maps each "
-                "tool to the subset it can return."
+                "error_codes lists codes an MCP tool can emit today; error_codes_reserved "
+                "are codes with no MCP emission path yet (the CLI may still emit one, e.g. "
+                "wrapper_bug for a response-model validation failure; see `cwms-tools "
+                "schema`); tool_error_codes maps each tool to the subset it can return."
             ),
         },
         "response_shape": (

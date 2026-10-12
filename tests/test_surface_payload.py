@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from cwms_tools.core import models as M
 from cwms_tools.core._compact import surface_payload
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 
 
 def test_drops_envelope_and_non_semantic_nulls_keeps_semantic_ones() -> None:
@@ -57,6 +58,17 @@ def test_model_without_source_field() -> None:
     assert out == {"value": 3.0, "unit": "ft"}
 
 
-def test_invalid_payload_raises_like_mcp() -> None:
-    with pytest.raises(ValidationError):
-        surface_payload(M.BrowseRegionResponse, {"office": "SWT", "results": [], "bogus": 1})
+def test_invalid_payload_raises_wrapper_bug_without_echoing_payload() -> None:
+    """A payload the model rejects is a cwms-tools bug: surface it as the
+    `wrapper_bug` envelope so the CLI boundary can emit it structured, and
+    keep the payload's own keys and values out of the message."""
+    with pytest.raises(CwmsToolsError) as info:
+        surface_payload(
+            M.BrowseRegionResponse, {"results": [], "bogus_secret_key": "bogus_secret_value"}
+        )
+    envelope = info.value.envelope
+    assert envelope.code is ErrorCode.WRAPPER_BUG
+    assert "BrowseRegionResponse" in envelope.message
+    assert "bogus_secret_key" not in envelope.message
+    assert "bogus_secret_value" not in envelope.message
+    assert isinstance(info.value.__cause__, ValidationError)

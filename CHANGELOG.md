@@ -32,8 +32,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not `/projects`. The new tool parameter changes the capability
   fingerprint (#133).
 
+- `cwms_describe_place` / `place describe` take an opt-in `include_locks` /
+  `--include-locks` (#134). For a PROJECT location it lists the project's
+  navigation locks; for a LOCK location it reads that lock. Each lock carries
+  chamber width, length, normal and maximum lift, volume per lockage, minimum
+  draft, and their units (e.g. SWT/WEBB: 110 × 600 ft, 30 ft lift, 9 ft
+  draft); `detail=full` adds the nested location and pool-level links. CDA's
+  -9999 m "unset" sentinel (it arrives converted, e.g. -32805 ft) is returned
+  as `null` and named in the lock's `invalid_fields`. `lock_lookup_status`
+  reports `ok`, `partial`, `failed`, or `not_applicable`; a failed lock call
+  marks the response `partial` (`lock_lookup_failed`) with
+  `lock_upstream_status` instead of failing the describe. One extra upstream
+  list call plus one call per lock for a PROJECT (one call for a LOCK),
+  and only when requested. The capability fingerprint changes.
+
 ### Changed
 
+- The `cwms_describe_place` `lock_lookup_status` field description now says
+  that `ok` with an empty `locks` list means CDA listed no locks for the
+  project, not that none exist (CDA returns `[]` for some lock-and-dam
+  projects, e.g. NWDP/BON). The output schema, and so the capability
+  fingerprint, changes (#158).
+- A CLI tool command whose producer payload fails its response model now
+  writes the structured `{ok: false, error: {code: "wrapper_bug", ...}}`
+  envelope to stderr and exits 11, instead of a Python traceback; `value get`
+  reports it per item in the batch envelope. The message names the model and
+  an error count, never the payload. `cwms-tools schema` lists `wrapper_bug`
+  for every tool command, which changes the CLI contract and the capability
+  fingerprint; `cwms://capabilities` now says `error_codes_reserved` are codes
+  with no MCP emission path, since the CLI can emit `wrapper_bug` (#158).
 - Require cwms-python 1.1.2 or newer, up from 1.0.9 (#130). Failed upstream
   calls no longer print an unstructured `CDA Error: ...` line to stderr next to
   the structured error envelope: cwms-python 1.1 stopped logging failures to
@@ -56,24 +83,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   module and its observed quirks; and other 1.1.x behavior changes.
   The document hash changes.
 
-### Added
-
-- `cwms_describe_place` / `place describe` take an opt-in `include_locks` /
-  `--include-locks` (#134). For a PROJECT location it lists the project's
-  navigation locks; for a LOCK location it reads that lock. Each lock carries
-  chamber width, length, normal and maximum lift, volume per lockage, minimum
-  draft, and their units (e.g. SWT/WEBB: 110 × 600 ft, 30 ft lift, 9 ft
-  draft); `detail=full` adds the nested location and pool-level links. CDA's
-  -9999 m "unset" sentinel (it arrives converted, e.g. -32805 ft) is returned
-  as `null` and named in the lock's `invalid_fields`. `lock_lookup_status`
-  reports `ok`, `partial`, `failed`, or `not_applicable`; a failed lock call
-  marks the response `partial` (`lock_lookup_failed`) with
-  `lock_upstream_status` instead of failing the describe. One extra upstream
-  list call plus one call per lock for a PROJECT (one call for a LOCK),
-  and only when requested. The capability fingerprint changes.
-
 ### Fixed
 
+- `cwms_describe_place` with `include_locks` no longer crashes when CDA lists
+  a lock with a blank name (#158). The blank name was cached and then handed
+  to cwms-python's `get_lock`, whose argument guard raised a bare `ValueError`
+  that escaped the error envelope on both surfaces. A blank name is now a
+  malformed response: the lock lookup degrades to `lock_lookup_status:
+  failed` (`partial`, `lock_lookup_failed`) and nothing is cached.
 - Level lookups classify upstream failures like other CDA calls (#153).
   Listing levels, reading a level, and the seasonal-level bypass for
   cwms-python issue #286 used to report every failure, including our own
@@ -81,8 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Now a 404 is `not_found`, a 429 is `rate_limited`, a 5xx or connection
   failure is a temporary `upstream_error`, and a programming error is no
   longer reported as an upstream failure. Failures on the seasonal bypass
-  carry `source.workaround: "issue-286"`, and `wrapper_bug` has no emission
-  path (it was already listed as reserved). `value get` with thresholds
+  carry `source.workaround: "issue-286"`, and `wrapper_bug` has no MCP emission
+  path (it was already listed as reserved there). `value get` with thresholds
   degrades as before: a failed levels listing is still
   `level_lookup_status: unavailable`, and a level whose value cannot be read
   is still left out of the classification.

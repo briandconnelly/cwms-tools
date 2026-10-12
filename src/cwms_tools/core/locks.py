@@ -146,9 +146,14 @@ def _lock_detail(office: str, name: str, *, use_cache: bool) -> dict[str, Any]:
 
 
 def _lock_name(entry: dict[str, Any]) -> str | None:
+    """The lock's location name, or None when absent or blank.
+
+    A blank name is rejected here rather than handed to `get_lock`, whose own
+    argument guard raises a bare `ValueError` that no envelope would catch.
+    """
     location = entry.get("location")
     name = location.get("name") if isinstance(location, dict) else None
-    return name if isinstance(name, str) else None
+    return name if isinstance(name, str) and name.strip() else None
 
 
 def _malformed(endpoint: str, *, operation: str) -> CwmsToolsError:

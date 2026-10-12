@@ -163,12 +163,16 @@ def test_l1_refill_from_l2_keeps_l2_expiry(tmp_path: Path) -> None:
     cache = Cache(directory=tmp_path / "c", clock=clock)
     try:
         cache.set("k", "v", ttl=60)
+        # diskcache stamps L2 with its own real clock; drive the assertions from
+        # that stored expiry so a slow test runner cannot skew the boundary.
+        _, l2_expiry = cache._l2.get("k", expire_time=True)
+        assert l2_expiry is not None
         cache._l1.clear()
-        clock.now += 30
+        clock.now = l2_expiry - 1
         # Refills L1 from L2; the entry must keep L2's expiry, not get a fresh TTL.
         assert cache.get("k") == "v"
         cache._l2.delete("k")
-        clock.now += 31
+        clock.now = l2_expiry
         assert cache.get("k") is None
     finally:
         cache.close()

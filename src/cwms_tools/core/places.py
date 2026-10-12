@@ -770,8 +770,8 @@ def browse_region(
         ],
     }
     if norm_kind is not None:
-        # Echo only when set: the CLI emits raw dicts without null-stripping,
-        # so an absent key (not None) keeps it in lockstep with MCP.
+        # Echo only when set, so an unset filter is an absent key (never null)
+        # on both surfaces, which serialize through the same response model.
         response["kind"] = norm_kind
     if has_more:
         response["truncation_hint"] = (

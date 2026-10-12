@@ -273,10 +273,23 @@ def test_summary_keeps_dimensions_drops_location_and_level_links(configured, moc
     _arm_lock_detail(mocked)
     raw = locks.lookup("SWT", "WEBB", "PROJECT")
     [lock] = shaping.shape_place_detail(raw, Detail.SUMMARY)["locks"]
-    assert set(lock) == set(shaping.LOCK_SUMMARY_KEYS) & set(lock)
-    assert "location" not in lock
-    assert "high-water-upper-pool-location-level" not in lock
-    assert lock["invalid_fields"] == ["maximum-lock-lift"]
+    # Spelled out rather than derived from LOCK_SUMMARY_KEYS, so dropping a
+    # dimension from that constant fails here instead of passing silently.
+    rounded = {k: round(v, 3) if isinstance(v, float) else v for k, v in lock.items()}
+    assert rounded == {
+        "name": "WEBB-Lock",
+        "public-name": "Lock",
+        "lock-width": 110.0,
+        "lock-length": 600.0,
+        "normal-lock-lift": 30.0,
+        "maximum-lock-lift": None,  # nulled -9999 m sentinel
+        "volume-per-lockage": 1987200.0,
+        "minimum-draft": 9.0,
+        "length-units": "ft",
+        "volume-units": "ft3",
+        "elevation-units": "ft",
+        "invalid_fields": ["maximum-lock-lift"],
+    }
     [full] = shaping.shape_place_detail(raw, Detail.FULL)["locks"]
     assert "location" in full
     assert "high-water-upper-pool-location-level" in full
@@ -296,18 +309,71 @@ def _cli_describe(spec: str, *extra: str) -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def _strip_top_nulls(d: dict[str, Any]) -> dict[str, Any]:
-    """Pre-existing CLI/MCP top-level null divergence is #143; compare around it."""
-    return {k: v for k, v in d.items() if v is not None}
-
-
 LOCK_KEYS = {"locks", "lock_lookup_status", "lock_upstream_status"}
+
+# Every include_locks scenario the two surfaces must agree on. Each scenario's
+# expectation is asserted on BOTH surfaces, so a handler that silently stops
+# forwarding `include_locks` fails here instead of trivially matching its peer.
+LOCK_SCENARIOS = ["omitted", "ok_populated", "ok_empty", "partial", "failed", "not_applicable"]
+
+
+def _arm_lock_scenario(mocked, scenario: str) -> None:
+    if scenario in ("ok_populated", "omitted"):
+        _arm_lock_list(mocked)
+        _arm_lock_detail(mocked)
+    elif scenario == "ok_empty":
+        _arm_lock_list(mocked, body=[])
+    elif scenario == "partial":
+        second = json.loads(json.dumps(LOCKS_LIST[0]))
+        second["location"]["name"] = "WEBB-Lock2"
+        _arm_lock_list(mocked, body=[LOCKS_LIST[0], second])
+        _arm_lock_detail(mocked)
+        _arm_lock_detail(mocked, name="WEBB-Lock2", status=500)
+    elif scenario == "failed":
+        _arm_lock_list(mocked, status=500, body={"message": "System Error"})
+
+
+def _assert_lock_scenario(out: dict[str, Any], scenario: str, detail: str) -> None:
+    if scenario == "omitted":
+        assert not LOCK_KEYS & out.keys()
+        assert "lock_lookup_failed" not in out["partial_reasons"]
+        return
+    degraded = scenario in ("partial", "failed")
+    # SITE_LOCATION's project lookup is a 404, so that scenario is partial
+    # (`not_a_project`) on its own; the lock reason must still be absent.
+    assert out["partial"] is (degraded or scenario == "not_applicable")
+    assert ("lock_lookup_failed" in out["partial_reasons"]) is degraded
+    assert ("lock_upstream_status" in out) is degraded
+    if degraded:
+        assert out["lock_upstream_status"] == 500
+    if scenario == "ok_populated":
+        assert out["lock_lookup_status"] == "ok"
+        [lock] = out["locks"]
+    elif scenario == "partial":
+        assert out["lock_lookup_status"] == "partial"
+        lock, bad = out["locks"]
+        assert bad == {"name": "WEBB-Lock2", "error": "upstream_error"}
+    else:
+        assert (
+            out["lock_lookup_status"]
+            == {
+                "ok_empty": "ok",
+                "failed": "failed",
+                "not_applicable": "not_applicable",
+            }[scenario]
+        )
+        assert out["locks"] == []
+        return
+    assert lock["name"] == "WEBB-Lock"
+    assert lock["lock-width"] == pytest.approx(110.0)
+    assert lock["invalid_fields"] == ["maximum-lock-lift"]
+    # The nulled sentinel is kept as an explicit null inside the lock record.
+    assert "maximum-lock-lift" in lock and lock["maximum-lock-lift"] is None
+    assert ("location" in lock) is (detail == "full")
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])
-@pytest.mark.parametrize(
-    "scenario", ["omitted", "ok_populated", "ok_empty", "failed", "not_applicable"]
-)
+@pytest.mark.parametrize("scenario", LOCK_SCENARIOS)
 def test_cli_mcp_parity_for_locks(configured, scenario: str, detail: str) -> None:
     location = SITE_LOCATION if scenario == "not_applicable" else WEBB_LOCATION
     include = scenario != "omitted"
@@ -315,13 +381,7 @@ def test_cli_mcp_parity_for_locks(configured, scenario: str, detail: str) -> Non
     for surface in ("mcp", "cli"):
         with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
             _arm_describe(mocked, location)
-            if scenario in ("ok_populated", "omitted"):
-                _arm_lock_list(mocked)
-                _arm_lock_detail(mocked)
-            elif scenario == "ok_empty":
-                _arm_lock_list(mocked, body=[])
-            elif scenario == "failed":
-                _arm_lock_list(mocked, status=500, body={"message": "System Error"})
+            _arm_lock_scenario(mocked, scenario)
             if surface == "mcp":
                 args = {"office": "SWT", "name": location["name"], "detail": detail}
                 if include:
@@ -332,12 +392,11 @@ def test_cli_mcp_parity_for_locks(configured, scenario: str, detail: str) -> Non
                 outputs.append(_cli_describe(f"SWT/{location['name']}", *extra))
         get_cache().clear()
     mcp_out, cli_out = outputs
-    assert {k for k in mcp_out if k in LOCK_KEYS} == {k for k in cli_out if k in LOCK_KEYS}
-    for key in LOCK_KEYS & mcp_out.keys():
-        assert mcp_out[key] == cli_out[key], key
-    assert _strip_top_nulls(mcp_out) == _strip_top_nulls(cli_out)
-    if scenario == "omitted":
-        assert not LOCK_KEYS & cli_out.keys()
+    for out in outputs:
+        _assert_lock_scenario(out, scenario, detail)
+    # #143 is fixed: both surfaces serialize through the same model, so compare
+    # the whole payload exactly, with no null normalization.
+    assert mcp_out == cli_out
 
 
 @pytest.mark.parametrize(
@@ -350,6 +409,11 @@ def test_cli_mcp_parity_for_locks(configured, scenario: str, detail: str) -> Non
         ("list", [{}]),
         ("list", [{"location": {"name": 42}}]),
         ("list", [LOCKS_LIST[0], {"location": {}}]),
+        # A blank lock name would be handed to `get_lock`, whose own guard raises
+        # a raw ValueError that escapes the error envelope; reject it up front.
+        ("list", [{"location": {"name": ""}}]),
+        ("list", [{"location": {"name": "   "}}]),
+        ("detail", {**LOCK_EN, "location": {**LOCK_EN["location"], "name": ""}}),
     ],
 )
 def test_malformed_lock_response_fails_and_is_not_cached(
@@ -371,6 +435,16 @@ def test_malformed_lock_response_fails_and_is_not_cached(
     before = len(mocked.calls)
     locks.lookup("SWT", "WEBB", "PROJECT")
     assert len(mocked.calls) > before, "a malformed response must not be cached"
+
+
+def test_describe_with_blank_lock_name_degrades_instead_of_raising(configured, mocked) -> None:
+    _arm_describe(mocked, WEBB_LOCATION)
+    _arm_lock_list(mocked, body=[{"location": {"name": ""}}])
+    out = places.describe_place("SWT", "WEBB", include_locks=True)
+    assert out["lock_lookup_status"] == "failed"
+    assert out["locks"] == []
+    assert out["partial"] is True
+    assert "lock_lookup_failed" in out["partial_reasons"]
 
 
 def test_upstream_status_prefers_a_status_bearing_failure(configured, mocked) -> None:
