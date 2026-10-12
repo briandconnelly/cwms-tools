@@ -24,12 +24,20 @@ import cwms.levels.location_levels as ll_api
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.session import current_config
-from cwms_tools.core.upstream import failure_summary
+from cwms_tools.core.upstream import (
+    empty_collection_error,
+    failure_summary,
+    require_collection,
+    require_record,
+)
 
 # Substring fingerprint of the seasonal-bug detection. We treat any level
 # whose configuration carries seasonalValues / intervalMonths / intervalMinutes
 # as seasonal and route around `get_level_as_timeseries`.
 _SEASONAL_KEYS = ("seasonal-values", "seasonalValues", "interval-months", "intervalMonths")
+
+# Spellings of a level row's id across CDA payload versions.
+_LEVEL_ID_KEYS = ("location-level-id", "level-id", "locationLevelId")
 
 
 def list_levels(
@@ -75,7 +83,11 @@ def list_levels(
             endpoints_called=["/levels"],
         ) from exc
     payload = data.json if hasattr(data, "json") else data
-    rows = _iter_level_entries(payload)
+    rows = _level_entries(payload)
+    if rows is None:
+        raise empty_collection_error(
+            endpoint="/levels", operation="levels listing", field="office_id", value=office
+        )
     cache.set(cache_key, rows, ttl=ttl)
     return rows
 
@@ -136,7 +148,13 @@ def fetch_level_value(
             f"get_location_level failed for {office}/{level_id} ({failure_summary(exc)}).",
             endpoints_called=[f"/levels/{level_id}"],
         ) from exc
-    payload = data.json if hasattr(data, "json") else data
+    payload = require_record(
+        data.json if hasattr(data, "json") else data,
+        endpoint=f"/levels/{level_id}",
+        operation="level lookup",
+        field="level_id",
+        value=level_id,
+    )
 
     constant = _constant_value_from(payload)
     if constant is not None:
@@ -223,17 +241,33 @@ def classify(
 # --------------------------------------------------------------------------
 
 
-def _iter_level_entries(payload: Any) -> list[dict[str, Any]]:
+def level_id_of(row: dict[str, Any]) -> str | None:
+    """A level row's id, under whichever spelling the payload uses."""
+    for key in _LEVEL_ID_KEYS:
+        v = row.get(key)
+        if isinstance(v, str) and v:
+            return v
+    return None
+
+
+def _level_entries(payload: Any) -> list[dict[str, Any]] | None:
+    """Rows of a levels payload, or None when no known shape matches.
+
+    A bare dict is one level only if it carries a level id; the `{}` that
+    cwms-python returns for an empty body is not a level (#152). A real empty
+    listing is `{"levels": []}`.
+    """
     if isinstance(payload, list):
         return payload
+    if not isinstance(payload, dict):
+        return None
     for key in ("entries", "items", "values", "levels"):
-        v = payload.get(key) if isinstance(payload, dict) else None
+        v = payload.get(key)
         if isinstance(v, list):
             return v
-    if isinstance(payload, dict):
-        # `get_location_levels` paginated wrapper sometimes returns the raw page.
+    if level_id_of(payload) is not None:
         return [payload]
-    return []
+    return None
 
 
 def _coerce_dt(raw: Any) -> datetime | None:
@@ -304,7 +338,14 @@ def _seasonal_workaround(
             endpoints_called=[f"/levels/{level_id}/timeseries"],
             workaround="issue-286",
         ) from exc
-    payload = raw if isinstance(raw, dict) else {}
+    payload = require_collection(
+        raw,
+        keys=("values",),
+        endpoint=f"/levels/{level_id}/timeseries",
+        operation="seasonal-level workaround",
+        field="level_id",
+        value=level_id,
+    )
     point = _first_value_from(payload)
     return {
         "level_id": level_id,

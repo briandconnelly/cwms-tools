@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A location or project lookup that comes back with an empty body is now
-  reported instead of passed off as a record (#137). cwms-python 1.1.x turns
+  reported instead of passed off as a record (#137). cwms-python 1.1.2+ turns
   an empty 200/204 body into `{}`. A location lookup then fails with a
   temporary `upstream_error` naming the place, instead of caching `{}` as the
   Location. A project lookup degrades to `partial: true` with the new
@@ -72,6 +72,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   description now says it is also null when the project lookup failed, and
   `partial_reasons` is now described, naming each reason and which are
   transient, so the capability fingerprint changes.
+- An empty body from the location or timeseries catalog, the levels listing,
+  a single level, the seasonal-level workaround, or a timeseries window is now
+  reported instead of read as "no results" (#152). Real empty results from
+  these endpoints still carry their collection key (`{"entries": []}`,
+  `{"levels": []}`, `values: []`) and are unaffected. The `{}` that
+  cwms-python 1.1.2+ returns for an empty 200/204 body now fails with a
+  temporary `upstream_error` and is not cached. Before this, `{}` could poison
+  an office's search, browse, and parameter listings for 6 h, become a bogus
+  level row for 24 h, or look like an empty observation window. An empty body
+  on a later page of a paginated catalog or timeseries fetch also surfaces as a
+  temporary `upstream_error` instead of an unstructured `KeyError`. The cache
+  schema version is bumped so entries cached before this fix are discarded.
+  The `cwms://overview` gotcha row on cwms-python response parsing now dates
+  each change to the release that introduced it: 1.1.2 for the `{}` empty
+  body, which the release notes don't mention, and 1.1.1 for interval-based
+  chunking. It also says a bare `{}` from a list endpoint is a failed read.
+  The document hash changes.
 - `cwms-tools place describe` errors for a failed location lookup (`not_found`,
   or the new empty-body `upstream_error`) now name `spec` in `details.field`,
   the command's real argument, instead of `name`, which only exists on the

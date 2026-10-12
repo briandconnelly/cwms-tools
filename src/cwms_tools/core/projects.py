@@ -5,7 +5,7 @@ Recoverable failure modes:
 - Non-project locations (e.g. NWDP/UBLW, NWDP/UBLW_S1-D21,0ft): upstream
   returns 404. The location is real and useful; we degrade to a partial
   response rather than raising UPSTREAM_ERROR.
-- An empty or non-object body (cwms-python 1.1.x returns `{}` for an empty
+- An empty or non-object body (cwms-python 1.1.2+ returns `{}` for an empty
   200/204, #137) → partial with `project_lookup_empty`. Unlike the 404/4xx
   fallbacks this is an anomaly, not a fact about the place, so it is not
   cached.

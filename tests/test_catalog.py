@@ -546,7 +546,7 @@ def test_upstream_error_message_does_not_embed_long_url(configured, mocked) -> N
 
 
 def test_malformed_json_200_surfaces_as_upstream_error(configured, mocked) -> None:
-    """cwms-python 1.1.x raises `ApiError` for an unparseable 200 body instead of
+    """cwms-python 1.1.2+ raises `ApiError` for an unparseable 200 body instead of
     handing back the raw text (#130). That must land in the structured envelope,
     not crash later on a `str` payload."""
     mocked.add(
@@ -568,7 +568,7 @@ def test_upstream_failure_emits_no_warning_or_error_log_records(
 ) -> None:
     """We report upstream failures in the structured envelope, so a failing call
     must not also print an unstructured log line. cwms-python <= 1.0.x wrote
-    `logging.error(...)` to the root logger (we filtered it); 1.1.x logs at
+    `logging.error(...)` to the root logger (we filtered it); 1.1.2+ logs at
     DEBUG on `cwms.api` instead, which this pins (#130)."""
     import logging
 

@@ -25,7 +25,7 @@ from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.geo import GeoPoint, co_located
 from cwms_tools.core.offices import NW_STUBS, ghost_office_error
 from cwms_tools.core.session import current_config
-from cwms_tools.core.upstream import upstream_call
+from cwms_tools.core.upstream import empty_collection_error, upstream_call
 
 # URL-encoded byte budget for the ts catalog `like` parameter. CDA rejects
 # very large alternation regexes with a 500; the empirical threshold is
@@ -53,9 +53,18 @@ def get_locations_catalog(
         hit = cache.get(key)
         if hit is not None:
             return hit
-    with upstream_call("/catalog/LOCATIONS", operation="locations catalog"):
+    with upstream_call(
+        "/catalog/LOCATIONS", operation="locations catalog", page_selector="entries"
+    ):
         data = catalog_api.get_locations_catalog(office_id=office_id, like=like)
     payload = data.json
+    if _location_entries(payload) is None:
+        raise empty_collection_error(
+            endpoint="/catalog/LOCATIONS",
+            operation="locations catalog",
+            field="office_id",
+            value=office_id,
+        )
     cache.set(key, payload, ttl=ttl)
     return payload
 
@@ -93,11 +102,20 @@ def get_timeseries_catalog(
         hit = cache.get(key)
         if hit is not None:
             return hit
-    with upstream_call("/catalog/TIMESERIES", operation="timeseries catalog"):
+    with upstream_call(
+        "/catalog/TIMESERIES", operation="timeseries catalog", page_selector="entries"
+    ):
         data = catalog_api.get_timeseries_catalog(
             office_id=office_id, like=like, include_extents=include_extents
         )
     payload = data.json
+    if _ts_entries(payload) is None:
+        raise empty_collection_error(
+            endpoint="/catalog/TIMESERIES",
+            operation="timeseries catalog",
+            field="office_id",
+            value=office_id,
+        )
     cache.set(key, payload, ttl=ttl)
     return payload
 
@@ -335,10 +353,16 @@ def enrich_locations(
     return enriched
 
 
-def _iter_location_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Tolerate CDA's two common shapes for the locations catalog payload."""
+def _location_entries(payload: Any) -> list[dict[str, Any]] | None:
+    """Rows of a locations catalog payload, or None when no known shape matches.
+
+    Tolerates CDA's common shapes. None (e.g. the `{}` cwms-python returns for
+    an empty body) is distinct from a real empty catalog, `{"entries": []}`.
+    """
     if isinstance(payload, list):
         return payload  # already-flat list
+    if not isinstance(payload, dict):
+        return None
     for key in ("entries", "items", "locations", "values"):
         v = payload.get(key)
         if isinstance(v, list):
@@ -349,18 +373,28 @@ def _iter_location_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
             v = inner.get(key)
             if isinstance(v, list):
                 return v
-    return []
+    return None
 
 
-def _iter_ts_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Tolerate CDA's two common shapes for the timeseries catalog payload."""
+def _iter_location_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return _location_entries(payload) or []
+
+
+def _ts_entries(payload: Any) -> list[dict[str, Any]] | None:
+    """Rows of a timeseries catalog payload, or None when no known shape matches."""
     if isinstance(payload, list):
         return payload
+    if not isinstance(payload, dict):
+        return None
     for key in ("entries", "items", "timeseries", "time-series", "values"):
         v = payload.get(key)
         if isinstance(v, list):
             return v
-    return []
+    return None
+
+
+def _iter_ts_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return _ts_entries(payload) or []
 
 
 def _matches_like(row: dict[str, Any], needle: str) -> bool:
