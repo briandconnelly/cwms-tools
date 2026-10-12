@@ -236,7 +236,7 @@ def test_thresholds_skip_a_level_whose_value_fetch_fails(configured, mocked) -> 
     }
     mocked.add(responses.GET, LEVELS_URL, json=rows)
     mocked.add(responses.GET, LEVEL_CONFIG_URL, status=500, json={"message": "boom"})
-    assert _resolve() == ([], "nominal")
+    assert _resolve() == ([], "unknown")
 
 
 def test_thresholds_do_not_mask_programming_errors(configured, monkeypatch) -> None:

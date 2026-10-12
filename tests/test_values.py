@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -94,27 +95,6 @@ def test_get_value_returns_latest_value_without_classification_by_default(
     assert payload["timestamp"] == "2026-05-17T18:00:00Z"
     assert payload["status_class"] == "unknown"
     assert payload["level_lookup_status"] == "skipped"
-    assert payload["thresholds_active"] == []
-
-
-def test_get_value_classifies_nominal_when_with_status_enabled(configured) -> None:
-    """When classify_against_levels=True and no thresholds match, the
-    observation is `nominal` and level_lookup_status reflects completion."""
-    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
-        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
-        mocked.add(
-            responses.GET,
-            re.compile(rf"{re.escape(_ts_url())}\?.*"),
-            json=_ts_payload(
-                ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
-                points=[(datetime(2026, 5, 17, 18, tzinfo=UTC), 1648.21)],
-            ),
-            status=200,
-        )
-        mocked.add(responses.GET, f"{API_ROOT}levels", json={"levels": []}, status=200)
-        payload = values.get_value("SWT", "FOSS", "Elev", classify_against_levels=True)
-
-    assert payload["status_class"] == "nominal"
     assert payload["thresholds_active"] == []
 
 
@@ -1121,3 +1101,87 @@ def test_get_profile_catalog_failure_keeps_empty_success(configured, monkeypatch
     payload = values.get_profile("NWDP", "gwlw_s1", "Temp-Water")
     assert payload["sensor_count"] == 0
     assert "note" in payload
+
+
+def _levels_listing(*rows) -> dict:
+    return {"levels": list(rows)}
+
+
+def _level(lid: str, specified: str, date: str) -> dict:
+    return {
+        "location-level-id": lid,
+        "specified-level-id": specified,
+        "office-id": "SWT",
+        "level-date": date,
+    }
+
+
+def test_get_value_dedupes_level_revisions_and_classifies_nominal_inside_conservation(
+    configured,
+) -> None:
+    """#162 end to end: two revisions per id, floor levels crossed -> one row per
+    id and `nominal`, with the value fetched at the newest revision."""
+    listing = _levels_listing(
+        _level("FOSS.Elev.Inst.0.Top of Flood", "Top of Flood", "1900-01-01T06:00:00Z"),
+        _level("FOSS.Elev.Inst.0.Top of Flood", "Top of Flood", "1961-02-13T06:00:00Z"),
+        _level(
+            "FOSS.Elev.Inst.0.Top of Conservation", "Top of Conservation", "1961-02-13T06:00:00Z"
+        ),
+        _level("FOSS.Elev.Inst.0.Top of Inactive", "Top of Inactive", "1961-02-13T06:00:00Z"),
+    )
+    values_by_id = {
+        "Top of Flood": 1662.2,
+        "Top of Conservation": 1642.0,
+        "Top of Inactive": 1597.2,
+    }
+
+    def level_value(request):
+        name = next(k for k in values_by_id if k in request.url.replace("%20", " "))
+        body = json.dumps({"constant-value": values_by_id[name], "level-units-id": "ft"})
+        return (200, {"Content-Type": "application/json"}, body)
+
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
+        mocked.add(
+            responses.GET,
+            re.compile(rf"{re.escape(_ts_url())}\?.*"),
+            json=_ts_payload(
+                ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+                points=[(datetime(2026, 10, 12, 14, tzinfo=UTC), 1637.6)],
+            ),
+            status=200,
+        )
+        mocked.add(responses.GET, f"{API_ROOT}levels", json=listing, status=200)
+        mocked.add_callback(
+            responses.GET, re.compile(rf"{API_ROOT}levels/.*"), callback=level_value
+        )
+        payload = values.get_value("SWT", "FOSS", "Elev", classify_against_levels=True)
+        level_reads = [c for c in mocked.calls if re.search(r"/levels/.+", c.request.url or "")]
+    assert payload["status_class"] == "nominal"
+    assert payload["level_lookup_status"] == "computed"
+    ids = [t["level_id"] for t in payload["thresholds_active"]]
+    assert len(ids) == len(set(ids)) == 3
+    assert len(level_reads) == 3, "one value read per level id, at the newest revision"
+    inactive = next(
+        t for t in payload["thresholds_active"] if t["specified_level_id"] == "Top of Inactive"
+    )
+    assert inactive["zone"] == "nominal"
+
+
+def test_get_value_with_no_levels_is_unknown_and_unavailable(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
+        mocked.add(
+            responses.GET,
+            re.compile(rf"{re.escape(_ts_url())}\?.*"),
+            json=_ts_payload(
+                ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+                points=[(datetime(2026, 5, 17, 18, tzinfo=UTC), 1648.21)],
+            ),
+            status=200,
+        )
+        mocked.add(responses.GET, f"{API_ROOT}levels", json={"levels": []}, status=200)
+        payload = values.get_value("SWT", "FOSS", "Elev", classify_against_levels=True)
+    assert payload["status_class"] == "unknown"
+    assert payload["level_lookup_status"] == "unavailable"
+    assert payload["thresholds_active"] == []
