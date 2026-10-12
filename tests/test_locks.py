@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
 from cwms_tools.core import locks, places, session, shaping
-from cwms_tools.core.cache import Cache, get_cache, set_cache
+from cwms_tools.core.cache import Cache, build_cache_key, get_cache, set_cache
 from cwms_tools.core.models import Detail
 from cwms_tools.mcp.server import build_server
 
@@ -445,6 +445,39 @@ def test_describe_with_blank_lock_name_degrades_instead_of_raising(configured, m
     assert out["locks"] == []
     assert out["partial"] is True
     assert "lock_lookup_failed" in out["partial_reasons"]
+
+
+@pytest.mark.parametrize(
+    "poisoned", [[""], ["   "], ["WEBB-Lock", ""]], ids=["blank", "ws", "mixed"]
+)
+def test_poisoned_cached_lock_list_is_not_trusted(configured, mocked, poisoned) -> None:
+    """A lock list cached before the blank-name guard (#158) must not be served:
+    the hit is treated as a miss and the list is refetched."""
+    key = build_cache_key(
+        "locks", "SWT", "list", "WEBB", api_root=session.current_config().api_root
+    )
+    get_cache().set(key, poisoned, ttl=3600)
+    _arm_lock_list(mocked)
+    _arm_lock_detail(mocked)
+    out = locks.lookup("SWT", "WEBB", "PROJECT")
+    assert out["lock_lookup_status"] == "ok"
+    assert [lock["name"] for lock in out["locks"]] == ["WEBB-Lock"]
+    # The poisoned hit was refetched, not served.
+    assert any("projects/locks?" in c.request.url for c in mocked.calls)
+
+
+def test_poisoned_cached_lock_detail_is_not_trusted(configured, mocked) -> None:
+    key = build_cache_key(
+        "locks", "SWT", "detail", "WEBB-Lock", "EN", api_root=session.current_config().api_root
+    )
+    get_cache().set(key, {"name": "", "lock-width": 1.0, "invalid_fields": []}, ttl=3600)
+    _arm_lock_list(mocked)
+    _arm_lock_detail(mocked)
+    out = locks.lookup("SWT", "WEBB", "PROJECT")
+    assert out["lock_lookup_status"] == "ok"
+    [lock] = out["locks"]
+    assert lock["name"] == "WEBB-Lock"
+    assert lock["lock-width"] == pytest.approx(110.0)
 
 
 def test_upstream_status_prefers_a_status_bearing_failure(configured, mocked) -> None:

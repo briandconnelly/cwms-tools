@@ -14,6 +14,7 @@ import pytest
 from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
+from cwms_tools.cli.commands import offices as offices_cmd
 from cwms_tools.cli.exit_codes import WRAPPER_BUG
 from cwms_tools.core import places, values
 
@@ -68,3 +69,16 @@ def test_value_get_batch_reports_validation_failure_inline_and_continues(monkeyp
     assert batch["results"][0]["error"]["code"] == "wrapper_bug"
     assert batch["results"][1]["data"]["value"] == pytest.approx(1.5)
     assert _SECRET_KEY not in result.stdout
+
+
+def test_offices_validation_failure_is_wrapper_bug_envelope(monkeypatch) -> None:
+    """`offices` has an MCP response model too (`cwms_list_offices`); it must
+    share the same boundary as the task-tool commands."""
+    monkeypatch.setattr(offices_cmd, "offices_payload", lambda: {"count": "many", _SECRET_KEY: 1})
+    result = runner.invoke(app, ["offices"])
+    assert result.exit_code == WRAPPER_BUG, result.output
+    assert result.stdout == ""
+    envelope = json.loads(result.stderr)
+    assert envelope["error"]["code"] == "wrapper_bug"
+    assert "OfficesResponse" in envelope["error"]["message"]
+    assert _SECRET_KEY not in result.stderr

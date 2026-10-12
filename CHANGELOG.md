@@ -57,8 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes the structured `{ok: false, error: {code: "wrapper_bug", ...}}`
   envelope to stderr and exits 11, instead of a Python traceback; `value get`
   reports it per item in the batch envelope. The message names the model and
-  an error count, never the payload. `cwms-tools schema` lists `wrapper_bug`
-  for every tool command, which changes the CLI contract and the capability
+  an error count, never the payload. `cwms-tools offices` now serializes
+  through the `cwms_list_offices` response model too. `cwms-tools schema`
+  lists `wrapper_bug` for every command with a response model, which changes the CLI contract and the capability
   fingerprint; `cwms://capabilities` now says `error_codes_reserved` are codes
   with no MCP emission path, since the CLI can emit `wrapper_bug` (#158).
 - Require cwms-python 1.1.2 or newer, up from 1.0.9 (#130). Failed upstream

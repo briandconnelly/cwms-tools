@@ -156,12 +156,12 @@ def _commands() -> list[dict[str, Any]]:
             "latency_class": "network",
             "arguments": [],
             "options": [],
-            "error_codes": [],
+            "error_codes": _errs("wrapper_bug"),
             "notes": (
                 "Lists the USACE office codes the `--office` option expects, plus "
                 "the NW regional-rollup guidance. Network-backed, cached 7 days; "
                 "degrades to a documented fallback slice with `partial: true` on "
-                "cold-start upstream failure (never errors)."
+                "cold-start upstream failure (never errors on upstream failure)."
             ),
         },
         # Place tools (M4).
