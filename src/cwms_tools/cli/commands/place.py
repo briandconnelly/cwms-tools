@@ -145,11 +145,12 @@ def search(
     followable to exhaustion; it appears in three cases. When `--office` is
     omitted and the resolved scope is empty, it names the curated
     data-bearing offices to retry with. When the per-call fan-out budget
-    skips offices, it names the skipped ones (plus any that failed with a
-    temporary upstream error, once). When `--office` is omitted, only some
-    curated offices are cached, and nothing matched, it names the curated
-    offices that were never searched. Follow it until
-    `offices_skipped_for_budget` is empty.
+    skips offices, it names the skipped ones. When `--office` is omitted,
+    only some curated offices are cached, and nothing matched, it names the
+    curated offices that were never searched. Follow it until
+    `offices_skipped_for_budget` is empty. Offices that failed with a
+    temporary upstream error are listed in `partial_reasons` as
+    `temporary_errors_not_retried` for the caller to retry explicitly.
     """
     if limit < 0:
         emit_error(
