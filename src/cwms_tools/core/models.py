@@ -352,7 +352,9 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
         default=None,
         description=(
             "Only when parameter_count is 0: co-located records (within ~100 m) that "
-            "publish data; describe or read one of these instead. Omitted otherwise."
+            "publish data; describe or read one of these instead. An empty list means "
+            "no co-located record publishes; null when parameter_count > 0 or when the "
+            "sibling lookup failed (see partial_reasons)."
         ),
     )
     lock_lookup_status: Literal["ok", "partial", "failed", "not_applicable"] | None = Field(

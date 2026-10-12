@@ -701,10 +701,26 @@ def describe_place(
     except CwmsToolsError as err:
         details = err.envelope.details
         if err.envelope.code is ErrorCode.NOT_FOUND and details and details.field == "name":
-            raise catalog.location_not_found_error(office, name, use_cache=use_cache) from err
+            # Convert only when the catalog agrees the name is absent; a stale
+            # snapshot listing it would suggest the same name (a retry loop).
+            try:
+                absent = catalog.location_catalog_row(office, name, use_cache=use_cache) is None
+                repaired = (
+                    catalog.location_not_found_error(office, name, use_cache=use_cache)
+                    if absent
+                    else None
+                )
+            except CwmsToolsError:
+                raise err from None
+            if repaired is not None:
+                raise repaired from err
         raise
     project_resp = projects.get_one(office, name, use_cache=use_cache)
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
+    # CDA resolves /locations/ case-insensitively but the ts filter is exact, so
+    # a wrong-case id lands here as an empty ghost; confirm the catalog id exists.
+    if not ts_ids and catalog.location_catalog_row(office, name, use_cache=use_cache) is None:
+        raise catalog.location_not_found_error(office, name, use_cache=use_cache)
     param_counts = publishers.parameter_counts(ts_ids)
     pub_facts = publishers.aggregate_publishers(ts_ids)
     freshness = catalog.freshness_for_location(office, name, use_cache=use_cache)
@@ -730,12 +746,16 @@ def describe_place(
         ],
         "ts_ids": ts_ids,
         "last_data_timestamp": freshness,
-        "data_at": catalog.data_bearing_siblings(office, name, use_cache=use_cache)
-        if not ts_ids
-        else None,
+        "data_at": None,
         "source_workaround": project_resp.get("source_workaround"),
         "upstream_status": project_resp.get("upstream_status"),
     }
+    if not ts_ids:
+        try:
+            response["data_at"] = catalog.data_bearing_siblings(office, name, use_cache=use_cache)
+        except CwmsToolsError as err:
+            response["partial"] = True
+            response["partial_reasons"].append(f"data_at_lookup_failed: {err.envelope.code.value}")
     if include_locks:
         lock_resp = locks.lookup(office, name, location.get("location-kind"), use_cache=use_cache)
         response.update(lock_resp)

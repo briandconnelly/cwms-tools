@@ -1684,3 +1684,110 @@ def test_describe_place_ghost_carries_data_at(configured, mocked) -> None:
     assert payload["data_at"] == ["GARR"]
     _arm_all(mocked)
     assert places.describe_place("SWT", "FOSS")["data_at"] is None
+
+
+def _foss_catalogs(mocked, *, locations_status=200):
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json=LOCATIONS_PAYLOAD if locations_status == 200 else {"detail": "x"},
+        status=locations_status,
+    )
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+
+
+def test_describe_place_wrong_case_id_is_not_found_not_ghost(configured, mocked) -> None:
+    """Live CDA resolves /locations/Foss to FOSS (200); the exact-case ts filter finds none."""
+    _foss_catalogs(mocked)
+    mocked.add(responses.GET, f"{API_ROOT}locations/Foss", json=LOCATION_SINGLE_PAYLOAD, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}projects/Foss", json={"detail": "no"}, status=404)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.describe_place("SWT", "Foss")
+    assert ex.value.envelope.code is ErrorCode.NOT_FOUND
+    assert ex.value.envelope.details is not None
+    assert ex.value.envelope.details.field == "name"
+    assert ex.value.repair_intent is not None
+    assert ex.value.repair_intent.overrides == {"name": "FOSS"}
+
+
+def test_describe_place_wrong_case_id_same_on_cli_and_mcp(configured, mocked) -> None:
+    import asyncio
+    import json
+
+    from typer.testing import CliRunner
+
+    from cwms_tools.cli.app import app
+    from cwms_tools.mcp.server import build_server
+
+    _foss_catalogs(mocked)
+    mocked.add(responses.GET, f"{API_ROOT}locations/Foss", json=LOCATION_SINGLE_PAYLOAD, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}projects/Foss", json={"detail": "no"}, status=404)
+    res = asyncio.run(
+        build_server().call_tool("cwms_describe_place", arguments={"office": "SWT", "name": "Foss"})
+    )
+    assert res.is_error
+    structured = res.structured_content or {}
+    mcp_err = structured.get("result", structured)["error"]
+    cli = CliRunner().invoke(app, ["place", "describe", "SWT/Foss"])
+    assert cli.exit_code != 0
+    cli_err = json.loads(cli.stderr)["error"]
+    assert mcp_err["code"] == cli_err["code"] == "not_found"
+    assert "FOSS" in mcp_err["message"] and "FOSS" in cli_err["message"]
+
+
+def test_describe_place_404_with_catalog_listing_name_keeps_original_error(
+    configured, mocked
+) -> None:
+    _foss_catalogs(mocked)
+    mocked.add(responses.GET, f"{API_ROOT}locations/FOSS", json={"detail": "nope"}, status=404)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.describe_place("SWT", "FOSS")
+    assert ex.value.envelope.code is ErrorCode.NOT_FOUND
+    assert ex.value.repair_intent is None
+    assert "did you mean" not in ex.value.envelope.message
+
+
+def test_describe_place_404_with_failing_catalog_keeps_original_not_found(
+    configured, mocked
+) -> None:
+    _foss_catalogs(mocked, locations_status=503)
+    mocked.add(responses.GET, f"{API_ROOT}locations/Foss", json={"detail": "nope"}, status=404)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.describe_place("SWT", "Foss")
+    assert ex.value.envelope.code is ErrorCode.NOT_FOUND
+
+
+def test_describe_place_ghost_sibling_lookup_failure_degrades(configured, mocked) -> None:
+    locs = {
+        "locations": [
+            {
+                "office-id": "NWDM",
+                "name": "GARR-Garrison_Dam",
+                "latitude": 47.5,
+                "longitude": -101.4,
+            },
+        ]
+    }
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=locs, status=200)
+    # Per-location ts read succeeds empty; the office-wide enrichment read fails.
+    for _ in range(2):  # ts_ids_for_location, then freshness_for_location
+        mocked.add(
+            responses.GET,
+            re.compile(rf"{re.escape(API_ROOT)}catalog/TIMESERIES\?.*[?&]like=.*"),
+            json={"entries": []},
+            status=200,
+        )
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"detail": "x"}, status=503)
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/GARR-Garrison_Dam",
+        json={"office-id": "NWDM", "name": "GARR-Garrison_Dam"},
+        status=200,
+    )
+    mocked.add(
+        responses.GET, f"{API_ROOT}projects/GARR-Garrison_Dam", json={"detail": "no"}, status=404
+    )
+    payload = places.describe_place("NWDM", "GARR-Garrison_Dam")
+    assert payload["data_at"] is None
+    assert payload["partial"] is True
+    assert any(r.startswith("data_at_lookup_failed") for r in payload["partial_reasons"])
