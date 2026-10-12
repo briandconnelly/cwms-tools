@@ -47,6 +47,8 @@ def publishers_for_parameter(
 
     `offices=None` means "the offices already in cache" — we never expand to
     the full 68-office surface implicitly. Pass an explicit list to widen.
+    On a cold cache that is nothing: `complete` is false and `repair` names the
+    curated office list to index first (#164).
 
     The per-call budget caps how many *new* (uncached) offices we will fetch;
     additional offices are listed under `offices_skipped_for_budget` with a
@@ -99,7 +101,7 @@ def publishers_for_parameter(
         else:
             skipped.append(office)
 
-    complete = not skipped and not error_skipped
+    complete = bool(indexed) and not skipped and not error_skipped
     publisher_rows = [
         {
             "publisher": pub,
@@ -117,6 +119,17 @@ def publishers_for_parameter(
             next_step="retry_skipped_offices",
             tool="cwms_publishers_for_parameter",
             arguments={"parameter": parameter, "offices": skipped},
+        ).model_dump(mode="json")
+    elif offices is None and not requested:
+        # Cold cache with `offices` omitted (#164): nothing is indexed yet.
+        # Mirror `cwms_search_places`'s curated starting set.
+        repair = RepairHint(
+            next_step="index_curated_offices",
+            tool="cwms_publishers_for_parameter",
+            arguments={
+                "parameter": parameter,
+                "offices": offices_mod.discovery_office_candidates(),
+            },
         ).model_dump(mode="json")
 
     return {

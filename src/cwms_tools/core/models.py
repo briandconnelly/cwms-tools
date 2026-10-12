@@ -672,7 +672,13 @@ class PublishersCoverage(CompactDumpMixin, BaseModel):
             "skips); retrying may help."
         ),
     )
-    complete: bool
+    complete: bool = Field(
+        description=(
+            "True only when at least one office was indexed and none were skipped "
+            "(budget or error). False on a cold cache with `offices` omitted — "
+            "follow `repair`."
+        ),
+    )
 
 
 class PublishersForParameterResponse(CompactDumpMixin, BaseModel):

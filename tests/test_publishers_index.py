@@ -10,7 +10,7 @@ import responses
 from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
-from cwms_tools.core import publishers_index, session
+from cwms_tools.core import offices, publishers_index, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 
@@ -255,3 +255,29 @@ def test_publishers_for_parameter_discovers_offices_indexed_through_the_producer
     assert payload["coverage"]["offices_requested"] == ["SWT"]
     assert payload["coverage"]["offices_indexed"] == ["SWT"]
     assert payload["coverage"]["complete"] is True
+
+
+def test_publishers_for_parameter_cold_cache_is_not_complete_and_names_curated_offices(
+    configured,
+) -> None:
+    """#164: on a fresh server with `offices` omitted the index answers from
+    nothing; `complete:true` read as 'nobody publishes Elev'."""
+    payload = publishers_index.publishers_for_parameter("Elev")
+    cov = payload["coverage"]
+    assert cov["offices_requested"] == [] and cov["offices_indexed"] == []
+    assert cov["complete"] is False
+    repair = payload["repair"]
+    assert repair["next_step"] == "index_curated_offices"
+    assert repair["tool"] == "cwms_publishers_for_parameter"
+    assert repair["arguments"] == {
+        "parameter": "Elev",
+        "offices": offices.discovery_office_candidates(),
+    }
+
+
+def test_publishers_for_parameter_complete_requires_an_indexed_office(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", status=500, body="err")
+        payload = publishers_index.publishers_for_parameter("Elev", offices=["SWT"])
+    assert payload["coverage"]["offices_indexed"] == []
+    assert payload["coverage"]["complete"] is False
