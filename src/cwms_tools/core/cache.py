@@ -26,7 +26,8 @@ if TYPE_CHECKING:
 
 # Bump this when the cached payload schema changes in a backwards-incompatible way.
 # v2: ts catalog now requires include_extents=True; enrich_locations dedupes by name.
-CACHE_SCHEMA_VERSION: Final[int] = 2
+# v3: drop catalog/level entries cached from empty bodies before #152.
+CACHE_SCHEMA_VERSION: Final[int] = 3
 
 _L1_MAX_ENTRIES: Final[int] = 1024
 

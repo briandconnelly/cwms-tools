@@ -14,7 +14,7 @@ import cwms.timeseries.timeseries as ts_api
 
 from cwms_tools.core import catalog, publishers
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
-from cwms_tools.core.upstream import upstream_call
+from cwms_tools.core.upstream import require_collection, upstream_call
 
 # Upstream wrapper's default page_size for get_timeseries.
 _UPSTREAM_PAGE_SIZE_CAP = 300_000
@@ -50,7 +50,7 @@ def fetch_window(
     concurrency) and detects silent truncation at the wrapper's 300 000-point
     cap so callers can warn agents instead of returning partial data.
     """
-    with upstream_call("/timeseries", operation="timeseries fetch"):
+    with upstream_call("/timeseries", operation="timeseries fetch", page_selector="values"):
         data = ts_api.get_timeseries(
             ts_id=ts_id,
             office_id=office,
@@ -59,7 +59,15 @@ def fetch_window(
             unit=unit,
             multithread=False,
         )
-    payload = data.json if hasattr(data, "json") else data
+    # A real empty window still carries `values: []`; `{}` is an empty body (#152).
+    payload = require_collection(
+        data.json if hasattr(data, "json") else data,
+        keys=("values",),
+        endpoint="/timeseries",
+        operation="timeseries fetch",
+        field="ts_id",
+        value=ts_id,
+    )
     truncated = _detect_truncation(payload, requested_end=end)
     next_begin = _next_begin(payload) if truncated else None
     if not truncated:

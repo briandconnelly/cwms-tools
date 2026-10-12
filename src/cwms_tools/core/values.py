@@ -558,7 +558,7 @@ def _resolve_thresholds(
 
     candidates: list[dict[str, Any]] = []
     for row in rows:
-        level_id = row.get("location-level-id") or row.get("level-id") or row.get("locationLevelId")
+        level_id = levels.level_id_of(row)
         specified = row.get("specified-level-id") or row.get("specifiedLevelId")
         if not isinstance(level_id, str) or not isinstance(specified, str):
             continue

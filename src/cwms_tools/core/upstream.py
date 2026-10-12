@@ -107,11 +107,61 @@ def require_record(
     )
 
 
+def empty_collection_error(
+    *, endpoint: str, operation: str, field: str, value: str
+) -> CwmsToolsError:
+    """Temporary upstream_error for a list endpoint whose body has no collection.
+
+    cwms-python 1.1.x returns `{}` for an empty 200/204 body. On a list
+    endpoint a real empty result still carries its collection key (e.g.
+    `{"entries": []}`), so a body without one is an anomaly, not "none" (#152).
+    Callers must check before caching.
+    """
+    return CwmsToolsError.of(
+        ErrorCode.UPSTREAM_ERROR,
+        f"{operation}: upstream returned an empty or unrecognized collection body for {endpoint}.",
+        field=field,
+        value=value,
+        endpoints_called=[endpoint],
+        temporary=True,
+    )
+
+
+def require_collection(
+    payload: Any, *, keys: tuple[str, ...], endpoint: str, operation: str, field: str, value: str
+) -> dict[str, Any]:
+    """Return `payload` if one of `keys` holds a list, else raise `empty_collection_error`.
+
+    For list payloads with a flat shape; parsers that accept nested shapes
+    decide for themselves and raise `empty_collection_error` directly.
+    """
+    if isinstance(payload, dict) and any(isinstance(payload.get(k), list) for k in keys):
+        return payload
+    raise empty_collection_error(endpoint=endpoint, operation=operation, field=field, value=value)
+
+
 @contextmanager
-def upstream_call(endpoint: str, *, operation: str) -> Iterator[None]:
-    """Re-raise upstream failures inside the block as `CwmsToolsError`."""
+def upstream_call(
+    endpoint: str, *, operation: str, page_selector: str | None = None
+) -> Iterator[None]:
+    """Re-raise upstream failures inside the block as `CwmsToolsError`.
+
+    `page_selector` is for a block that pages through `cwms.api.get_with_paging`:
+    an empty body on page 2+ makes it index `{}` by that selector, and the
+    resulting `KeyError(page_selector)` is reported as an empty-page upstream
+    failure (#152). Any other `KeyError` propagates untouched.
+    """
     try:
         yield
+    except KeyError as exc:
+        if page_selector is None or exc.args != (page_selector,):
+            raise
+        raise CwmsToolsError.of(
+            ErrorCode.UPSTREAM_ERROR,
+            f"{operation}: upstream returned an empty page while paginating {endpoint}.",
+            endpoints_called=[endpoint],
+            temporary=True,
+        ) from exc
     except ApiError as exc:
         raise from_api_error(exc, endpoint=endpoint, operation=operation) from exc
     except (RequestException, Urllib3HTTPError) as exc:
@@ -119,10 +169,12 @@ def upstream_call(endpoint: str, *, operation: str) -> Iterator[None]:
 
 
 __all__ = [
+    "empty_collection_error",
     "failure_summary",
     "from_api_error",
     "from_transport_error",
     "is_record",
+    "require_collection",
     "require_record",
     "upstream_call",
 ]
