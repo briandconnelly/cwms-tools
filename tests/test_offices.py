@@ -376,6 +376,9 @@ def test_require_known_office_skips_validation_on_fallback_and_backs_off(
         assert len(mocked.calls) == 1
         assert offices.require_known_office("XYZ") == "XYZ"
         assert len(mocked.calls) == 1
+        # Cooldown branch: no directory call, input still upper-cased.
+        assert offices.require_known_office("swt") == "SWT"
+        assert len(mocked.calls) == 1
     # The cooldown is keyed by API root and clears on reset.
     offices._reset_directory_state()
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
@@ -404,3 +407,13 @@ def test_require_known_office_accepts_directory_office_outside_curated_list(
         _arm_directory(mocked)
         assert offices.require_known_office("SPK") == "SPK"
     assert "SPK" not in offices.discovery_office_candidates()
+
+
+def test_require_known_office_fallback_first_call_uppercases(
+    configured, validating_directory
+) -> None:
+    """The used_fallback branch (first failing lookup) also canonicalizes case."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", status=503)
+        assert offices.require_known_office("swt") == "SWT"
+        assert len(mocked.calls) == 1

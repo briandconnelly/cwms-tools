@@ -379,3 +379,35 @@ def test_publishers_for_parameter_all_invalid_explicit_offices_raise(
     cli_error = json.loads(result.stderr)["error"]
     assert cli_error["code"] == "invalid_field"
     assert cli_error["repair"]["tool"] == "cwms-tools offices"
+    # Each surface names ITS OWN real argument: the CLI flag is --office.
+    assert cli_error["details"]["field"] == "office"
+
+
+def test_publishers_for_parameter_mcp_all_invalid_names_offices_argument(
+    configured, validating_directory
+) -> None:
+    """The MCP tool's argument is `offices`, so the invalid_field must say so
+    (not the generic `office_id` -> `office` translation, which the tool rejects)."""
+    import asyncio
+
+    from cwms_tools.mcp.server import build_server
+
+    server = build_server()
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}offices",
+            json=[{"office-id": "SWT", "type": "DIS"}],
+            status=200,
+        )
+        result = asyncio.run(
+            server.call_tool(
+                "cwms_publishers_for_parameter",
+                arguments={"parameter": "Elev", "offices": ["XYZ"]},
+            )
+        )
+    structured = result.structured_content or {}
+    err = structured.get("result", structured)["error"]
+    assert err["code"] == "invalid_field"
+    assert err["details"]["field"] == "offices"
+    assert err["details"]["value"] == "XYZ"

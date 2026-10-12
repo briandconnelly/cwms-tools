@@ -274,9 +274,10 @@ def require_known_office(office: str) -> str:
     (`swt` -> `SWT`) so a first call succeeds instead of round-tripping a
     repair. An unknown code is `invalid_field` (`field=office_id`,
     surface-translated to `office`) with a pointer at the directory. When the
-    directory is on its degraded fallback the input passes through unchanged
-    -- never block on a degraded list -- and validation stays off for
-    `_DIRECTORY_RETRY_SECONDS` after that lookup finished.
+    directory is on its degraded fallback the input is upper-cased without
+    directory validation (CWMS codes are uppercase) -- never block on a
+    degraded list -- and validation stays off for `_DIRECTORY_RETRY_SECONDS`
+    after that lookup finished.
     """
     upper = office.upper()
     if upper in NW_STUBS:
@@ -284,11 +285,11 @@ def require_known_office(office: str) -> str:
     api_root = current_config().api_root
     since = _directory_fallback.get(api_root)
     if since is not None and time.monotonic() - since < _DIRECTORY_RETRY_SECONDS:
-        return office
+        return upper
     ids, used_fallback = directory_for_validation()
     if used_fallback:
         _directory_fallback[api_root] = time.monotonic()  # after the lookup completed
-        return office
+        return upper
     _directory_fallback.pop(api_root, None)
     if office in ids:
         return office

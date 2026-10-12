@@ -126,9 +126,15 @@ def search_places(
         limit = None  # 0 means "no cap"; normalize so pagination math is well-defined
 
     req = pagination.request_hash({"q": query, "parameter": parameter})
-    decoded, offset, offices_searched, offices_skipped, partial_reasons, asked_single = (
-        _resolve_scope(office=office, cursor=cursor, limit=limit, req=req, use_cache=use_cache)
-    )
+    (
+        decoded,
+        offset,
+        offices_searched,
+        offices_skipped,
+        partial_reasons,
+        asked_single,
+        office_echo,
+    ) = _resolve_scope(office=office, cursor=cursor, limit=limit, req=req, use_cache=use_cache)
 
     gathered, gather_reasons, temporary_errored = _gather_enriched(
         offices_searched,
@@ -191,7 +197,7 @@ def search_places(
 
     response: dict[str, Any] = {
         "query": query,
-        "office": office,
+        "office": office_echo,
         "offices_searched": offices_searched,
         "offices_skipped_for_budget": offices_skipped,
         "results": results,
@@ -349,12 +355,16 @@ def _resolve_scope(
     limit: int | None,
     req: str,
     use_cache: bool,
-) -> tuple[dict[str, Any] | None, int, list[str], list[str], list[str], bool]:
+) -> tuple[
+    dict[str, Any] | None, int, list[str], list[str], list[str], bool, str | list[str] | None
+]:
     """Resolve the office set to search, honoring a continuation cursor.
 
     Returns `(decoded_cursor, offset, offices_searched, offices_skipped,
-    partial_reasons, asked_single)`; `asked_single` is true when the caller
-    asked for exactly one (canonical) office, so a failure there re-raises
+    partial_reasons, asked_single, office_echo)`; `office_echo` is the canonical
+    requested scope (single code for a string, deduplicated list for a list,
+    `None` when omitted, the raw argument on the cursor path); `asked_single` is
+    true when the caller asked for exactly one (canonical) office, so a failure there re-raises
     instead of degrading to a partial (#163). On the cursor path the office set is bounded to the
     cursor's locked list — a forged cursor cannot WIDEN the fan-out beyond
     what `coerce_offices` structurally allows (at most `MAX_CURSOR_OFFICES`
@@ -382,6 +392,13 @@ def _resolve_scope(
         explicit_empty = office is not None and not requested
         requested, invalid_reasons = _validate_offices(requested)
         asked_single = len(requested) + len(invalid_reasons) == 1
+        office_echo: str | list[str] | None
+        if office is None:
+            office_echo = None
+        elif isinstance(office, str):
+            office_echo = requested[0] if requested else office
+        else:
+            office_echo = list(requested)
         offices_searched, offices_skipped, partial_reasons = _run_fanout(
             requested, use_cache=use_cache, explicit_empty=explicit_empty
         )
@@ -392,6 +409,7 @@ def _resolve_scope(
             offices_skipped,
             [*invalid_reasons, *partial_reasons],
             asked_single,
+            office_echo,
         )
 
     if limit is None:
@@ -425,6 +443,7 @@ def _resolve_scope(
         offices_skipped,
         partial_reasons,
         len(offices_searched) == 1,
+        office,
     )
 
 

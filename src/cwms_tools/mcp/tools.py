@@ -688,6 +688,7 @@ def register_publisher_tools(mcp: FastMCP) -> None:
             publishers_index.publishers_for_parameter,
             parameter,
             offices=offices,
+            _field_names={"office_id": "offices"},
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -714,7 +715,11 @@ def _negative_limit_error(limit: int) -> CwmsToolsError:
 
 
 async def _safe(
-    fn, *args, _repair_call: tuple[str, dict[str, Any]] | None = None, **kwargs
+    fn,
+    *args,
+    _repair_call: tuple[str, dict[str, Any]] | None = None,
+    _field_names: dict[str, str] | None = None,
+    **kwargs,
 ) -> dict[str, Any] | ErrorRef:
     """Run a sync core function on the bounded executor; surface known errors structured.
 
@@ -730,10 +735,18 @@ async def _safe(
     is calling, and `_safe`'s own `*args`/`**kwargs` are already core-format
     (`timedelta`/`datetime`/`BBox`, not `window_hours`/`begin_iso`/bbox
     floats), so this takes the handler's ORIGINAL wire-format args instead.
+
+    `_field_names` is a per-tool override of `details.field` (producer name ->
+    this tool's real argument name), applied before the generic
+    `surface_field_name` translation (e.g. `office_id` -> `offices` for the
+    tool whose argument is `offices`).
     """
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
+        details = err.envelope.details
+        if _field_names and details is not None and details.field in _field_names:
+            details.field = _field_names[details.field]
         if _repair_call is not None:
             tool, call_args = _repair_call
             office_id = err.envelope.details.value if err.envelope.details else None

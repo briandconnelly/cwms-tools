@@ -132,6 +132,15 @@ def test_search_places_returns_enriched_matches(configured, mocked) -> None:
     assert payload["results"][0]["parameter_count"] == 2
 
 
+def test_search_places_echoes_canonical_office_scope(configured, mocked) -> None:
+    """`office` echoes the canonical scope, beside `offices_searched` (not the raw arg)."""
+    _arm_all(mocked)
+    assert places.search_places("FOSS", office="swt")["office"] == "SWT"
+    listed = places.search_places("FOSS", office=["swt", "SWT", "mvs"])
+    assert listed["office"] == ["SWT", "MVS"]
+    assert places.search_places("FOSS")["office"] is None
+
+
 def test_search_places_sorts_ghosts_after_data_bearing(configured, mocked) -> None:
     # An empty `like` (i.e. the query never narrows the rows because our test
     # client-side filter is a no-op for "" query) returns both.
