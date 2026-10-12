@@ -196,14 +196,11 @@ def cached_offices_for_locations() -> list[str]:
     Candidate set is the same heuristic slice the fallback uses, since
     diskcache keys are SHA-256 hashed and we cannot iterate them directly.
     """
-    cache = get_cache()
-    cfg = current_config()
-    cached: list[str] = []
-    for office in _FALLBACK_OFFICES:
-        key = build_cache_key("location_catalog", office, "", api_root=cfg.api_root)
-        if cache.get(key) is not None:
-            cached.append(office)
-    return sorted(cached)
+    # Local import: `catalog` imports this module (`NW_STUBS`), so a module-level
+    # import here would be circular.
+    from cwms_tools.core import catalog  # noqa: PLC0415
+
+    return sorted(o for o in _FALLBACK_OFFICES if catalog.location_catalog_cached(o))
 
 
 def discovery_office_candidates() -> list[str]:

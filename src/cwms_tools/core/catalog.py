@@ -47,8 +47,7 @@ def get_locations_catalog(
         raise ghost_office_error(office_id)
     cache = get_cache()
     ttl = cache.ttl_for("location_catalog")
-    cfg = current_config()
-    key = build_cache_key("location_catalog", office_id, like or "", api_root=cfg.api_root)
+    key = _location_catalog_key(office_id, like)
     if use_cache:
         hit = cache.get(key)
         if hit is not None:
@@ -67,6 +66,20 @@ def get_locations_catalog(
         )
     cache.set(key, payload, ttl=ttl)
     return payload
+
+
+def _location_catalog_key(office_id: str, like: str | None) -> str:
+    cfg = current_config()
+    return build_cache_key("location_catalog", office_id, like or "", api_root=cfg.api_root)
+
+
+def location_catalog_cached(office_id: str, *, like: str | None = None) -> bool:
+    """True iff `get_locations_catalog(office_id, like=)` is a cache hit.
+
+    Like `ts_catalog_cached`, the single place that knows the key shape, so
+    probes (`places`, `offices`) cannot drift from the producer.
+    """
+    return get_cache().get(_location_catalog_key(office_id, like)) is not None
 
 
 def _ts_catalog_key(office_id: str, *, like: str | None, include_extents: bool) -> str:
@@ -442,6 +455,7 @@ __all__ = [
     "freshness_for_location",
     "get_locations_catalog",
     "get_timeseries_catalog",
+    "location_catalog_cached",
     "ts_catalog_cached",
     "ts_ids_for_location",
 ]

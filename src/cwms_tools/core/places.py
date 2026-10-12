@@ -21,10 +21,8 @@ from cwms_tools.core import (
     projects,
     publishers,
 )
-from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
-from cwms_tools.core.session import current_config
 
 DEFAULT_SEARCH_LIMIT: int = 50
 DEFAULT_BROWSE_LIMIT: int = 50
@@ -127,7 +125,7 @@ def search_places(
 
     req = pagination.request_hash({"q": query, "parameter": parameter})
     decoded, offset, offices_searched, offices_skipped, partial_reasons = _resolve_scope(
-        office=office, cursor=cursor, limit=limit, req=req
+        office=office, cursor=cursor, limit=limit, req=req, use_cache=use_cache
     )
 
     gathered, gather_reasons, temporary_errored = _gather_enriched(
@@ -353,6 +351,7 @@ def _resolve_scope(
     cursor: str | None,
     limit: int | None,
     req: str,
+    use_cache: bool,
 ) -> tuple[dict[str, Any] | None, int, list[str], list[str], list[str]]:
     """Resolve the office set to search, honoring a continuation cursor.
 
@@ -381,7 +380,9 @@ def _resolve_scope(
         requested = _normalize_office_arg(office)
         if requested is None:
             requested = offices.cached_offices_for_locations()
-        offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
+        offices_searched, offices_skipped, partial_reasons = _run_fanout(
+            requested, use_cache=use_cache, explicit_empty=office is not None and not requested
+        )
         return None, 0, offices_searched, offices_skipped, partial_reasons
 
     if limit is None:
@@ -396,7 +397,9 @@ def _resolve_scope(
     # and a bounded/typed office set (a forged cursor must not widen the fan-out).
     offset = pagination.validate_continuation(decoded, kind="search_places", req=req)
     locked_offices = pagination.coerce_offices(decoded)
-    offices_searched, offices_skipped, partial_reasons = _run_fanout(locked_offices)
+    offices_searched, offices_skipped, partial_reasons = _run_fanout(
+        locked_offices, use_cache=use_cache, explicit_empty=False
+    )
     if offices_skipped:
         # A locked office fell out of budget (cache TTL evicted it, or the
         # cursor was forged). Reject outright rather than silently searching
@@ -409,11 +412,16 @@ def _resolve_scope(
     return decoded, offset, offices_searched, offices_skipped, partial_reasons
 
 
-def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
+def _run_fanout(
+    requested: list[str], *, use_cache: bool, explicit_empty: bool
+) -> tuple[list[str], list[str], list[str]]:
     """Decide which offices to search; return (searched, skipped, reasons).
 
     Mirrors `publishers_index.publishers_for_parameter`: cached offices
-    are always allowed; uncached offices consume the per-call budget.
+    are always allowed; uncached offices consume the per-call budget. With
+    `use_cache=False` every office is refetched, so none counts as cached.
+    `explicit_empty` marks a caller-supplied `office=[]` (vs an empty cached
+    scope), which changes the wording of the empty-scope reason.
     Offices that error during the actual search are flagged via
     `partial_reasons` in the parent response.
     """
@@ -422,7 +430,7 @@ def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
     skipped: list[str] = []
     reasons: list[str] = []
     for office in requested:
-        cached = _location_catalog_cached(office)
+        cached = use_cache and catalog.location_catalog_cached(office)
         if cached or budget > 0:
             searched.append(office)
             if not cached:
@@ -431,7 +439,9 @@ def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
             skipped.append(office)
     if not requested:
         reasons.append(
-            "no_offices_in_scope: no office catalog is cached yet; follow `repair_hint` "
+            "no_offices_in_scope: explicit empty office list; nothing was searched"
+            if explicit_empty
+            else "no_offices_in_scope: no office catalog is cached yet; follow `repair_hint` "
             "or pass `office` explicitly"
         )
     if skipped:
@@ -440,15 +450,6 @@ def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
             "follow `repair_hint` to continue"
         )
     return searched, skipped, reasons
-
-
-def _location_catalog_cached(office: str) -> bool:
-    """Cheap probe: is `office`'s unfiltered locations catalog cached?"""
-
-    cache = get_cache()
-    cfg = current_config()
-    key = build_cache_key("location_catalog", office, "", api_root=cfg.api_root)
-    return cache.get(key) is not None
 
 
 def _gather_enriched(

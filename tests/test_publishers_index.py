@@ -287,3 +287,25 @@ def test_publishers_for_parameter_complete_requires_an_indexed_office(configured
         payload = publishers_index.publishers_for_parameter("Elev", offices=["SWT"])
     assert payload["coverage"]["offices_indexed"] == []
     assert payload["coverage"]["complete"] is False
+
+
+def test_publishers_for_parameter_use_cache_false_spends_budget_on_cached_offices(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forced refresh refetches every office, so a cached office is not free."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json=_ts_catalog("FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"),
+            status=200,
+        )
+        publishers_index.publishers_for_parameter("Elev", offices=["SWT", "MVS", "NWDM"])
+        assert len(mocked.calls) == 3
+        monkeypatch.setattr(publishers_index, "_budget", lambda: 1)
+        payload = publishers_index.publishers_for_parameter(
+            "Elev", offices=["SWT", "MVS", "NWDM"], use_cache=False
+        )
+        assert len(mocked.calls) == 4, "exactly one fetch attempted under budget 1"
+    assert payload["coverage"]["offices_indexed"] == ["SWT"]
+    assert payload["coverage"]["offices_skipped_for_budget"] == ["MVS", "NWDM"]

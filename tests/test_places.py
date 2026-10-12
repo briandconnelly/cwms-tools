@@ -6,7 +6,7 @@ import cwms
 import pytest
 import responses
 
-from cwms_tools.core import locations, offices, pagination, places, projects, session
+from cwms_tools.core import catalog, locations, offices, pagination, places, projects, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
@@ -958,7 +958,7 @@ def test_search_places_paginates_with_cursor(monkeypatch):
     ]
     fanout_calls = 0
 
-    def _counting_fanout(req):
+    def _counting_fanout(req, **kwargs):
         nonlocal fanout_calls
         fanout_calls += 1
         return (["NWDM"], [], [])
@@ -1018,7 +1018,7 @@ def test_search_places_cursor_rejects_catalog_shift(monkeypatch):
             "co_located": [],
         },
     ]
-    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kwargs: (["NWDM"], [], []))
     calls = {"n": 0}
 
     def _shifting_gather(offices, q, use_cache, reraise_single):
@@ -1044,7 +1044,7 @@ def test_search_places_rejects_mismatched_cursor(monkeypatch):
         }
         for i in range(5)
     ]
-    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kwargs: (["NWDM"], [], []))
     monkeypatch.setattr(
         places,
         "_gather_enriched",
@@ -1059,7 +1059,7 @@ def test_search_places_rejects_mismatched_cursor(monkeypatch):
 def test_search_places_rejects_cursor_with_unlimited_limit(monkeypatch):
     # A cursor combined with an unlimited limit (0 -> None) is contradictory and
     # must be rejected before any fan-out, not silently return a tail subset.
-    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kwargs: (["NWDM"], [], []))
     monkeypatch.setattr(
         places, "_gather_enriched", lambda offices, q, use_cache, reraise_single: ([], [], [])
     )
@@ -1128,7 +1128,9 @@ def test_search_places_cursor_rejects_when_cache_expires_between_pages(
     ]
     cached_offices = {"NWDM", "NWDP"}
     monkeypatch.setattr(places, "_fanout_budget", lambda: 0)  # no new fetches allowed at all
-    monkeypatch.setattr(places, "_location_catalog_cached", lambda office: office in cached_offices)
+    monkeypatch.setattr(
+        catalog, "location_catalog_cached", lambda office, like=None: office in cached_offices
+    )
     monkeypatch.setattr(
         places,
         "_gather_enriched",
@@ -1501,3 +1503,26 @@ def test_search_places_single_resolved_office_error_does_not_swallow_a_continuat
     payload = places.search_places("x", office=["NWDM", "NWDP"])
     assert "NWDM: upstream_error" in payload["partial_reasons"]
     assert payload["repair_hint"]["args"]["office"] == ["NWDP", "NWDM"]
+
+
+def test_search_places_explicit_empty_office_reason_says_so(configured, mocked) -> None:
+    payload = places.search_places("x", office=[])
+    assert payload["partial_reasons"] == [
+        "no_offices_in_scope: explicit empty office list; nothing was searched"
+    ]
+    assert "repair_hint" not in payload
+
+
+def test_search_places_use_cache_false_spends_budget_on_cached_offices(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forced refresh refetches every office, so a cached office is not free."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    places.search_places("warm", office=["SWT", "MVS"])
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    warm = places.search_places("x", office=["SWT", "MVS"])
+    assert warm["offices_skipped_for_budget"] == []
+    forced = places.search_places("x", office=["SWT", "MVS"], use_cache=False)
+    assert forced["offices_searched"] == ["SWT"]
+    assert forced["offices_skipped_for_budget"] == ["MVS"]

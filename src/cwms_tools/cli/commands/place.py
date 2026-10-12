@@ -141,9 +141,15 @@ def search(
     structured `depth: {value, unit}` (e.g. `{value: 3.0, unit: "ft"}`),
     so there's no need to parse the cryptic id.
 
-    When `--office` is omitted and the resolved scope is empty, the
-    response carries a top-level `repair_hint` naming a concrete
-    data-bearing office list to retry with.
+    A top-level `repair_hint` (with `partial: true`) keeps the search
+    followable to exhaustion; it appears in three cases. When `--office` is
+    omitted and the resolved scope is empty, it names the curated
+    data-bearing offices to retry with. When the per-call fan-out budget
+    skips offices, it names the skipped ones (plus any that failed with a
+    temporary upstream error, once). When `--office` is omitted, only some
+    curated offices are cached, and nothing matched, it names the curated
+    offices that were never searched. Follow it until
+    `offices_skipped_for_budget` is empty.
     """
     if limit < 0:
         emit_error(

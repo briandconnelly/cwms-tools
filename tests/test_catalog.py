@@ -583,3 +583,17 @@ def test_upstream_failure_emits_no_warning_or_error_log_records(
         catalog.get_locations_catalog("SWT", use_cache=False)
     loud = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert loud == [], [r.getMessage() for r in loud]
+
+
+def test_location_catalog_cached_flips_after_get_locations_catalog(configured, mocked) -> None:
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json=SWT_LOCATIONS_PAYLOAD,
+        status=200,
+    )
+    assert catalog.location_catalog_cached("SWT") is False
+    catalog.get_locations_catalog("SWT")
+    assert catalog.location_catalog_cached("SWT") is True
+    assert catalog.location_catalog_cached("SWT", like="FOSS") is False
+    assert catalog.location_catalog_cached("MVS") is False

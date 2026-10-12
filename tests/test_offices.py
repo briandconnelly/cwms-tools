@@ -300,9 +300,9 @@ def test_ghost_office_error_is_the_shared_builder_for_both_surfaces() -> None:
 def test_discovery_office_candidates_is_a_priority_order() -> None:
     """#161: a fresh server follows the repair chain with a fan-out budget of
     ceil(workers/2) (4 by default). The first four must be the regional rollups
-    and the two district offices with the most published projects so both
-    reviewer failures (Fort Peck at NWDM, Foss at SWT) resolve on the first
-    follow-up call — not an alphabetical slice (LRB, LRC, LRE, LRH).
+    and SWT and MVS, the two district offices behind the reviewer's failing
+    cases, so both resolve on the first follow-up call (Fort Peck at NWDM, Foss
+    at SWT) — not an alphabetical slice (LRB, LRC, LRE, LRH).
     """
     cands = offices.discovery_office_candidates()
     assert cands[:4] == ["NWDM", "NWDP", "SWT", "MVS"]

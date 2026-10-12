@@ -504,21 +504,28 @@ def test_list_parameters_parity_real_producer(configured, monkeypatch) -> None:
     assert cli_data == mcp_data
 
 
-def test_search_places_budget_repair_hint_parity_real_producer(configured, monkeypatch) -> None:
+@pytest.mark.parametrize("detail", ["summary", "full"])
+def test_search_places_budget_repair_hint_parity_real_producer(
+    detail: str, configured, monkeypatch
+) -> None:
     """#161: the continuation hint must reach both surfaces identically."""
     _stub_catalog(monkeypatch)
     monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
-    argv = ["place", "search", "FOSS", "-o", "SWT", "-o", "NWDM", "-o", "NWDP"]
+    argv = ["place", "search", "FOSS", "-o", "SWT", "-o", "NWDM", "-o", "NWDP", "--detail", detail]
     cli_data = _cli_data(SEARCH, argv)
-    mcp_data = _mcp_data("cwms_search_places", {"query": "FOSS", "office": ["SWT", "NWDM", "NWDP"]})
+    mcp_data = _mcp_data(
+        "cwms_search_places",
+        {"query": "FOSS", "office": ["SWT", "NWDM", "NWDP"], "detail": detail},
+    )
     assert cli_data == mcp_data
     assert cli_data["partial"] is True
     assert cli_data["repair_hint"]["args"]["office"] == ["NWDM", "NWDP"]
 
 
-def test_publishers_cold_cache_repair_parity_real_producer(configured) -> None:
-    cli_data = _cli_data(PUBLISHERS, ["publisher", "for-parameter", "Elev"])
-    mcp_data = _mcp_data("cwms_publishers_for_parameter", {"parameter": "Elev"})
+@pytest.mark.parametrize("detail", ["summary", "full"])
+def test_publishers_cold_cache_repair_parity_real_producer(detail: str, configured) -> None:
+    cli_data = _cli_data(PUBLISHERS, ["publisher", "for-parameter", "Elev", "--detail", detail])
+    mcp_data = _mcp_data("cwms_publishers_for_parameter", {"parameter": "Elev", "detail": detail})
     assert cli_data == mcp_data
     assert cli_data["coverage"]["complete"] is False
     assert cli_data["repair"]["next_step"] == "index_curated_offices"

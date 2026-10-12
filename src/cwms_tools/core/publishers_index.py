@@ -75,7 +75,7 @@ def publishers_for_parameter(
 
     budget_remaining = _budget()
     for office in requested:
-        was_cached = _office_has_cache(office)
+        was_cached = use_cache and _office_has_cache(office)
         if was_cached or budget_remaining > 0:
             # An uncached office consumes the budget on *attempt*, not just on
             # success: the fetch hits the upstream regardless of outcome, so a
