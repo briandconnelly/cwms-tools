@@ -366,8 +366,24 @@ def _commands() -> list[dict[str, Any]]:
                 )
             ],
             "options": [
-                _opt("--begin", "string", required=True, help="RFC3339 window start."),
-                _opt("--end", "string", required=True, help="RFC3339 window end."),
+                _opt(
+                    "--begin",
+                    "string",
+                    required=True,
+                    help=(
+                        "Window start: RFC3339 date-time with timezone (Z or ±HH:MM), "
+                        "e.g. 2026-05-17T00:00:00Z; a date alone is rejected."
+                    ),
+                ),
+                _opt(
+                    "--end",
+                    "string",
+                    required=True,
+                    help=(
+                        "Window end: RFC3339 date-time with timezone (Z or ±HH:MM), "
+                        "e.g. 2026-05-18T00:00:00Z; a date alone is rejected."
+                    ),
+                ),
                 _opt("--unit", "string", default="EN", enum=["EN", "SI"]),
                 _opt(
                     "--rollup",

@@ -215,14 +215,20 @@ def history(
         str,
         typer.Option(
             "--begin",
-            help="Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z).",
+            help=(
+                "Window start: RFC3339 date-time with timezone (Z or ±HH:MM), "
+                "e.g. 2026-05-17T00:00:00Z; a date alone is rejected."
+            ),
         ),
     ],
     end: Annotated[
         str,
         typer.Option(
             "--end",
-            help="Window end as an RFC3339 timestamp (e.g. 2026-05-18T00:00:00Z).",
+            help=(
+                "Window end: RFC3339 date-time with timezone (Z or ±HH:MM), "
+                "e.g. 2026-05-18T00:00:00Z; a date alone is rejected."
+            ),
         ),
     ],
     unit: Annotated[

@@ -7,6 +7,7 @@ resolves in one tool call rather than four.
 
 from __future__ import annotations
 
+import re
 import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -241,10 +242,16 @@ def _profile_entry(
 _TZ_HINT = "RFC3339 with timezone; append Z for UTC, e.g. 2026-10-05T00:00:00Z"
 
 
+_DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
 def parse_rfc3339(value: str, *, field: str) -> datetime:
     """Parse a surface timestamp argument; reject garbage and timezone-less input (#167)."""
+    text = value.strip()
+    if text[-1:] in ("z", "Z"):  # RFC3339 s5.6 allows lowercase t/z
+        text = text[:-1] + "+00:00"
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(text.replace("t", "T", 1))
     except ValueError as exc:
         raise CwmsToolsError.of(
             ErrorCode.INVALID_FIELD,
@@ -254,12 +261,19 @@ def parse_rfc3339(value: str, *, field: str) -> datetime:
             reason=_TZ_HINT,
         ) from exc
     if parsed.tzinfo is None:
+        if _DATE_ONLY.fullmatch(text):
+            fix = f"A full date-time with timezone is required, e.g. {text}T00:00:00Z."
+        else:
+            fix = (
+                "No timezone was given, so the instant is ambiguous; "
+                f"append Z for UTC, e.g. {text}Z."
+            )
         raise CwmsToolsError.of(
             ErrorCode.INVALID_FIELD,
             f"{field} has no timezone: {value!r}.",
             field=field,
             value=value,
-            reason=f"No timezone was given, so the instant is ambiguous. {_TZ_HINT}",
+            reason=fix,
         )
     return parsed
 
@@ -285,7 +299,8 @@ def require_window(
             value=end.isoformat(),
             reason=(
                 f"Got {begin_field}={begin.isoformat()} and {end_field}={end.isoformat()}; "
-                "an empty or inverted window would return no data, not an error."
+                f"set {end_field} later than {begin_field} "
+                "(an empty or inverted window has no data)."
             ),
         )
 

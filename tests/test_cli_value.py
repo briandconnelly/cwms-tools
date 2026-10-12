@@ -589,7 +589,9 @@ def test_attach_repair_intent_spec_mode_keeps_non_positional_overrides() -> None
 )
 def test_value_history_window_validation(begin, end, code, field) -> None:
     args = ["value", "history", "SWT/FOSS/Elev", "--begin", begin, "--end", end]
-    result = runner.invoke(app, args)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        result = runner.invoke(app, args)
+        assert len(mocked.calls) == 0
     assert result.exit_code == 2
     err = json.loads(result.stderr)["error"]
     assert err["code"] == code

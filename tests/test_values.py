@@ -1202,12 +1202,26 @@ def test_parse_rfc3339_rejects_naive_and_garbage() -> None:
         values.parse_rfc3339("2026-10-05", field="begin_iso")
     assert ex.value.envelope.code is ErrorCode.INVALID_FIELD
     assert _details(ex.value).field == "begin_iso"
-    assert "append Z" in (_details(ex.value).reason or "")
+    assert "T00:00:00Z" in (_details(ex.value).reason or "")
     with pytest.raises(CwmsToolsError):
         values.parse_rfc3339("not-a-date", field="end_iso")
     assert values.parse_rfc3339("2026-10-05T00:00:00Z", field="x") == datetime(
         2026, 10, 5, tzinfo=UTC
     )
+
+
+@pytest.mark.parametrize("value", ["2026-10-05", "2026-10-05T00:00:00"])
+def test_parse_rfc3339_hints_are_followable(value: str) -> None:
+    with pytest.raises(CwmsToolsError) as ex:
+        values.parse_rfc3339(value, field="x")
+    match = re.search(r"e\.g\. (\S+?)\.?$", _details(ex.value).reason or "")
+    assert match
+    assert values.parse_rfc3339(match.group(1), field="x") == datetime(2026, 10, 5, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("value", ["2026-10-05t00:00:00z", "2026-10-05T00:00:00z"])
+def test_parse_rfc3339_accepts_lowercase_t_and_z(value: str) -> None:
+    assert values.parse_rfc3339(value, field="x") == datetime(2026, 10, 5, tzinfo=UTC)
 
 
 def test_history_rejects_inverted_window_before_any_upstream_call(configured) -> None:

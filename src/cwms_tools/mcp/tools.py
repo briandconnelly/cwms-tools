@@ -514,11 +514,16 @@ def register_value_tools(mcp: FastMCP) -> None:
         name: Annotated[str, _NAME_HINT],
         parameter: Annotated[str, _PARAMETER_HINT],
         begin_iso: Annotated[
-            str, "Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z)."
+            str,
+            "Window start: "
+            "RFC3339 date-time with timezone (Z or ±HH:MM), e.g. 2026-05-17T00:00:00Z; "
+            "a date alone is rejected.",
         ],
         end_iso: Annotated[
             str,
-            "Window end as an RFC3339 timestamp (e.g. 2026-05-18T00:00:00Z).",
+            "Window end: "
+            "RFC3339 date-time with timezone (Z or ±HH:MM), e.g. 2026-05-18T00:00:00Z; "
+            "a date alone is rejected.",
         ],
         unit: Annotated[Literal["EN", "SI"], _UNIT_HINT] = "EN",
         rollup: Annotated[
@@ -528,7 +533,8 @@ def register_value_tools(mcp: FastMCP) -> None:
             "windows longer than about two days use 'hourly' or 'daily' — "
             "per-bucket min/max/mean/count in `buckets`, exempt from the raw "
             "cap (the upstream fetch cap can still apply; see `truncated`). "
-            "`summary` is always present whatever the rollup.",
+            "`summary` is always present (null only when the window has no numeric "
+            "observations).",
         ] = Rollup.RAW,
         detail: Detail = Detail.SUMMARY,
     ) -> HistoryResponse | ErrorRef:
@@ -541,8 +547,8 @@ def register_value_tools(mcp: FastMCP) -> None:
         two days use `rollup='hourly'` or `'daily'`: `'raw'` returns every point
         up to a 5,000-point cap (30 days of 15-minute data is ~2,900 points,
         ~220 KB), while the rollups return per-bucket aggregates in `buckets`
-        that are exempt from that cap. `summary` is always present whatever the
-        rollup. If `truncated`, check `truncation_hint`: a
+        that are exempt from that cap. `summary` is always present (null only when
+        the window has no numeric observations). If `truncated`, check `truncation_hint`: a
         local raw-point cap still covers the full window (rollup gives a
         complete summary), but an upstream fetch cap means `summary`/
         `buckets` cover only the fetched prefix — continue via `next_begin`

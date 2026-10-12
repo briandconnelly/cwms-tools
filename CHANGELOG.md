@@ -95,7 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#162). Fingerprint moves (schema descriptions, new `zone` field).
 - `cwms_get_history` / `value history`: an inverted or empty window
   (`end <= begin`) is now `usage_error` naming both fields instead of an empty
-  `ok: true`; a timezone-less timestamp is rejected as `invalid_field` with the
+  `ok: true`; a timezone-less timestamp (previously accepted as a naive local time) is
+  rejected as `invalid_field` with the
   fix spelled out, matching the error text (#167). `usage_error` is advertised
   on `cwms_get_history`.
 
