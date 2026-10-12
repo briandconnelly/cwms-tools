@@ -223,10 +223,6 @@ def build_server() -> FastMCP:
         NW regional-rollup guidance. Network-backed (cached 7 days); degrades
         to a documented fallback slice with `partial: true` when upstream is
         unreachable on a cold start.
-
-        The cache-miss fetch is a blocking `cwms-python` call, so it runs on
-        the bounded executor (never directly on the event loop) — same policy
-        as the task tools. See `core.concurrency`.
         """
         return await run_sync(offices_payload)
 

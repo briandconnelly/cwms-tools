@@ -50,7 +50,9 @@ class OverviewSection:
     body: str
     size_bytes: int
     sha256: str
-    summary: str  # first 1-3 sentences of the section body
+    # first 1-3 prose sentences, or "Reference section: <title>." when a
+    # section has no prose paragraph
+    summary: str
 
     def chunk_count(self) -> int:
         return max(1, -(-len(self.body.encode("utf-8")) // CHUNK_SIZE))
@@ -80,25 +82,36 @@ class OverviewSection:
         return None
 
 
-def _first_summary(body: str) -> str:
-    """Extract a 1-3 sentence summary from the section body."""
-    lines = [line.strip() for line in body.strip().splitlines() if line.strip()]
-    if not lines:
-        return ""
-    # First non-heading, non-table-pipe paragraph.
-    paragraph: list[str] = []
-    for line in lines:
-        if line.startswith(("#", "|")):
-            if paragraph:
-                break
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+_TABLE_DELIM = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
+_FENCE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
+_RULE = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
+
+
+def _first_summary(body: str, *, title: str) -> str:
+    """Summarise a section as the first prose paragraph, at most 3 sentences.
+
+    Works on blank-line-separated paragraphs so a list block (including its
+    indented continuation lines), table, heading, horizontal rule, or fenced
+    code is skipped as a unit. A section with no prose paragraph gets
+    ``Reference section: <title>.``
+    """
+    for paragraph in re.split(r"\n\s*\n", _FENCE.sub("", body)):
+        lines = [line.strip() for line in paragraph.splitlines() if line.strip()]
+        while lines and lines[0].startswith("#"):
+            lines.pop(0)
+        if not lines:
             continue
-        paragraph.append(line)
-        if line.endswith((".", "!", "?")) and len(paragraph) >= 1:
-            text = " ".join(paragraph)
-            # Truncate to ~3 sentences.
-            sentences = re.split(r"(?<=[.!?])\s+", text)
-            return " ".join(sentences[:3]).strip()
-    return " ".join(paragraph[:3]).strip()
+        first = lines[0]
+        is_table = first.startswith("|") or (
+            "|" in first and len(lines) > 1 and bool(_TABLE_DELIM.match(lines[1]))
+        )
+        if is_table or _RULE.match(first) or _LIST_ITEM.match(first):
+            continue
+        sentences = re.split(r"(?<=[.!?])\s+", " ".join(lines))
+        text = " ".join(sentences[:3]).strip().rstrip(":").rstrip()
+        return text if text.endswith((".", "!", "?")) else text + "."
+    return f"Reference section: {title}."
 
 
 def _load_raw() -> str:
@@ -143,7 +156,7 @@ def _build_section(section_id: str, title: str, body: str) -> OverviewSection:
         body=body,
         size_bytes=len(encoded),
         sha256=hashlib.sha256(encoded).hexdigest()[:16],
-        summary=_first_summary(body),
+        summary=_first_summary(body, title=title),
     )
 
 

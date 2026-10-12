@@ -20,6 +20,8 @@ A stable SHA-256 over the inputs documented in the plan's §Discovery contract:
 11. The FastMCP server `instructions` string (#71 — a prose rewrite to either
     of these that changes agent behavior must move the fingerprint, not just
     input/output schemas)
+12. The `cwms://overview` index section summaries (agent-visible prose derived
+    from the bundled document by `overview.all_sections()`, read at call time)
 
 Exposed as `fingerprint` (hex) and `fingerprint_scope: "schema-contract"` — the
 scope name predates #71 and is kept for backward compatibility, but the hash
@@ -103,6 +105,7 @@ def compute(
         "server_instructions": server_instructions or "",
         "error_codes": sorted(c.value for c in ErrorCode),
         "overview_sha256": overview.document_sha256(),
+        "overview_summaries": {s.section_id: s.summary for s in overview.all_sections()},
         "session": session_fingerprint(),
         "workarounds": active_workarounds(),
     }

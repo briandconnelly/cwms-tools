@@ -225,7 +225,13 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
     )
     raw: dict[str, Any] | None = Field(
         default=None,
-        description="Unfiltered upstream location DTO; detail=full only (search, not browse).",
+        description=(
+            "Upstream location-catalog entry (`/catalog/LOCATIONS`); all upstream "
+            "fields and kebab-case keys are retained (floats are normalized to "
+            "six significant figures on the wire, like every response value). "
+            "Not the same key set as `cwms_describe_place`'s `location`; "
+            "unfiltered, detail=full only (search, not browse)."
+        ),
     )
 
 
@@ -323,14 +329,25 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     ok: Literal[True] = True
     office_id: str
     name: str
-    location: dict[str, Any]
+    location: dict[str, Any] = Field(
+        description=(
+            "Upstream Location DTO; keys keep CDA's kebab-case spelling "
+            "(`office-id`, `public-name`), not the envelope's snake_case. "
+            "detail=summary keeps the triage subset; detail=full retains all upstream "
+            "fields and kebab-case keys (floats are normalized to six significant "
+            "figures on the wire, like every response value)."
+        ),
+    )
     project: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Upstream Project DTO; null if not a project or the project lookup "
+            "Upstream Project DTO with kebab-case keys (not normalized to snake_case). "
+            "Null if not a project or the project lookup "
             "failed (see partial_reasons). detail=summary keeps only "
             "project-owner and authorizing-law ({} when neither is set); detail=full "
-            "is verbatim, and its nested location's 0.0 lat/lon are placeholders "
+            "retains all upstream fields and kebab-case keys (floats are normalized "
+            "to six significant figures on the wire, like every response value), "
+            "and its nested location's 0.0 lat/lon are placeholders "
             "(use the top-level location)."
         ),
     )
@@ -368,7 +385,10 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     locks: list[dict[str, Any]] | None = Field(
         default=None,
         description=(
-            "Failed lock: {name, error}. Sentinel dimensions are null, named in invalid_fields."
+            "Lock records normalized from the upstream DTO: kebab-case keys preserved, "
+            "negative dimensions (the -9999 m sentinel, usually unit-converted, e.g. "
+            "-32805.118 ft) nulled and named in `invalid_fields`, a failed "
+            "lookup is `{name, error}`; detail=summary keeps the dimension subset."
         ),
     )
     lock_upstream_status: int | None = Field(
