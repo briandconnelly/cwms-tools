@@ -99,19 +99,42 @@ def resolve_applicable_level(
     null OR > `at`. Returns None when no row matches.
     """
     rows = list_levels(office, location=location, parameter=parameter)
-    candidates: list[tuple[datetime, dict[str, Any]]] = []
+    survivors = applicable_revisions(rows, at=at)
+    if not survivors:
+        return None
+    return max(
+        survivors,
+        key=lambda r: _coerce_dt(r.get("level-date") or r.get("levelDate")) or at,
+    )
+
+
+def applicable_revisions(rows: list[dict[str, Any]], *, at: datetime) -> list[dict[str, Any]]:
+    """One row per `level_id`: the revision in force at `at`.
+
+    CDA's `/levels` listing returns every revision of a level (#162: FOSS had
+    a 1900 and a 1961 row for most ids). Keep, per id, the latest `level-date`
+    <= `at` whose `expiration-date` is null or > `at`. Undated rows are
+    skipped; equal dates keep listing order; output keeps first-seen id order.
+    """
+    best: dict[str, tuple[datetime, dict[str, Any]]] = {}
+    order: list[str] = []
     for row in rows:
+        level_id = level_id_of(row)
+        if level_id is None:
+            continue
         level_date = _coerce_dt(row.get("level-date") or row.get("levelDate"))
         if level_date is None or level_date > at:
             continue
         exp = _coerce_dt(row.get("expiration-date") or row.get("expirationDate"))
         if exp is not None and exp <= at:
             continue
-        candidates.append((level_date, row))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda kv: kv[0])
-    return candidates[-1][1]
+        current = best.get(level_id)
+        if current is None:
+            order.append(level_id)
+            best[level_id] = (level_date, row)
+        elif level_date > current[0]:
+            best[level_id] = (level_date, row)
+    return [best[level_id][1] for level_id in order]
 
 
 def fetch_level_value(
@@ -359,6 +382,7 @@ def _first_value_from(payload: dict[str, Any]) -> float | None:
 
 
 __all__ = [
+    "applicable_revisions",
     "classify",
     "fetch_level_value",
     "list_levels",

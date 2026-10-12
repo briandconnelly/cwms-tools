@@ -157,3 +157,37 @@ def test_classify_above_action_stage_is_action() -> None:
     ]
     status, _ = levels.classify(1690.0, thresholds)
     assert status == "action"
+
+
+AT = datetime(2026, 10, 12, 14, tzinfo=UTC)
+
+
+def _row(lid: str, date: str, *, exp: str | None = None, specified: str = "X") -> dict:
+    row = {"location-level-id": lid, "level-date": date, "specified-level-id": specified}
+    if exp is not None:
+        row["expiration-date"] = exp
+    return row
+
+
+def test_applicable_revisions_keeps_one_row_per_level_id() -> None:
+    """#162: live SWT/FOSS returns 24 rows for 13 ids — a 1900-01-01 and a
+    1961-02-13 revision of most levels — which doubled `thresholds_active`."""
+    rows = [
+        _row("FOSS.Elev.Inst.0.Top of Flood", "1900-01-01T06:00:00Z"),
+        _row("FOSS.Elev.Inst.0.Top of Flood", "1961-02-13T06:00:00Z"),
+        _row("FOSS.Elev.Inst.0.Streambed", "1961-02-13T06:00:00Z"),
+        _row("FOSS.Elev.Inst.0.Future", "2030-01-01T00:00:00Z"),
+        _row("FOSS.Elev.Inst.0.Expired", "2000-01-01T00:00:00Z", exp="2001-01-01T00:00:00Z"),
+        _row("FOSS.Elev.Inst.0.Undated", ""),
+    ]
+    kept = levels.applicable_revisions(rows, at=AT)
+    assert [(levels.level_id_of(r), r["level-date"]) for r in kept] == [
+        ("FOSS.Elev.Inst.0.Top of Flood", "1961-02-13T06:00:00Z"),
+        ("FOSS.Elev.Inst.0.Streambed", "1961-02-13T06:00:00Z"),
+    ]
+
+
+def test_applicable_revisions_equal_dates_keep_listing_order() -> None:
+    a = _row("L", "2000-01-01T00:00:00Z", specified="first")
+    b = _row("L", "2000-01-01T00:00:00Z", specified="second")
+    assert levels.applicable_revisions([a, b], at=AT)[0]["specified-level-id"] == "first"
