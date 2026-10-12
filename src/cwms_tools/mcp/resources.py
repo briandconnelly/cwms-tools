@@ -45,8 +45,8 @@ TOOL_INVENTORY: list[str] = [
 #: yet. Advertised separately so agents don't write dead branches. Moving a
 #: code from reserved to live is additive; it lands in a tool's
 #: TOOL_ERROR_CODES entry when wired.
-# wrapper_bug is raised in core/levels.py but absorbed into level_lookup_status
-# before any agent-facing surface; it returns to the live list when that path is re-wired.
+# wrapper_bug has no emission path: failures on the issue-286 seasonal-level bypass
+# are classified as ordinary upstream failures (tagged `source.workaround`) (#153).
 RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable", "wrapper_bug"]
 
 #: Per-tool error catalog. The codes each tool can return as `error.code`, so an

@@ -22,13 +22,13 @@ import cwms.api as cwms_api
 import cwms.levels.location_levels as ll_api
 
 from cwms_tools.core.cache import build_cache_key, get_cache
-from cwms_tools.core.errors import CwmsToolsError, ErrorCode
+from cwms_tools.core.errors import CwmsToolsError
 from cwms_tools.core.session import current_config
 from cwms_tools.core.upstream import (
     empty_collection_error,
-    failure_summary,
     require_collection,
     require_record,
+    upstream_call,
 )
 
 # Substring fingerprint of the seasonal-bug detection. We treat any level
@@ -71,17 +71,11 @@ def list_levels(
         if hit is not None:
             return hit
 
-    try:
+    with upstream_call("/levels", operation=f"levels listing for {office} mask={level_id_mask!r}"):
         data = ll_api.get_location_levels(
             office_id=office,
             level_id_mask=level_id_mask,
         )
-    except Exception as exc:
-        raise CwmsToolsError.of(
-            ErrorCode.UPSTREAM_ERROR,
-            f"levels listing failed for {office} mask={level_id_mask!r} ({failure_summary(exc)}).",
-            endpoints_called=["/levels"],
-        ) from exc
     payload = data.json if hasattr(data, "json") else data
     rows = _level_entries(payload)
     if rows is None:
@@ -135,19 +129,13 @@ def fetch_level_value(
     `cwms.api.get`. The response carries `source_workaround: "issue-286"`
     when the bypass is taken.
     """
-    try:
+    with upstream_call(f"/levels/{level_id}", operation=f"level lookup for {office}/{level_id}"):
         data = ll_api.get_location_level(
             level_id=level_id,
             office_id=office,
             effective_date=effective_date,
             unit=unit,
         )
-    except Exception as exc:
-        raise CwmsToolsError.of(
-            ErrorCode.UPSTREAM_ERROR,
-            f"get_location_level failed for {office}/{level_id} ({failure_summary(exc)}).",
-            endpoints_called=[f"/levels/{level_id}"],
-        ) from exc
     payload = require_record(
         data.json if hasattr(data, "json") else data,
         endpoint=f"/levels/{level_id}",
@@ -322,30 +310,28 @@ def _seasonal_workaround(
         "interval": "1Hour",
         "unit": unit,
     }
+    endpoint = f"/levels/{level_id}/timeseries"
     try:
-        # No leading slash: BaseUrlSession concatenates `api_root` (which already
-        # includes `cwms-data/`) with this relative path. A leading slash would
-        # bypass the api_root prefix.
-        raw = cwms_api.get(f"levels/{quoted}/timeseries", params)
-    except Exception as exc:
-        raise CwmsToolsError.of(
-            ErrorCode.WRAPPER_BUG,
-            f"seasonal-level workaround failed for {office}/{level_id} ({failure_summary(exc)}).",
-            reason=(
-                "Seasonal levels are routed around cwms-python issue #286 by "
-                "hitting /levels/{id}/timeseries directly; this request failed."
-            ),
-            endpoints_called=[f"/levels/{level_id}/timeseries"],
-            workaround="issue-286",
-        ) from exc
-    payload = require_collection(
-        raw,
-        keys=("values",),
-        endpoint=f"/levels/{level_id}/timeseries",
-        operation="seasonal-level workaround",
-        field="level_id",
-        value=level_id,
-    )
+        with upstream_call(
+            endpoint, operation=f"seasonal-level workaround for {office}/{level_id}"
+        ):
+            # No leading slash: BaseUrlSession concatenates `api_root` (which already
+            # includes `cwms-data/`) with this relative path. A leading slash would
+            # bypass the api_root prefix.
+            raw = cwms_api.get(f"levels/{quoted}/timeseries", params)
+        payload = require_collection(
+            raw,
+            keys=("values",),
+            endpoint=endpoint,
+            operation="seasonal-level workaround",
+            field="level_id",
+            value=level_id,
+        )
+    except CwmsToolsError as err:
+        # Classified like any upstream failure; tag the bypass so the caller
+        # can see the request went through the issue-286 workaround.
+        err.envelope.source.workaround = "issue-286"
+        raise
     point = _first_value_from(payload)
     return {
         "level_id": level_id,

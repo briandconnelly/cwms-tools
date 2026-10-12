@@ -61,6 +61,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Level lookups classify upstream failures like other CDA calls (#153).
+  Listing levels, reading a level, and the seasonal-level bypass for
+  cwms-python issue #286 used to report every failure, including our own
+  bugs, as a non-retryable `upstream_error` (or `wrapper_bug` on the bypass).
+  Now a 404 is `not_found`, a 429 is `rate_limited`, a 5xx or connection
+  failure is a temporary `upstream_error`, and a programming error is no
+  longer reported as an upstream failure. Failures on the seasonal bypass
+  carry `source.workaround: "issue-286"`, and `wrapper_bug` has no emission
+  path (it was already listed as reserved). `value get` with thresholds
+  degrades as before: a failed levels listing is still
+  `level_lookup_status: unavailable`, and a level whose value cannot be read
+  is still left out of the classification.
+
 - A location or project lookup that comes back with an empty body is now
   reported instead of passed off as a record (#137). cwms-python 1.1.2+ turns
   an empty 200/204 body into `{}`. A location lookup then fails with a
