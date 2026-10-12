@@ -7,7 +7,7 @@ boundary as an envelope instead of a raw exception (#131):
 
 - `cwms.api.ApiError` → classified by HTTP status (`upstream_error_from_status`):
   404 not_found, 429 rate_limited, other 4xx permanent, 5xx temporary. A 2xx
-  `ApiError` means cwms-python could not parse the body (1.1.x raises instead
+  `ApiError` means cwms-python could not parse the body (1.1.2+ raises instead
   of returning the text) and is reported as an unreadable, temporary failure.
 - `requests.RequestException` (incl. `ConnectionError`, `Timeout`,
   `RetryError`) and `urllib3.exceptions.HTTPError` → temporary upstream_error.
@@ -81,7 +81,7 @@ def from_transport_error(exc: BaseException, *, endpoint: str, operation: str) -
 def is_record(payload: Any) -> TypeGuard[dict[str, Any]]:
     """True when a singleton endpoint returned a usable record: a non-empty object.
 
-    cwms-python 1.1.x returns `{}` for an empty 200/204 body, so `{}` (or a
+    cwms-python 1.1.2+ returns `{}` for an empty 200/204 body, so `{}` (or a
     non-object body) from a single-record endpoint is an anomaly, not a record
     (#137). Don't use this for list endpoints, where a real empty result is
     a valid collection: validate their shape with `require_collection` or the
@@ -114,7 +114,7 @@ def empty_collection_error(
 ) -> CwmsToolsError:
     """Temporary upstream_error for a list endpoint whose body has no collection.
 
-    cwms-python 1.1.x returns `{}` for an empty 200/204 body. On a list
+    cwms-python 1.1.2+ returns `{}` for an empty 200/204 body. On a list
     endpoint a real empty result still carries its collection key (e.g.
     `{"entries": []}`), so a body without one is an anomaly, not "none" (#152).
     Callers must check before caching.

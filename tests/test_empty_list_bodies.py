@@ -1,6 +1,6 @@
 """Empty bodies on list-shaped endpoints (#152).
 
-cwms-python 1.1.x returns `{}` for an empty 200/204 body. On the catalog,
+cwms-python 1.1.2+ returns `{}` for an empty 200/204 body. On the catalog,
 levels, and timeseries endpoints a real empty result still carries its
 collection key (live CDA, 2026-10-11: `{"entries": []}`, `{"levels": []}`,
 `{"values": [], ...}`), so a body without one must raise a temporary

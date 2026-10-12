@@ -252,7 +252,7 @@ def test_describe_place_raises_upstream_error_on_project_5xx(configured, mocked)
 
 
 # --------------------------------------------------------------------------
-# Empty singleton bodies (#137): cwms-python 1.1.x returns `{}` for an empty
+# Empty singleton bodies (#137): cwms-python 1.1.2+ returns `{}` for an empty
 # 200/204 body. Driven through the real client with mocked HTTP.
 # --------------------------------------------------------------------------
 

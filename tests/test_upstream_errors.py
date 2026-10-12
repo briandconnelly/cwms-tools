@@ -214,7 +214,7 @@ def test_cli_region_browse_connection_error_writes_envelope_to_stderr(configured
 
 
 def test_retry_error_with_non_transport_cause_is_wrapped(configured, monkeypatch) -> None:
-    """cwms-python 1.1.x re-raises `RetryError` itself when the retry cause isn't
+    """cwms-python 1.1.2+ re-raises `RetryError` itself when the retry cause isn't
     a transport error (it used to unwrap it)."""
 
     def raise_retry(**_kwargs):
@@ -265,7 +265,7 @@ def test_helper_maps_404_to_not_found_and_429_to_rate_limited() -> None:
 
 
 def test_helper_names_unreadable_2xx_response() -> None:
-    """1.1.x raises `ApiError` with status 200 for invalid JSON; say so rather
+    """1.1.2+ raises `ApiError` with status 200 for invalid JSON; say so rather
     than the misleading 'Upstream returned 200'."""
     with pytest.raises(CwmsToolsError) as ex_info, upstream_call("/x", operation="fetch"):
         raise ApiError(_fake_response(200))
