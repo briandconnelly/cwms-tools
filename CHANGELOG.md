@@ -69,8 +69,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `project_lookup_empty` reason and the location fallback, instead of
   reporting `project: {}` as a complete project. Neither result is cached, so
   the next call asks upstream again. The `cwms_describe_place` `project` field
-  description now says it is also null when the project lookup failed, so the
-  capability fingerprint changes.
+  description now says it is also null when the project lookup failed, and
+  `partial_reasons` is now described, naming each reason and which are
+  transient, so the capability fingerprint changes.
+- `cwms-tools place describe` errors for a failed location lookup (`not_found`,
+  or the new empty-body `upstream_error`) now name `spec` in `details.field`,
+  the command's real argument, instead of `name`, which only exists on the
+  MCP tool.
 - Error messages from failed location, project, and location-level lookups no
   longer include the upstream exception text, which carried the full request
   URL and response body (#136). They now name the operation, the endpoint or

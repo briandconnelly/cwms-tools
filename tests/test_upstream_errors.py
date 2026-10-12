@@ -129,8 +129,8 @@ def test_profile_degrades_a_sensor_whose_fetch_500s(configured, monkeypatch) -> 
 # --------------------------------------------------------------------------
 
 
-def _arm_empty_location(mocked) -> None:
-    mocked.add(responses.GET, f"{API_ROOT}locations/FOSS", body="", status=200)
+def _arm_empty_location(mocked, status: int = 200) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}locations/FOSS", body="", status=status)
 
 
 def test_mcp_describe_place_empty_location_body_returns_envelope(configured) -> None:
@@ -141,17 +141,23 @@ def test_mcp_describe_place_empty_location_body_returns_envelope(configured) -> 
     assert payload["error"]["code"] == "upstream_error"
     assert payload["error"]["temporary"] is True
     assert payload["error"]["source"]["endpoints_called"] == ["/locations/FOSS"]
+    # `name` is a real cwms_describe_place argument, so MCP keeps it.
+    assert payload["error"]["details"]["field"] == "name"
 
 
-def test_cli_place_describe_empty_location_body_writes_envelope(configured) -> None:
+@pytest.mark.parametrize(
+    ("status", "code"), [(200, "upstream_error"), (404, "not_found")], ids=["empty", "404"]
+)
+def test_cli_place_describe_location_failure_names_spec(configured, status, code) -> None:
+    """`place describe` has no `name` argument; the retryable field is `spec`."""
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
-        _arm_empty_location(mocked)
+        _arm_empty_location(mocked, status=status)
         result = runner.invoke(app, ["place", "describe", "SWT/FOSS"])
     assert result.exit_code != 0
     envelope = json.loads(result.stderr)
-    assert envelope["error"]["code"] == "upstream_error"
-    assert envelope["error"]["temporary"] is True
+    assert envelope["error"]["code"] == code
     assert envelope["error"]["source"]["endpoints_called"] == ["/locations/FOSS"]
+    assert envelope["error"]["details"] == {"field": "spec", "value": "FOSS"}
 
 
 def _arm_empty_project(mocked) -> None:

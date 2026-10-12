@@ -330,7 +330,14 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
         ),
     )
     partial: bool
-    partial_reasons: list[str]
+    partial_reasons: list[str] = Field(
+        description=(
+            "Why `partial` is set: not_a_project, project_lookup_4xx (project null; "
+            "stable, cached), project_lookup_empty (project null; upstream sent an "
+            "empty body — transient and not cached, so a retry may succeed), "
+            "lock_lookup_failed."
+        ),
+    )
     parameters: list[str]
     parameter_count: int
     publishers: list[PublisherFingerprint]
