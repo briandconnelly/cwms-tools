@@ -50,14 +50,22 @@ from cwms_tools.mcp.server import build_server
 #: chars. Budget bumped to keep headroom for organic growth before the
 #: guard fires, while still catching a regression back toward the pre-#67
 #: ~81.4k.
-BUDGET_CHARS = 62_000
+#:
+#: 0.8.1 (milestone 2, 2026-10-12) deliberately grew the agent-facing prose:
+#: #163 repair guidance on `office`/`name`, #170 `data_at`, #162 the
+#: `StatusClass`/`zone` vocabulary. Measured 63,258 chars with #162 and #163
+#: landed; bumped again to keep ~4% headroom. Still well under the ~81.4k
+#: regression line.
+BUDGET_CHARS = 66_000
 
 
 #: Per-component ceilings, set deliberately in #142 (2026-10-11) when these
 #: were first actually measured: input=9,034, output=45,298, description=2,937
 #: chars. Each leaves ~6-36% headroom; output schemas dominate and sit closest.
+#: Output measured 48,003 after #162's `zone` field and #170's `data_at`
+#: landed (2026-10-12); ceiling raised to keep ~6% headroom.
 INPUT_CEILING = 11_000
-OUTPUT_CEILING = 48_000
+OUTPUT_CEILING = 51_000
 DESCRIPTION_CEILING = 4_000
 
 #: Floors: a subtotal below this means the schema lookup is broken (#142),
