@@ -156,3 +156,38 @@ def test_retry_after_ms_from_response_handles_missing_or_bad_values() -> None:
 def test_invalid_cursor_code_maps_to_usage_exit() -> None:
     assert ErrorCode.INVALID_CURSOR.value == "invalid_cursor"
     assert exit_code_for(ErrorCode.INVALID_CURSOR) == 2
+
+
+def test_repair_intent_resolves_to_same_tool_retry_with_overrides() -> None:
+    from cwms_tools.core.errors import RepairIntent, resolve_repair_intent
+
+    intent = RepairIntent("use_published_parameter", {"parameter": "Elev"}, alternative="alt")
+    hint = resolve_repair_intent(
+        intent,
+        tool="cwms_get_value",
+        args={"office": "SWT", "name": "FOSS", "parameter": "elev", "unit": "SI"},
+    )
+    assert hint == RepairHint(
+        next_step="use_published_parameter",
+        tool="cwms_get_value",
+        arguments={"office": "SWT", "name": "FOSS", "parameter": "Elev", "unit": "SI"},
+        alternative="alt",
+    )
+
+
+def test_error_of_carries_intent_off_the_envelope() -> None:
+    from cwms_tools.core.errors import RepairIntent
+
+    err = CwmsToolsError.of(
+        ErrorCode.NOT_FOUND,
+        "x",
+        field="name",
+        value="Foss",
+        repair=RepairHint(
+            next_step="search", tool="cwms_search_places", arguments={"query": "Foss"}
+        ),
+        repair_intent=RepairIntent("retry_with_catalog_id", {"name": "FOSS"}),
+    )
+    assert err.repair_intent == RepairIntent("retry_with_catalog_id", {"name": "FOSS"})
+    assert "repair_intent" not in err.envelope.model_dump(mode="json")
+    assert err.envelope.repair is not None and err.envelope.repair.tool == "cwms_search_places"

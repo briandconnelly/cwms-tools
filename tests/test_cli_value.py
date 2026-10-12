@@ -350,3 +350,29 @@ def test_value_profile_ghost_office_names_id_spec_not_office() -> None:
         "unit": "EN",
         "detail": "summary",
     }
+
+
+def test_value_get_batch_item_resolves_repair_intent_into_id_specs(monkeypatch) -> None:
+    from cwms_tools.core import values
+    from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint, RepairIntent
+
+    def boom(*a, **k):
+        raise CwmsToolsError.of(
+            ErrorCode.NOT_FOUND,
+            "no",
+            field="name",
+            value="Foss",
+            repair=RepairHint(next_step="search", tool="cwms_search_places", arguments={}),
+            repair_intent=RepairIntent("retry_with_catalog_id", {"name": "FOSS"}),
+        )
+
+    monkeypatch.setattr(values, "get_value", boom)
+    result = runner.invoke(app, ["value", "get", "SWT/Foss/Elev", "--unit", "SI", "--with-status"])
+    assert result.exit_code == 3
+    item = json.loads(result.stdout)["results"][0]
+    repair = item["error"]["repair"]
+    assert repair["tool"] == "cwms-tools value get"
+    assert repair["arguments"]["id_specs"] == ["SWT/FOSS/Elev"]
+    assert repair["arguments"]["unit"] == "SI" and repair["arguments"]["with_status"] is True
+    # The diagnostic names the CLI's real positional, not the MCP arg (#68 rule).
+    assert item["error"]["details"]["field"] == "id_specs"

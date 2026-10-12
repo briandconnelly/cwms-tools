@@ -27,7 +27,13 @@ from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
 from cwms_tools.core import concurrency, offices, places, publishers_index, shaping, values
-from cwms_tools.core.errors import CwmsToolsError, ErrorCode, ErrorEnvelope, surface_field_name
+from cwms_tools.core.errors import (
+    CwmsToolsError,
+    ErrorCode,
+    ErrorEnvelope,
+    resolve_repair_intent,
+    surface_field_name,
+)
 from cwms_tools.core.geo import BBox, first_missing_bbox_field
 from cwms_tools.core.models import (
     BrowseRegionResponse,
@@ -232,6 +238,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_search_places",
                 {
+                    **({"office": office} if office is not None else {}),
                     "query": query,
                     **({"parameter": parameter} if parameter is not None else {}),
                     "limit": limit,
@@ -279,6 +286,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_describe_place",
                 {
+                    "office": office,
                     "name": name,
                     **({"include_locks": True} if include_locks else {}),
                     "detail": detail.value,
@@ -322,7 +330,10 @@ def register_place_tools(mcp: FastMCP) -> None:
             places.list_parameters,
             office,
             name,
-            _repair_call=("cwms_list_parameters", {"name": name, "detail": detail.value}),
+            _repair_call=(
+                "cwms_list_parameters",
+                {"office": office, "name": name, "detail": detail.value},
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -400,6 +411,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_browse_region",
                 {
+                    "office": office,
                     **(
                         {"south": south, "west": west, "north": north, "east": east}
                         if bbox is not None
@@ -472,6 +484,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_get_value",
                 {
+                    "office": office,
                     "name": name,
                     "parameter": parameter,
                     "window_hours": window_hours,
@@ -564,6 +577,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_get_history",
                 {
+                    "office": office,
                     "name": name,
                     "parameter": parameter,
                     "begin_iso": begin_iso,
@@ -624,6 +638,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_get_profile",
                 {
+                    "office": office,
                     "name": name,
                     "parameter": parameter,
                     "window_hours": window_hours,
@@ -708,8 +723,8 @@ async def _safe(
     return it directly.
 
     `_repair_call`, when given, is `(tool_name, wire_format_args)` for THIS
-    handler's own call (args as the agent would actually pass them, minus
-    `office`) — the single place a `ghost_office` failure gets a same-tool
+    handler's own call (args as the agent would actually pass them,
+    including `office`) — the single place a `ghost_office` failure gets a same-tool
     retry repair instead of core's old hardcoded `cwms_browse_region` switch
     (#69). Core can't build this itself: it doesn't know which surface/tool
     is calling, and `_safe`'s own `*args`/`**kwargs` are already core-format
@@ -719,14 +734,17 @@ async def _safe(
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
-        office_id = err.envelope.details.value if err.envelope.details else None
-        if (
-            _repair_call is not None
-            and err.envelope.code is ErrorCode.GHOST_OFFICE
-            and isinstance(office_id, str)
-        ):
+        if _repair_call is not None:
             tool, call_args = _repair_call
-            err.envelope.repair = offices.ghost_office_repair(office_id, tool=tool, args=call_args)
+            office_id = err.envelope.details.value if err.envelope.details else None
+            if err.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
+                err.envelope.repair = offices.ghost_office_repair(
+                    office_id, tool=tool, args=call_args
+                )
+            elif err.repair_intent is not None:
+                err.envelope.repair = resolve_repair_intent(
+                    err.repair_intent, tool=tool, args=call_args
+                )
         return error_ref(err)
 
 

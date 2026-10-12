@@ -10,6 +10,7 @@ import typer
 from cwms_tools.cli.exit_codes import from_error_code
 from cwms_tools.cli.render import (
     attach_ghost_office_spec_repair,
+    attach_repair_intent,
     emit,
     emit_error,
     emit_model,
@@ -144,6 +145,8 @@ def get(
             # `--office` flag on this command — `id_specs` (the declared CLI
             # argument, per `cli/commands/schema.py`) is the retryable arg.
             rewrite_error_field(err, when="office_id", to="id_specs")
+            rewrite_error_field(err, when="name", to="id_specs")
+            rewrite_error_field(err, when="parameter", to="id_specs")
             # #69: repair retries just THIS failed spec (not the whole
             # original id_specs list, which would re-run already-ok items),
             # office rolled up into a fresh OFFICE/NAME/PARAMETER spec.
@@ -163,6 +166,19 @@ def get(
                         "detail": detail.value,
                     },
                 )
+            attach_repair_intent(
+                err,
+                tool="cwms-tools value get",
+                args={
+                    "window_hours": window_hours,
+                    "unit": unit.value,
+                    "with_status": with_status,
+                    "detail": detail.value,
+                },
+                spec_key="id_specs",
+                spec_fields={"office": office, "name": name, "parameter": parameter},
+                spec_as_list=True,
+            )
             results.append({"id": spec, "ok": False, "error": err.envelope.model_dump(mode="json")})
             failed_count += 1
             last_exit_code = from_error_code(err.envelope.code)
@@ -266,6 +282,8 @@ def history(
         # `id_spec`/`begin`/`end` aren't real `cwms_get_history` MCP args
         # (that tool takes separate office/name/begin_iso/end_iso).
         rewrite_error_field(err, when="office_id", to="id_spec")
+        rewrite_error_field(err, when="name", to="id_spec")
+        rewrite_error_field(err, when="parameter", to="id_spec")
         attach_ghost_office_spec_repair(
             err,
             tool="cwms-tools value history",
@@ -278,6 +296,19 @@ def history(
                 "rollup": rollup.value,
                 "detail": detail.value,
             },
+        )
+        attach_repair_intent(
+            err,
+            tool="cwms-tools value history",
+            args={
+                "begin": begin,
+                "end": end,
+                "unit": unit.value,
+                "rollup": rollup.value,
+                "detail": detail.value,
+            },
+            spec_key="id_spec",
+            spec_fields={"office": office, "name": name, "parameter": parameter},
         )
         emit_error(err)
 
@@ -337,12 +368,21 @@ def profile(
         # schema in `cli/commands/schema.py` (#84, found during #68 review).
         # Repair targets the CLI invocation, not the MCP tool (#69 review).
         rewrite_error_field(err, when="office_id", to="id_spec")
+        rewrite_error_field(err, when="name", to="id_spec")
+        rewrite_error_field(err, when="parameter", to="id_spec")
         attach_ghost_office_spec_repair(
             err,
             tool="cwms-tools value profile",
             spec_key="id_spec",
             spec_suffix=f"{name}/{parameter}",
             args={"window_hours": window_hours, "unit": unit.value, "detail": detail.value},
+        )
+        attach_repair_intent(
+            err,
+            tool="cwms-tools value profile",
+            args={"window_hours": window_hours, "unit": unit.value, "detail": detail.value},
+            spec_key="id_spec",
+            spec_fields={"office": office, "name": name, "parameter": parameter},
         )
         emit_error(err)
 

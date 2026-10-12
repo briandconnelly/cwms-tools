@@ -190,6 +190,44 @@ def attach_ghost_office_spec_repair(
     return error
 
 
+def attach_repair_intent(
+    error: CwmsToolsError,
+    *,
+    tool: str,
+    args: dict[str, Any],
+    spec_key: str | None = None,
+    spec_fields: dict[str, str] | None = None,
+    spec_as_list: bool = False,
+) -> CwmsToolsError:
+    """Resolve a core `RepairIntent` into a same-command retry (#96/#163).
+
+    `args` are this command's own wire-format options (`--flag` names as
+    keys). Commands that take a combined `OFFICE/NAME[/PARAMETER]` positional
+    pass `spec_key` (the positional's name) and `spec_fields` — an ordered
+    `{"office": ..., "name": ..., "parameter": ...}` — so an override on any
+    part is re-joined into the positional; `spec_as_list` wraps it for
+    `value get`'s variadic `id_specs`. A `ghost_office` error keeps its own
+    rollup repair (`attach_ghost_office_*`). No-op when there is no intent.
+    """
+    intent = error.repair_intent
+    if intent is None or error.envelope.code is ErrorCode.GHOST_OFFICE:
+        return error
+    if spec_key is None:
+        arguments: dict[str, Any] = {**args, **intent.overrides}
+    else:
+        fields = dict(spec_fields or {})
+        fields.update({k: v for k, v in intent.overrides.items() if k in fields})
+        spec = "/".join(str(v) for v in fields.values())
+        arguments = {**args, spec_key: [spec] if spec_as_list else spec}
+    error.envelope.repair = RepairHint(
+        next_step=intent.next_step,
+        tool=tool,
+        arguments=arguments,
+        alternative=intent.alternative,
+    )
+    return error
+
+
 def isolated() -> bool:
     """Return True if the caller asked to bypass on-disk cache + env reads."""
     return _state["isolated"] or os.environ.get("_CWMS_TOOLS_ISOLATED") == "1"
@@ -204,6 +242,7 @@ __all__ = [
     "OutputMode",
     "attach_ghost_office_repair",
     "attach_ghost_office_spec_repair",
+    "attach_repair_intent",
     "diagnostic",
     "emit",
     "emit_error",

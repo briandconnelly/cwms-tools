@@ -15,6 +15,7 @@ import typer
 from cwms_tools.cli.render import (
     attach_ghost_office_repair,
     attach_ghost_office_spec_repair,
+    attach_repair_intent,
     emit_error,
     emit_model,
     rewrite_error_field,
@@ -195,9 +196,13 @@ def search(
         # `cwms_search_places` isn't a runnable command, so mechanical retry
         # must name `cwms-tools place search`, mirroring the sibling
         # describe/parameters/value commands.
-        emit_error(
-            attach_ghost_office_repair(err, tool="cwms-tools place search", args=repair_args)
+        attach_ghost_office_repair(err, tool="cwms-tools place search", args=repair_args)
+        attach_repair_intent(
+            err,
+            tool="cwms-tools place search",
+            args={**repair_args, **({"office": list(office)} if office else {})},
         )
+        emit_error(err)
     emit_model(SearchPlacesResponse, shaping.shape_place_detail(payload, detail))
 
 
@@ -259,6 +264,16 @@ def describe(
                 "detail": detail.value,
             },
         )
+        attach_repair_intent(
+            err,
+            tool="cwms-tools place describe",
+            args={
+                **({"include_locks": True} if include_locks else {}),
+                "detail": detail.value,
+            },
+            spec_key="spec",
+            spec_fields={"office": office, "name": name},
+        )
         emit_error(err)
     shaped = shaping.shape_place_detail(payload, detail)
     # The CLI has no `source` wrapper to fold these into (unlike MCP's
@@ -289,8 +304,16 @@ def parameters(
         # No `--office` flag on this command — `spec` is the retryable arg.
         # Repair targets the CLI invocation (#69 review): see cwms_describe_place.
         rewrite_error_field(err, when="office_id", to="spec")
+        rewrite_error_field(err, when="name", to="spec")
         attach_ghost_office_spec_repair(
             err, tool="cwms-tools place parameters", spec_key="spec", spec_suffix=name, args={}
+        )
+        attach_repair_intent(
+            err,
+            tool="cwms-tools place parameters",
+            args={},
+            spec_key="spec",
+            spec_fields={"office": office, "name": name},
         )
         emit_error(err)
     # No `--detail` toggle here; routed through the shared shaper (a no-op for
