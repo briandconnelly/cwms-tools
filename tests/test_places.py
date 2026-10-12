@@ -1327,3 +1327,59 @@ def test_browse_region_kind_data_at_uses_full_catalog(kind_catalog) -> None:
     ghost = next(r for r in payload["results"] if r["name"] == "GHOSTDAM")
     # DAM1-SITE is a SITE (filtered out by kind) but still named as a data sibling.
     assert ghost["data_at"] == ["DAM1-SITE"]
+
+
+def test_search_places_skipped_offices_always_yield_partial_and_a_followable_hint(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#161: the reviewer's second call searched 4 of 19 offices, got
+    `partial:false` and no hint, and concluded Fort Peck was not in CWMS. Any
+    budget-skipped office must set partial and hand back exactly the skipped
+    list as the next `office` argument — regardless of whether rows came back."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=LOCATIONS_PAYLOAD, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TIMESERIES_PAYLOAD, status=200)
+    payload = places.search_places("FOSS", office=["SWT", "NWDM", "NWDP"], parameter="Elev")
+    assert payload["results"], "rows came back from the searched office"
+    assert payload["offices_skipped_for_budget"] == ["NWDM", "NWDP"]
+    assert payload["partial"] is True
+    assert any(r.startswith("offices_skipped_for_budget:") for r in payload["partial_reasons"])
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "offices_skipped_for_budget"
+    assert hint["tool"] == "cwms_search_places"
+    assert hint["args"] == {"query": "FOSS", "office": ["NWDM", "NWDP"], "parameter": "Elev"}
+
+
+def test_search_places_cold_chain_reaches_every_curated_office(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Follow the hint chain from a cold cache until no office is skipped: every
+    curated office must be searched exactly once, richest first."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 4)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    first = places.search_places("Fort Peck")
+    assert first["results"] == [] and first["partial"] is True
+    assert first["repair_hint"]["reason"] == "no_offices_in_scope"
+    searched: list[str] = []
+    hint = first["repair_hint"]
+    for _ in range(10):
+        resp = places.search_places(**hint["args"])
+        searched.extend(resp["offices_searched"])
+        if "repair_hint" not in resp:
+            assert resp.get("partial", False) is False
+            break
+        hint = resp["repair_hint"]
+        assert hint["reason"] == "offices_skipped_for_budget"
+        assert "cursor" not in hint["args"] and "limit" not in hint["args"]
+    assert searched[:4] == ["NWDM", "NWDP", "SWT", "MVS"]
+    assert searched == offices.discovery_office_candidates()
+
+
+def test_search_places_no_offices_in_scope_reason_does_not_tell_caller_to_omit_office(
+    configured, mocked
+) -> None:
+    payload = places.search_places("Fort Peck")
+    reason = next(r for r in payload["partial_reasons"] if r.startswith("no_offices_in_scope"))
+    assert "omit" not in reason
+    assert "repair_hint" in reason

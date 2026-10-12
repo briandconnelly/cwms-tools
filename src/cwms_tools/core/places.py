@@ -85,9 +85,15 @@ def search_places(
     `truncated: false` never implies every requested office was searched —
     check `offices_skipped_for_budget` for that. When the resolved scope is
     empty (a bare-name search with no cached offices), the response carries
-    a top-level `repair_hint`: a ready-to-use retry call naming the curated
-    data-bearing office list under `repair_hint.args.office`. It is omitted
-    whenever any office was searched.
+    a top-level `repair_hint` (reason `no_offices_in_scope`): a ready-to-use
+    retry call naming the curated data-bearing office list (priority order)
+    under `repair_hint.args.office`. Separately, whenever any office was
+    skipped for the fan-out budget (#161), the response sets `partial: true`
+    and carries a `repair_hint` (reason `offices_skipped_for_budget`) whose
+    `args.office` is exactly the skipped list; follow it repeatedly until
+    `offices_skipped_for_budget` is empty. That hint carries no `cursor` or
+    `limit` (a cursor locks the office set it was minted for) and is not
+    attached on a cursor continuation.
 
     `parameter`: optional CWMS parameter code (e.g. `Temp-Water`). When
     set, data-bearing rows that do not publish this parameter are dropped
@@ -200,12 +206,36 @@ def search_places(
         response["partial"] = True
         response["partial_reasons"] = partial_reasons
     # Name-first dead-end recovery (#24): only when the caller OMITTED `office`
-    # (office is None) and the implicit cached scope was empty. An explicit
-    # empty list (office=[]) is a deliberate "search nothing" — widening it with
-    # a hint would contradict the caller's stated scope, so don't.
+    # and the implicit cached scope was empty. An explicit empty list is a
+    # deliberate "search nothing" — never widen it.
     if office is None and decoded is None and not offices_searched:
         response["repair_hint"] = _empty_scope_repair_hint(query, parameter)
+    # Budget continuation (#161): whenever offices were skipped — rows or no
+    # rows — the chain must stay followable to exhaustion. The hint restarts a
+    # fresh search over the skipped offices (no cursor: a cursor locks the
+    # office set it was minted for).
+    elif offices_skipped and decoded is None:
+        response["repair_hint"] = _skipped_scope_repair_hint(query, parameter, offices_skipped)
     return response
+
+
+def _skipped_scope_repair_hint(
+    query: str, parameter: str | None, skipped: list[str]
+) -> dict[str, Any]:
+    """Build the `repair_hint` for a search that skipped offices for budget."""
+    args: dict[str, Any] = {"query": query, "office": list(skipped)}
+    if parameter is not None:
+        args["parameter"] = parameter
+    return {
+        "reason": "offices_skipped_for_budget",
+        "message": (
+            f"{len(skipped)} office(s) were not searched because of the per-call fan-out "
+            "budget. Retry with `office` set to exactly this list to continue; repeat "
+            "until `offices_skipped_for_budget` is empty."
+        ),
+        "tool": "cwms_search_places",
+        "args": args,
+    }
 
 
 def _empty_scope_repair_hint(query: str, parameter: str | None) -> dict[str, Any]:
@@ -223,9 +253,10 @@ def _empty_scope_repair_hint(query: str, parameter: str | None) -> dict[str, Any
     return {
         "reason": "no_offices_in_scope",
         "message": (
-            "No office in scope, so nothing was searched. Retry with an explicit "
-            "`office` list — the data-bearing offices below are the best starting "
-            "set; widen from there (or pass a known office) if the place isn't found."
+            "No office catalog is cached yet, so nothing was searched. Retry with "
+            "`office` set to this curated list (priority order; the budget takes the "
+            "first few per call) and keep following `repair_hint` until "
+            "`offices_skipped_for_budget` is empty."
         ),
         "tool": "cwms_search_places",
         "args": args,
@@ -315,7 +346,15 @@ def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
         else:
             skipped.append(office)
     if not requested:
-        reasons.append("no_offices_in_scope: omit `office` or pass an explicit list to widen")
+        reasons.append(
+            "no_offices_in_scope: no office catalog is cached yet; follow `repair_hint` "
+            "or pass `office` explicitly"
+        )
+    if skipped:
+        reasons.append(
+            f"offices_skipped_for_budget: {len(skipped)} office(s) not searched this call; "
+            "follow `repair_hint` to continue"
+        )
     return searched, skipped, reasons
 
 
