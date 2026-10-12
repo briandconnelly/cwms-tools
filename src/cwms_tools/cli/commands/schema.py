@@ -11,6 +11,7 @@ from typing import Any
 
 import typer
 
+from cwms_tools import ISSUES_URL
 from cwms_tools import __version__ as PKG_VERSION
 from cwms_tools.cli.commands.env import READ_VARS, SECRET_VARS
 from cwms_tools.cli.render import emit
@@ -404,6 +405,9 @@ def cli_contract_payload() -> dict[str, Any]:
         "commands": _commands(),
         "exit_codes": _exit_codes(),
         "machine_profile": _machine_profile(),
+        # Agent-visible like the exit map: dropping or renaming it must move
+        # the fingerprint (Copilot review of #156).
+        "issues_url": ISSUES_URL,
     }
 
 
@@ -420,6 +424,7 @@ def _schema_payload() -> dict[str, Any]:
         "mcp_tools": TOOL_INVENTORY,
         "mcp_resources": RESOURCE_INVENTORY,
         "machine_profile": contract["machine_profile"],
+        "issues_url": contract["issues_url"],
     }
 
 
