@@ -94,4 +94,74 @@ def co_located(
     return out
 
 
-__all__ = ["EARTH_RADIUS_M", "BBox", "GeoPoint", "co_located", "filter_by_bbox", "haversine_m"]
+def _ecef_m(lat: float, lon: float) -> tuple[float, float, float]:
+    """Earth-centered, Earth-fixed coordinates in meters on the mean sphere."""
+    phi, lam = math.radians(lat), math.radians(lon)
+    cos_phi = math.cos(phi)
+    return (
+        EARTH_RADIUS_M * cos_phi * math.cos(lam),
+        EARTH_RADIUS_M * cos_phi * math.sin(lam),
+        EARTH_RADIUS_M * math.sin(phi),
+    )
+
+
+def co_located_index(
+    points: list[GeoPoint],
+    *,
+    radius_m: float = 100.0,
+) -> dict[tuple[str, str], list[GeoPoint]]:
+    """Every point's co-located siblings in one pass: `{(office_id, name): [...]}`.
+
+    Equivalent to `co_located(p, points, radius_m=radius_m)` for each `p` —
+    same members, same (input) order — but O(N + candidate pairs) instead of
+    O(N²) (#169: a 10 k-row office took 160 s under the pairwise form).
+
+    Points are hashed into a cubic grid over ECEF coordinates with cell size
+    `radius_m`. The chord between two points is never longer than their
+    great-circle distance, so any pair within `radius_m` along the surface is
+    within `radius_m` on every axis and lands in the same or an adjacent cell.
+    Only those 27 cells are compared, then the exact haversine test runs as
+    before. A degree grid was rejected because its longitude cells shrink
+    with latitude; this hash has no latitude, antimeridian, or pole cases.
+    """
+    cell = float(radius_m)
+    keys: list[tuple[int, int, int]] = []
+    buckets: dict[tuple[int, int, int], list[int]] = {}
+    for i, p in enumerate(points):
+        x, y, z = _ecef_m(p.latitude, p.longitude)
+        key = (math.floor(x / cell), math.floor(y / cell), math.floor(z / cell))
+        keys.append(key)
+        buckets.setdefault(key, []).append(i)
+
+    out: dict[tuple[str, str], list[GeoPoint]] = {}
+    for i, p in enumerate(points):
+        kx, ky, kz = keys[i]
+        hits: list[int] = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for j in buckets.get((kx + dx, ky + dy, kz + dz), ()):
+                        if j == i:
+                            continue
+                        q = points[j]
+                        if q.office_id == p.office_id and q.name == p.name:
+                            continue
+                        if (
+                            haversine_m(p.latitude, p.longitude, q.latitude, q.longitude)
+                            <= radius_m
+                        ):
+                            hits.append(j)
+        hits.sort()  # input order, matching `co_located`
+        out[(p.office_id, p.name)] = [points[j] for j in hits]
+    return out
+
+
+__all__ = [
+    "EARTH_RADIUS_M",
+    "BBox",
+    "GeoPoint",
+    "co_located",
+    "co_located_index",
+    "filter_by_bbox",
+    "haversine_m",
+]
