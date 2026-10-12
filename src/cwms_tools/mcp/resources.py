@@ -49,7 +49,8 @@ TOOL_INVENTORY: list[str] = [
 # wrapper_bug has no MCP emission path: failures on the issue-286 seasonal-level bypass
 # are classified as ordinary upstream failures (tagged `source.workaround`) (#153).
 # The CLI emits it when a producer payload fails its response model (#158).
-RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable", "wrapper_bug"]
+# ghost_location left the reserved list in 0.8.1: the value tools emit it (#96).
+RESERVED_ERROR_CODES: list[str] = ["publisher_unavailable", "wrapper_bug"]
 
 #: Per-tool error catalog. The codes each tool can return as `error.code`, so an
 #: agent can branch per tool instead of against the global enum. Curated from the
@@ -88,6 +89,7 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
         "usage_error",
     ],
     "cwms_get_value": [
+        "ghost_location",
         "ghost_office",
         "invalid_field",
         "not_found",
@@ -95,6 +97,7 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
         "upstream_error",
     ],
     "cwms_get_history": [
+        "ghost_location",
         "ghost_office",
         "invalid_field",
         "not_found",

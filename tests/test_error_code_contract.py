@@ -151,6 +151,23 @@ PROVOCATIONS[("cwms_get_overview_section", "usage_error")] = (
 )
 
 
+GHOST_LOCATIONS = {
+    "locations": [
+        {"office-id": "SWT", "name": "FOSS", "latitude": 35.55, "longitude": -98.97},
+    ]
+}
+
+
+def _arm_ghost(mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=GHOST_LOCATIONS, status=200)
+
+
+for tool in ("cwms_get_value", "cwms_get_history"):
+    PROVOCATIONS[(tool, "ghost_location")] = (GOOD_ARGS[tool], None)
+    ARMED[(tool, "ghost_location")] = _arm_ghost
+
+
 def test_every_advertised_code_has_a_provocation() -> None:
     advertised = {(tool, code) for tool, codes in TOOL_ERROR_CODES.items() for code in codes}
     assert advertised == set(PROVOCATIONS), (

@@ -324,6 +324,7 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
             "error_codes": _errs(
+                "ghost_location",
                 "ghost_office",
                 "invalid_field",
                 "not_found",
@@ -364,6 +365,7 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
             "error_codes": _errs(
+                "ghost_location",
                 "ghost_office",
                 "wrapper_bug",
                 "invalid_field",

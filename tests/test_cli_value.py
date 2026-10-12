@@ -376,3 +376,22 @@ def test_value_get_batch_item_resolves_repair_intent_into_id_specs(monkeypatch) 
     assert repair["arguments"]["unit"] == "SI" and repair["arguments"]["with_status"] is True
     # The diagnostic names the CLI's real positional, not the MCP arg (#68 rule).
     assert item["error"]["details"]["field"] == "id_specs"
+
+
+def test_value_get_ghost_location_exits_12(monkeypatch) -> None:
+    from cwms_tools.core import values
+    from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
+
+    def boom(*a, **k):
+        raise CwmsToolsError.of(
+            ErrorCode.GHOST_LOCATION,
+            "ghost",
+            field="name",
+            value="X",
+            repair=RepairHint(next_step="s", tool="cwms_search_places", arguments={}),
+        )
+
+    monkeypatch.setattr(values, "get_value", boom)
+    result = runner.invoke(app, ["value", "get", "SWT/X/Elev"])
+    assert result.exit_code == 12
+    assert json.loads(result.stdout)["results"][0]["error"]["code"] == "ghost_location"
