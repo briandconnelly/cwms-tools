@@ -770,3 +770,28 @@ def test_fetch_window_next_begin_none_when_not_truncated(monkeypatch):
     )
     assert out["truncated"] is False
     assert out["next_begin"] is None
+
+
+def test_get_value_normalizes_office_case_and_rejects_unknown_office(
+    configured, validating_directory
+) -> None:
+    directory = [{"office-id": "SWT", "long-name": "Tulsa District", "type": "DIS"}]
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=directory, status=200)
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
+        mocked.add(
+            responses.GET,
+            re.compile(rf"{re.escape(_ts_url())}\?.*"),
+            json=_ts_payload(
+                ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+                points=[(datetime(2026, 5, 17, 18, tzinfo=UTC), 1648.21)],
+            ),
+            status=200,
+        )
+        payload = values.get_value("swt", "FOSS", "Elev")
+        assert payload["office_id"] == "SWT"
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("XYZ", "FOSS", "Elev")
+    assert ex.value.envelope.code is ErrorCode.INVALID_FIELD
+    # No catalog call was made for the unknown office (cwms-python sends `office=`).
+    assert not [c for c in mocked.calls if "office=XYZ" in (c.request.url or "")]

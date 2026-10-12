@@ -377,10 +377,12 @@ def _resolve_scope(
         requested = _normalize_office_arg(office)
         if requested is None:
             requested = offices.cached_offices_for_locations()
+        explicit_empty = office is not None and not requested
+        requested, invalid_reasons = _validate_offices(requested)
         offices_searched, offices_skipped, partial_reasons = _run_fanout(
-            requested, use_cache=use_cache, explicit_empty=office is not None and not requested
+            requested, use_cache=use_cache, explicit_empty=explicit_empty
         )
-        return None, 0, offices_searched, offices_skipped, partial_reasons
+        return None, 0, offices_searched, offices_skipped, [*invalid_reasons, *partial_reasons]
 
     if limit is None:
         # `cursor` implies paged access; an unlimited limit (None / CLI 0)
@@ -407,6 +409,31 @@ def _resolve_scope(
             offending_value=", ".join(offices_skipped)[: pagination.CURSOR_ECHO_MAX],
         )
     return decoded, offset, offices_searched, offices_skipped, partial_reasons
+
+
+def _validate_offices(requested: list[str]) -> tuple[list[str], list[str]]:
+    """Canonicalize and deduplicate the requested offices (#163). A single
+    invalid office raises (the agent gets the full envelope); in a fan-out it
+    becomes a `"<office>: <code>"` partial reason and is dropped (NW stubs
+    are kept so the fan-out reports their `ghost_office`). Dedup runs on
+    the CANONICAL code (`["SWT", "swt"]` is one office), first occurrence wins."""
+    valid: list[str] = []
+    reasons: list[str] = []
+    for office in requested:
+        try:
+            canonical = offices.require_known_office(office)
+        except CwmsToolsError as err:
+            if len(requested) == 1:
+                raise
+            if err.envelope.code is not ErrorCode.GHOST_OFFICE:
+                reasons.append(f"{office}: {err.envelope.code.value}")
+                continue
+            # NW stubs stay in the fan-out so the catalog guard reports
+            # `"<office>: ghost_office"` exactly as before validation existed.
+            canonical = office.upper()
+        if canonical not in valid:
+            valid.append(canonical)
+    return valid, reasons
 
 
 def _run_fanout(
@@ -645,6 +672,7 @@ def describe_place(
     lock lookup appends `lock_lookup_failed` to `partial_reasons`; it never
     fails the describe. Without it, none of those keys are present.
     """
+    office = offices.require_known_office(office)
     location = locations.get_one(office, name, use_cache=use_cache)
     project_resp = projects.get_one(office, name, use_cache=use_cache)
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
@@ -699,6 +727,7 @@ def list_parameters(
     parent has no ts ids but a depth-tagged child does. When the location
     is data-bearing, `data_at` is null (no repair needed).
     """
+    office = offices.require_known_office(office)
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
     pub_facts = publishers.aggregate_publishers(ts_ids)
     freshness = catalog.freshness_for_location(office, name, use_cache=use_cache)
@@ -763,6 +792,7 @@ def browse_region(
         limit = None  # 0 means "no cap"
 
     norm_kind = _normalize_kind(kind)
+    office = offices.require_known_office(office)
     req = _browse_request_hash(office=office, bbox=bbox, state=state, kind=norm_kind)
     decoded: dict[str, Any] | None = None
     offset = 0

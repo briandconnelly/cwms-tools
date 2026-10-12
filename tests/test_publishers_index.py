@@ -331,3 +331,25 @@ def test_publishers_for_parameter_implicit_scope_skip_repair_keeps_the_curated_r
     expected = list(dict.fromkeys(["SWT", *offices.discovery_office_candidates()]))
     expected.remove("MVS")
     assert repair["arguments"]["offices"] == expected
+
+
+def test_publishers_for_parameter_dedupes_normalized_offices_and_skips_invalid(
+    configured, validating_directory
+) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}offices",
+            json=[{"office-id": "SWT", "type": "DIS"}],
+            status=200,
+        )
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json=_ts_catalog("FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"),
+            status=200,
+        )
+        payload = publishers_index.publishers_for_parameter("Elev", offices=["SWT", "swt", "XYZ"])
+    cov = payload["coverage"]
+    assert cov["offices_indexed"] == ["SWT"] and cov["offices_error_skipped"] == ["XYZ"]
+    assert payload["ts_count"] == 1

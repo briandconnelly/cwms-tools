@@ -60,16 +60,19 @@ def publishers_for_parameter(
     """
     requested = list(offices) if offices is not None else sorted(_cached_offices())
     requested_unique: list[str] = []
-    seen: set[str] = set()
-    for o in requested:
-        if o not in seen:
-            seen.add(o)
-            requested_unique.append(o)
+    error_skipped: list[str] = []
+    for requested_office in requested:
+        try:
+            canonical = offices_mod.require_known_office(requested_office)
+        except CwmsToolsError:
+            error_skipped.append(requested_office)
+            continue
+        if canonical not in requested_unique:
+            requested_unique.append(canonical)
     requested = requested_unique
 
     indexed: list[str] = []
     skipped: list[str] = []
-    error_skipped: list[str] = []
     by_publisher: dict[str, list[str]] = defaultdict(list)
     freshness: dict[str, str | None] = {}
 

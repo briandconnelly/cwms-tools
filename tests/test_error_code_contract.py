@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 
 import cwms
 import pytest
@@ -121,6 +122,25 @@ PROVOCATIONS[("cwms_get_profile", "usage_error")] = (
     {**GOOD_ARGS["cwms_get_profile"], "window_hours": -1},  # negative look-back window
     None,
 )
+DIRECTORY = [{"office-id": "SWT", "long-name": "Tulsa District", "type": "DIS"}]
+
+
+def _arm_directory(mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}offices", json=DIRECTORY, status=200)
+
+
+# (tool, code) -> callable that registers the exact upstream mocks the provocation needs.
+ARMED: dict[tuple[str, str], Callable[[responses.RequestsMock], None]] = {}
+for tool in (
+    "cwms_search_places",
+    "cwms_describe_place",
+    "cwms_list_parameters",
+    "cwms_browse_region",
+    "cwms_get_value",
+    "cwms_get_profile",
+):
+    PROVOCATIONS[(tool, "invalid_field")] = ({**GOOD_ARGS[tool], "office": "XYZ"}, None)
+    ARMED[(tool, "invalid_field")] = _arm_directory
 PROVOCATIONS[("cwms_get_overview_section", "not_found")] = (
     {"section_id": "no-such-section"},
     None,
@@ -147,15 +167,17 @@ def test_advertised_codes_subset_of_enum() -> None:
 
 
 @pytest.mark.parametrize(("tool", "code"), sorted(PROVOCATIONS))
-def test_provocation_returns_advertised_code(configured, tool: str, code: str) -> None:
+def test_provocation_returns_advertised_code(
+    configured, validating_directory, tool: str, code: str
+) -> None:
     args, status = PROVOCATIONS[(tool, code)]
     server = build_server()
-    if status is None:
-        result = _call(server, tool, args)
-    else:
-        with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        if (tool, code) in ARMED:
+            ARMED[(tool, code)](mocked)
+        if status is not None:
             _mock_all(mocked, status, headers={"Retry-After": "0"} if status == 429 else {})
-            result = _call(server, tool, args)
+        result = _call(server, tool, args)
     assert _error_code(result) == code
 
 

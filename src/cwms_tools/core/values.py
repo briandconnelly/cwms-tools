@@ -11,7 +11,7 @@ import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from cwms_tools.core import catalog, depth, levels, publishers, timeseries
+from cwms_tools.core import catalog, depth, levels, offices, publishers, timeseries
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Rollup
 
@@ -67,6 +67,7 @@ def get_value(
     `status_budget_seconds` (default 8 s) caps how long the threshold
     lookup may run when classification is requested.
     """
+    office = offices.require_known_office(office)
     tsid = timeseries.require_canonical_ts_id(office, location, parameter)
     parts = publishers.parse_ts_id(tsid)
     series = timeseries.fetch_latest(tsid, office=office, window=window, unit=unit)
@@ -134,6 +135,7 @@ def get_profile(
             value=int(window.total_seconds() // 3600),
             reason="Pass a positive look-back window, e.g. window_hours=24.",
         )
+    office = offices.require_known_office(office)
     # `enrich_locations(like=...)` still fetches the full per-office locations
     # catalog (cached) and filters it client-side, but the `like` scopes the
     # potentially-large timeseries-catalog enrichment to this string's depth
@@ -240,6 +242,7 @@ def get_history(
             value=rollup,
             reason=f"Use one of: {', '.join(ROLLUP_MODES)}.",
         )
+    office = offices.require_known_office(office)
     tsid = timeseries.require_canonical_ts_id(office, location, parameter)
     parts = publishers.parse_ts_id(tsid)
     series = timeseries.fetch_window(tsid, office=office, begin=begin, end=end, unit=unit)

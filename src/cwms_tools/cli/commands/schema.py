@@ -192,6 +192,7 @@ def _commands() -> list[dict[str, Any]]:
             "error_codes": _errs(
                 "ghost_office",
                 "invalid_cursor",
+                "invalid_field",
                 "rate_limited",
                 "upstream_error",
                 "usage_error",
@@ -224,6 +225,7 @@ def _commands() -> list[dict[str, Any]]:
             ],
             "error_codes": _errs(
                 "ghost_office",
+                "invalid_field",
                 "not_found",
                 "rate_limited",
                 "upstream_error",
@@ -240,6 +242,7 @@ def _commands() -> list[dict[str, Any]]:
             "options": [],
             "error_codes": _errs(
                 "ghost_office",
+                "invalid_field",
                 "not_found",
                 "rate_limited",
                 "upstream_error",
@@ -280,6 +283,7 @@ def _commands() -> list[dict[str, Any]]:
             "error_codes": _errs(
                 "ghost_office",
                 "invalid_cursor",
+                "invalid_field",
                 "rate_limited",
                 "upstream_error",
                 "usage_error",
@@ -321,6 +325,7 @@ def _commands() -> list[dict[str, Any]]:
             ],
             "error_codes": _errs(
                 "ghost_office",
+                "invalid_field",
                 "not_found",
                 "rate_limited",
                 "upstream_error",
@@ -387,6 +392,7 @@ def _commands() -> list[dict[str, Any]]:
             ],
             "error_codes": _errs(
                 "ghost_office",
+                "invalid_field",
                 "not_found",
                 "rate_limited",
                 "upstream_error",

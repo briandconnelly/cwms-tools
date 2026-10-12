@@ -1568,3 +1568,18 @@ def test_search_places_implicit_scope_budget_hint_keeps_the_curated_rest(
     expected = list(dict.fromkeys(["SWT", *(o for o in offices.discovery_office_candidates())]))
     expected.remove("MVS")
     assert hint["args"]["office"] == expected
+
+
+def test_search_places_invalid_office_is_partial_in_fanout_and_raises_alone(
+    configured, mocked, validating_directory
+) -> None:
+    mocked.add(
+        responses.GET, f"{API_ROOT}offices", json=[{"office-id": "SWT", "type": "DIS"}], status=200
+    )
+    _arm_all(mocked)
+    payload = places.search_places("FOSS", office=["SWT", "swt", "XYZ"])
+    assert payload["offices_searched"] == ["SWT"], "canonical codes are deduplicated"
+    assert "XYZ: invalid_field" in payload["partial_reasons"]
+    with pytest.raises(CwmsToolsError) as ex:
+        places.search_places("FOSS", office="XYZ")
+    assert ex.value.envelope.code is ErrorCode.INVALID_FIELD

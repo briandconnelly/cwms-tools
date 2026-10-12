@@ -17,6 +17,7 @@ pattern from `core/publishers_index.py` so we never expand to the full
 
 from __future__ import annotations
 
+import time
 from contextlib import suppress
 from typing import Any
 
@@ -179,6 +180,109 @@ def list_offices(*, use_cache: bool = True) -> tuple[list[dict[str, Any]], bool]
     return [dict(r) for r in records], False
 
 
+#: Bound on the validation-only directory fetch (connect, read). `cwms.api.get`
+#: exposes no timeout and its adapter retries 6x with backoff, so this goes
+#: through `cwms.api.SESSION.get` directly. The adapter's retries still apply
+#: (they are per-session), so a hard outage costs one bounded retry sequence
+#: per cooldown window, not one per producer call.
+_DIRECTORY_TIMEOUT_S: tuple[float, float] = (3.05, 10.0)
+#: After a fallback, skip validation for this long (measured from when the
+#: failed lookup FINISHED, keyed by API root) instead of adding a failing
+#: `/offices` round-trip to every producer call (#163 review). The producer's
+#: own catalog call reports the outage.
+_DIRECTORY_RETRY_SECONDS: float = 60.0
+_directory_fallback: dict[str, float] = {}  # api_root -> monotonic time the fallback completed
+
+
+def _reset_directory_state() -> None:
+    """Test hook: clear the validation cooldown."""
+    _directory_fallback.clear()
+
+
+def _fetch_directory_bounded() -> list[dict[str, Any]]:
+    """One bounded GET /offices through cwms-python's session (shares its retry adapter)."""
+    headers = {"Accept": cwms_api.api_version_text(cwms_api.API_VERSION)}
+    with cwms_api.SESSION.get("offices", headers=headers, timeout=_DIRECTORY_TIMEOUT_S) as resp:
+        resp.raise_for_status()
+        return _parse_office_records(resp.json())
+
+
+def directory_for_validation() -> tuple[list[str], bool]:
+    """`(office_ids, used_fallback)` for `require_known_office`.
+
+    Cached directory first (the same cache key `list_offices` writes, so a
+    `cwms://offices` read or a prior validation serves both); else one bounded
+    fetch. Any failure is `([], True)` -- never raise from a preflight.
+    """
+    cfg = current_config()
+    cache: Cache | None = None
+    key: str | None = None
+    hit: Any = None
+    try:
+        cache = get_cache()
+        key = build_cache_key("offices", "records", api_root=cfg.api_root)
+        hit = cache.get(key)
+    except Exception:
+        cache, key, hit = None, None, None
+    if isinstance(hit, list) and hit:
+        return [r["name"] for r in hit], False
+    try:
+        records = _fetch_directory_bounded()
+    except Exception:
+        return [], True
+    if not records:
+        return [], True
+    records.sort(key=lambda r: r["name"])
+    if cache is not None and key is not None:
+        with suppress(Exception):
+            cache.set(key, records, ttl=cache.ttl_for("offices"))
+    return [r["name"] for r in records], False
+
+
+def require_known_office(office: str) -> str:
+    """Return the canonical office code or raise (#163).
+
+    NW district stubs keep their `ghost_office` precedence, matched
+    case-insensitively and before any directory access, so the precedence
+    survives an outage. A case-insensitive directory match is normalized
+    (`swt` -> `SWT`) so a first call succeeds instead of round-tripping a
+    repair. An unknown code is `invalid_field` (`field=office_id`,
+    surface-translated to `office`) with a pointer at the directory. When the
+    directory is on its degraded fallback the input passes through unchanged
+    -- never block on a degraded list -- and validation stays off for
+    `_DIRECTORY_RETRY_SECONDS` after that lookup finished.
+    """
+    upper = office.upper()
+    if upper in NW_STUBS:
+        raise ghost_office_error(upper)
+    api_root = current_config().api_root
+    since = _directory_fallback.get(api_root)
+    if since is not None and time.monotonic() - since < _DIRECTORY_RETRY_SECONDS:
+        return office
+    ids, used_fallback = directory_for_validation()
+    if used_fallback:
+        _directory_fallback[api_root] = time.monotonic()  # after the lookup completed
+        return office
+    _directory_fallback.pop(api_root, None)
+    if office in ids:
+        return office
+    canonical = {o.casefold(): o for o in ids}.get(office.casefold())
+    if canonical is not None:
+        return canonical
+    raise CwmsToolsError.of(
+        ErrorCode.INVALID_FIELD,
+        f"Unknown office code {office!r}.",
+        field="office_id",
+        value=office,
+        reason=(
+            "Not a USACE office code in the CDA directory. Valid codes are listed at "
+            "cwms://offices (cwms_list_offices / `cwms-tools offices`); in Northwestern "
+            "Division use NWDM or NWDP, not the district stubs."
+        ),
+        repair=RepairHint(next_step="list_valid_offices", tool="cwms_list_offices", arguments={}),
+    )
+
+
 def list_office_ids(*, use_cache: bool = True) -> tuple[list[str], bool]:
     """Return `(office_ids, used_fallback)` — names only, derived from `list_offices`."""
     records, used_fallback = list_offices(use_cache=use_cache)
@@ -266,10 +370,12 @@ __all__ = [
     "NW_ROLLUP_TARGETS",
     "NW_STUBS",
     "cached_offices_for_locations",
+    "directory_for_validation",
     "discovery_office_candidates",
     "ghost_office_error",
     "ghost_office_repair",
     "list_office_ids",
     "list_offices",
     "nw_rollup_target",
+    "require_known_office",
 ]

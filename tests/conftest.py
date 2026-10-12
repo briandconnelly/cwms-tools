@@ -16,6 +16,7 @@ import pytest
 import responses
 
 from cwms_tools.cli import render
+from cwms_tools.core import offices
 from cwms_tools.core.cache import Cache, set_cache
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -92,3 +93,25 @@ def mocked_cda() -> Iterator[responses.RequestsMock]:
 def fixture_path(name: str) -> Path:
     """Resolve a fixture file by name. Tests that need its content `read_text()` it."""
     return FIXTURES / name
+
+
+@pytest.fixture(autouse=True)
+def _offline_office_directory(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Office-code validation (#163) is opt-in for unit tests.
+
+    By default the directory lookup reports the degraded fallback, so
+    `require_known_office` passes codes through and no test gains a network
+    dependency. Tests that exercise validation request `validating_directory`,
+    which keeps the real lookup and a clean cooldown map.
+    """
+    offices._reset_directory_state()
+    if "validating_directory" not in request.fixturenames:
+        monkeypatch.setattr(offices, "directory_for_validation", lambda: ([], True))
+    yield
+    offices._reset_directory_state()
+
+
+@pytest.fixture
+def validating_directory() -> None:
+    """Marker fixture: run this test with real office-code validation."""
+    return None

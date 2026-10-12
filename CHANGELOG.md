@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Office codes are validated once per top-level producer against the CDA office
+  directory (#163): an unknown code (`XYZ`) is `invalid_field` with a pointer at
+  `cwms://offices` instead of an `ok:true` ghost-looking result, and a
+  wrong-case code (`swt`) is normalized to `SWT` and echoed canonically. NW
+  district stubs keep `ghost_office` precedence (case-insensitive, even offline).
+  The lookup is bounded and backs off for 60 s after a failed directory fetch, so
+  a degraded directory never blocks a call. In a multi-office search or
+  publisher index an invalid office becomes a partial reason or lands in
+  `offices_error_skipped`. `invalid_field` is now advertised for the place, region
+  and value tools on both surfaces.
 - `cwms_search_places` / `place search`: a cold-cache name-first search is now
   followable to exhaustion. Whenever offices are skipped by the fan-out budget
   the response sets `partial: true` and carries a `repair_hint` whose

@@ -58,17 +58,42 @@ RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable", "w
 #: return `upstream_error`/`rate_limited`; office-scoped tools reach the NW-stub
 #: guard (`ghost_office`).
 TOOL_ERROR_CODES: dict[str, list[str]] = {
-    "cwms_search_places": ["ghost_office", "invalid_cursor", "rate_limited", "upstream_error"],
-    "cwms_describe_place": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
-    "cwms_list_parameters": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_search_places": [
+        "ghost_office",
+        "invalid_cursor",
+        "invalid_field",
+        "rate_limited",
+        "upstream_error",
+    ],
+    "cwms_describe_place": [
+        "ghost_office",
+        "invalid_field",
+        "not_found",
+        "rate_limited",
+        "upstream_error",
+    ],
+    "cwms_list_parameters": [
+        "ghost_office",
+        "invalid_field",
+        "not_found",
+        "rate_limited",
+        "upstream_error",
+    ],
     "cwms_browse_region": [
         "ghost_office",
         "invalid_cursor",
+        "invalid_field",
         "rate_limited",
         "upstream_error",
         "usage_error",
     ],
-    "cwms_get_value": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_get_value": [
+        "ghost_office",
+        "invalid_field",
+        "not_found",
+        "rate_limited",
+        "upstream_error",
+    ],
     "cwms_get_history": [
         "ghost_office",
         "invalid_field",
@@ -79,7 +104,13 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
     # Per-sensor read failures degrade into the profile rows' `error` field
     # rather than failing the call, so only catalog-level failures (plus the
     # up-front window_hours validation) surface here.
-    "cwms_get_profile": ["ghost_office", "rate_limited", "upstream_error", "usage_error"],
+    "cwms_get_profile": [
+        "ghost_office",
+        "invalid_field",
+        "rate_limited",
+        "upstream_error",
+        "usage_error",
+    ],
     # Per-office failures are absorbed into coverage.offices_error_skipped rather
     # than failing the call, so this tool returns a result (with coverage) instead
     # of an error.code in normal operation.
