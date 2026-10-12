@@ -33,7 +33,7 @@ MAX_RAW_HISTORY_POINTS = 5_000
 # is given back an unclassified value. CWMS's `/levels` endpoint is
 # unreliably slow for big offices (NWDM reliably exceeds 60s). The chosen
 # budget tries to balance "computed-most-of-the-time-on-warm-cache" against
-# "an interactive caller never waits indefinitely". Tunable via env.
+# "an interactive caller never waits indefinitely". Tunable per call via `status_budget_seconds`.
 _STATUS_BUDGET_SECONDS: float = 8.0
 
 
@@ -50,10 +50,10 @@ def get_value(
     """Latest value for one (office, location, parameter).
 
     Threshold classification against CWMS Location Levels is OFF by default.
-    The `/levels` endpoint is reliably slow (8 s budget exceeded on every
-    cold-cache call in evaluation), so the value-only path is the fast
-    default. Set `classify_against_levels=True` to opt into the slower
-    classified path.
+    The `/levels` endpoint is slow on big offices (the 8 s budget was
+    exceeded on every cold-cache call in evaluation; NWDM exceeds 60 s), so
+    the value-only path is the fast default. Set
+    `classify_against_levels=True` to opt into the slower classified path.
 
     Response always carries `level_lookup_status` so the caller can
     distinguish "skipped on purpose" from "attempted but unavailable":

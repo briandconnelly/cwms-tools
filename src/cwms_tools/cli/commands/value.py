@@ -93,8 +93,8 @@ def get(
             help=(
                 "Classify the observation against the applicable CWMS Location "
                 "Levels. OFF by default. The lookup is one /levels listing plus "
-                "one read per level (observed ~1.5 s on SWT/FOSS, longer on "
-                "large offices) and is bounded by an 8 s budget: on timeout "
+                "one read per level (observed ~1.5 s on SWT/FOSS; large offices "
+                "often hit the 8 s budget): on timeout "
                 "the value is still returned with "
                 "`level_lookup_status: 'timed_out'` and no thresholds. When ON "
                 "the response carries `status_class` plus `level_lookup_status` "
@@ -114,8 +114,8 @@ def get(
     """Get the latest observation for one or more place/parameters.
 
     Default path is value-only and fast. Pass `--with-status` to also
-    classify against applicable thresholds (adds a lookup bounded by an 8 s
-    budget; the response always carries `level_lookup_status` so you can see
+    classify against applicable thresholds (adds a lookup; big offices often hit the
+    8 s budget; the response always carries `level_lookup_status` so you can see
     what happened).
 
     With multiple ids the response is a batch envelope: per-item results

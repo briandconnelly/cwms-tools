@@ -56,7 +56,7 @@ def list_levels(
     `<location>.<parameter>.*` mask from them.
 
     Cached for 24 h in the `levels` namespace. The CWMS `/levels`
-    endpoint is reliably slow for big offices (NWDM can take a minute
+    endpoint can be very slow for big offices (NWDM can take a minute
     or more), so caching is what makes `value get` usable for repeat
     queries against the same place/parameter.
     """

@@ -348,9 +348,9 @@ def _commands() -> list[dict[str, Any]]:
             "notes": (
                 "Threshold classification against CWMS Location Levels is OFF "
                 "by default (the lookup adds a /levels listing plus one read per "
-                "level, bounded by an 8 s budget; on timeout the value is "
-                "still returned). Pass --with-status to opt in; the response always carries "
-                "`level_lookup_status` so callers can distinguish "
+                "level; big offices often hit the 8 s budget, and on timeout the "
+                "value is still returned). Pass --with-status to opt in; the "
+                "response always carries `level_lookup_status` so callers can distinguish "
                 "skipped/computed/timed_out/unavailable."
             ),
         },

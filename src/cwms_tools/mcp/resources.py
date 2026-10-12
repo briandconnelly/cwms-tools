@@ -133,8 +133,8 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
 #: Per-tool latency class (local | cached | network | slow). `slow` flags paths
 #: that routinely exceed ~1s: the levels-classified value path and the
 #: potentially 300k-point history pull. `cwms_get_value` is `network` for the
-#: default fast path; its slow `--with-status` path is documented in the tool
-#: description and `level_lookup_status`.
+#: default fast path; its `--with-status` path (big offices often hit the
+#: 8 s cap) is documented in the tool description and `level_lookup_status`.
 TOOL_LATENCY: dict[str, str] = {
     "cwms_search_places": "network",
     "cwms_describe_place": "network",

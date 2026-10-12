@@ -147,12 +147,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   example ids, each verified as a data-bearing catalog id); the static office
   guidance is now a fingerprint input (#171).
 - `with_status` / `--with-status` describe the measured cost (one /levels
-  listing plus one read per level; ~1.5 s observed on SWT/FOSS) and the timeout
-  behavior (8 s budget; the value is still returned with
+  listing plus one read per level; ~1.5 s observed on SWT/FOSS, big offices
+  often hit the cap) and the timeout behavior (8 s budget; the value is still returned with
   `level_lookup_status: 'timed_out'` and no thresholds) instead of "often times
   out" (#165).
 - `last_data_timestamp` is described as the CDA catalog extent (`latest-time`,
-  else `last-update`), which can lag live data by weeks; `cwms_get_value` is the
+  else `last-update`), which can lag live data by weeks or be null; `cwms_get_value` is the
   freshness source. Field name unchanged (#166).
 - Capability fingerprint moves (prose and the new `region_hints` field).
 
