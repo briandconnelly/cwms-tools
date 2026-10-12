@@ -188,9 +188,12 @@ def register_place_tools(mcp: FastMCP) -> None:
         query: Annotated[str, "Name fragment to match, case-insensitive."],
         office: Annotated[
             str | list[str] | None,
-            "Office code(s); omit to fan out across already-cached offices. "
-            "Uncached overflow lands in `offices_skipped_for_budget`. Omit if "
-            "unknown — an empty result's `repair_hint` names offices to retry.",
+            "Office code(s). If unknown, omit it: on a fresh server the first call "
+            "returns no rows and a `repair_hint`; keep following `repair_hint` while "
+            "one is present (the chain ends when a response carries none). If you know the "
+            "region, pass the "
+            "office directly (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT "
+            "Oklahoma, MVS St. Louis; full list at `cwms://offices`).",
         ] = None,
         parameter: Annotated[
             str | None,
@@ -652,15 +655,18 @@ def register_publisher_tools(mcp: FastMCP) -> None:
         parameter: Annotated[str, "Parameter code (e.g. Elev, Flow-In, Flow-Out, Stage)."],
         offices: Annotated[
             list[str] | None,
-            "Limit the index to these office codes. If omitted, only offices "
-            "already cached are scanned — never expands to every office.",
+            "Office codes to index. Omit to answer from already-cached offices only "
+            "— `coverage.complete` is false until every curated office is indexed; "
+            "follow `repair` to index the rest.",
         ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> PublishersForParameterResponse | ErrorRef:
         """List the publishers reporting a parameter, with explicit coverage.
 
         Indexes `offices`, or only already-cached offices when omitted —
-        never fans out to every office. Budget overflow lands in
+        never fans out to every office. With `offices` omitted,
+        `coverage.complete` is false until every curated office is indexed, and
+        `repair` names the ones not yet indexed. Budget overflow lands in
         `coverage.offices_skipped_for_budget` with a `repair` hint back here.
         """
         raw = await _safe(

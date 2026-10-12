@@ -69,13 +69,12 @@ def search(
             help=(
                 "USACE office code (list valid codes with `cwms-tools "
                 "offices`). Repeat to fan out across multiple offices "
-                "(e.g. `-o NWDP -o NWDM`). Omit to use offices already "
-                "cached this session; unbounded discovery is intentionally "
-                "avoided. Overflow beyond the per-call budget lands in "
-                "`offices_skipped_for_budget`. When an omitted `--office` "
-                "resolves to an empty scope, the response carries a "
-                "top-level `repair_hint` naming a concrete data-bearing "
-                "office list to retry with."
+                "(e.g. `-o NWDP -o NWDM`). If unknown, omit it: on a fresh "
+                "cache the first call returns no rows and a `repair_hint`; "
+                "keep following `repair_hint` while one is present (the chain "
+                "ends when a response carries none). If you know the "
+                "region, pass the office directly (NWDM Missouri mainstem, "
+                "NWDP Columbia/Snake, SWT Oklahoma, MVS St. Louis)."
             ),
         ),
     ] = None,
@@ -142,9 +141,18 @@ def search(
     structured `depth: {value, unit}` (e.g. `{value: 3.0, unit: "ft"}`),
     so there's no need to parse the cryptic id.
 
-    When `--office` is omitted and the resolved scope is empty, the
-    response carries a top-level `repair_hint` naming a concrete
-    data-bearing office list to retry with.
+    A top-level `repair_hint` (with `partial: true`) keeps the search
+    followable to exhaustion; it appears in three cases. When `--office` is
+    omitted and the resolved scope is empty, it names the curated
+    data-bearing offices to retry with. When the per-call fan-out budget
+    skips offices, it names the skipped ones (followed, when `--office` was
+    omitted, by the curated offices not yet searched). When `--office` is omitted,
+    only some curated offices are cached, and nothing matched, it names the
+    curated offices that were never searched. Keep following
+    `repair_hint` while one is present; the chain ends when a response
+    carries none. Offices that failed with a
+    temporary upstream error are listed in `partial_reasons` as
+    `temporary_errors_not_retried` for the caller to retry explicitly.
     """
     if limit < 0:
         emit_error(

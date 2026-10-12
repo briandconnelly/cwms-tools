@@ -270,8 +270,13 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     repair_hint: SearchRepairHint | None = Field(
         default=None,
         description=(
-            "Set when the call couldn't be served (e.g. no office in scope); "
-            "names a concrete retry — pass `args.office` back to widen."
+            "Set when the search is incomplete: nothing was in scope "
+            "(`reason: no_offices_in_scope`), offices were skipped for the fan-out "
+            "budget (`reason: offices_skipped_for_budget`; `args.office` is the skipped "
+            "offices, then, when `office` was omitted, the curated offices not yet "
+            "searched), or only cached offices were searched and nothing matched "
+            "(`reason: cached_scope_incomplete`). Pass `args` back verbatim; continue "
+            "while a `repair_hint` is present."
         ),
     )
     results: list[PlaceSummary]
@@ -672,7 +677,13 @@ class PublishersCoverage(CompactDumpMixin, BaseModel):
             "skips); retrying may help."
         ),
     )
-    complete: bool
+    complete: bool = Field(
+        description=(
+            "True only when at least one office was indexed and none were skipped "
+            "(budget or error). With `offices` omitted, true only when every curated "
+            "office was indexed; otherwise follow `repair`."
+        ),
+    )
 
 
 class PublishersForParameterResponse(CompactDumpMixin, BaseModel):

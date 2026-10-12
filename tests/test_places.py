@@ -6,7 +6,7 @@ import cwms
 import pytest
 import responses
 
-from cwms_tools.core import locations, offices, pagination, places, projects, session
+from cwms_tools.core import catalog, locations, offices, pagination, places, projects, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox
@@ -958,13 +958,17 @@ def test_search_places_paginates_with_cursor(monkeypatch):
     ]
     fanout_calls = 0
 
-    def _counting_fanout(req):
+    def _counting_fanout(req, **kwargs):
         nonlocal fanout_calls
         fanout_calls += 1
         return (["NWDM"], [], [])
 
     monkeypatch.setattr(places, "_run_fanout", _counting_fanout)
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
+    monkeypatch.setattr(
+        places,
+        "_gather_enriched",
+        lambda offices, q, use_cache, reraise_single: (list(rows), [], []),
+    )
 
     page1 = places.search_places("L", office="NWDM", limit=2)
     assert len(page1["results"]) == 2
@@ -1014,12 +1018,12 @@ def test_search_places_cursor_rejects_catalog_shift(monkeypatch):
             "co_located": [],
         },
     ]
-    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kwargs: (["NWDM"], [], []))
     calls = {"n": 0}
 
-    def _shifting_gather(offices, q, use_cache):
+    def _shifting_gather(offices, q, use_cache, reraise_single):
         calls["n"] += 1
-        return (list(five if calls["n"] == 1 else six), [])  # catalog grows between calls
+        return (list(five if calls["n"] == 1 else six), [], [])  # catalog grows between calls
 
     monkeypatch.setattr(places, "_gather_enriched", _shifting_gather)
     page1 = places.search_places("L", office="NWDM", limit=2)
@@ -1040,8 +1044,12 @@ def test_search_places_rejects_mismatched_cursor(monkeypatch):
         }
         for i in range(5)
     ]
-    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kwargs: (["NWDM"], [], []))
+    monkeypatch.setattr(
+        places,
+        "_gather_enriched",
+        lambda offices, q, use_cache, reraise_single: (list(rows), [], []),
+    )
     page1 = places.search_places("L", office="NWDM", limit=2)
     with pytest.raises(CwmsToolsError) as exc:
         places.search_places("DIFFERENT", office="NWDM", limit=2, cursor=page1["next_cursor"])
@@ -1051,8 +1059,10 @@ def test_search_places_rejects_mismatched_cursor(monkeypatch):
 def test_search_places_rejects_cursor_with_unlimited_limit(monkeypatch):
     # A cursor combined with an unlimited limit (0 -> None) is contradictory and
     # must be rejected before any fan-out, not silently return a tail subset.
-    monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: ([], []))
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kwargs: (["NWDM"], [], []))
+    monkeypatch.setattr(
+        places, "_gather_enriched", lambda offices, q, use_cache, reraise_single: ([], [], [])
+    )
     with pytest.raises(CwmsToolsError) as exc:
         places.search_places("L", office="NWDM", limit=0, cursor="anytoken")
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
@@ -1118,8 +1128,14 @@ def test_search_places_cursor_rejects_when_cache_expires_between_pages(
     ]
     cached_offices = {"NWDM", "NWDP"}
     monkeypatch.setattr(places, "_fanout_budget", lambda: 0)  # no new fetches allowed at all
-    monkeypatch.setattr(places, "_location_catalog_cached", lambda office: office in cached_offices)
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
+    monkeypatch.setattr(
+        catalog, "location_catalog_cached", lambda office, like=None: office in cached_offices
+    )
+    monkeypatch.setattr(
+        places,
+        "_gather_enriched",
+        lambda offices, q, use_cache, reraise_single: (list(rows), [], []),
+    )
 
     page1 = places.search_places("L", office=["NWDM", "NWDP"], limit=2)
     assert page1["offices_searched"] == ["NWDM", "NWDP"]
@@ -1327,3 +1343,228 @@ def test_browse_region_kind_data_at_uses_full_catalog(kind_catalog) -> None:
     ghost = next(r for r in payload["results"] if r["name"] == "GHOSTDAM")
     # DAM1-SITE is a SITE (filtered out by kind) but still named as a data sibling.
     assert ghost["data_at"] == ["DAM1-SITE"]
+
+
+def test_search_places_skipped_offices_always_yield_partial_and_a_followable_hint(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#161: the reviewer's second call searched 4 of 19 offices, got
+    `partial:false` and no hint, and concluded Fort Peck was not in CWMS. Any
+    budget-skipped office must set partial and hand back exactly the skipped
+    list as the next `office` argument — regardless of whether rows came back."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=LOCATIONS_PAYLOAD, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TIMESERIES_PAYLOAD, status=200)
+    payload = places.search_places("FOSS", office=["SWT", "NWDM", "NWDP"], parameter="Elev")
+    assert payload["results"], "rows came back from the searched office"
+    assert payload["offices_skipped_for_budget"] == ["NWDM", "NWDP"]
+    assert payload["partial"] is True
+    assert any(r.startswith("offices_skipped_for_budget:") for r in payload["partial_reasons"])
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "offices_skipped_for_budget"
+    assert hint["tool"] == "cwms_search_places"
+    assert hint["args"] == {"query": "FOSS", "office": ["NWDM", "NWDP"], "parameter": "Elev"}
+
+
+def test_search_places_cold_chain_reaches_every_curated_office(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Follow the hint chain from a cold cache until no office is skipped: every
+    curated office must be searched exactly once, richest first."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 4)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    first = places.search_places("Fort Peck")
+    assert first["results"] == [] and first["partial"] is True
+    assert first["repair_hint"]["reason"] == "no_offices_in_scope"
+    assert "while one is present" in first["repair_hint"]["message"]
+    searched: list[str] = []
+    hint = first["repair_hint"]
+    for _ in range(10):
+        resp = places.search_places(**hint["args"])
+        searched.extend(resp["offices_searched"])
+        if "repair_hint" not in resp:
+            assert resp.get("partial", False) is False
+            break
+        hint = resp["repair_hint"]
+        assert hint["reason"] == "offices_skipped_for_budget"
+        assert "while one is present" in hint["message"]
+        assert "cursor" not in hint["args"] and "limit" not in hint["args"]
+    assert searched[:4] == ["NWDM", "NWDP", "SWT", "MVS"]
+    assert searched == offices.discovery_office_candidates()
+
+
+def test_search_places_no_offices_in_scope_reason_does_not_tell_caller_to_omit_office(
+    configured, mocked
+) -> None:
+    payload = places.search_places("Fort Peck")
+    reason = next(r for r in payload["partial_reasons"] if r.startswith("no_offices_in_scope"))
+    assert "omit" not in reason
+    assert "repair_hint" in reason
+
+
+# --- partly-warm cache + temporary-error carry-forward (#161, #164) ----------
+
+
+def _warm_swt_empty(mocked) -> None:
+    """Index SWT's locations catalog through the real producer (empty catalog)."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    places.search_places("zzz-warmup", office="SWT")
+
+
+def test_search_places_partly_warm_cache_without_match_carries_a_continuation(
+    configured, mocked
+) -> None:
+    """#161: with only SWT cached the implicit scope is ["SWT"]; an empty result
+    there must not read as 'absent' — it names the curated offices never searched."""
+    _warm_swt_empty(mocked)
+    payload = places.search_places("Barkley")
+    assert payload["offices_searched"] == ["SWT"]
+    assert payload["results"] == []
+    assert payload["partial"] is True
+    assert any(r.startswith("cached_scope_incomplete:") for r in payload["partial_reasons"])
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "cached_scope_incomplete"
+    assert hint["tool"] == "cwms_search_places"
+    assert hint["args"] == {
+        "query": "Barkley",
+        "office": [o for o in offices.discovery_office_candidates() if o != "SWT"],
+    }
+
+
+def test_search_places_partly_warm_cache_with_a_match_has_no_hint(configured, mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=LOCATIONS_PAYLOAD, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TIMESERIES_PAYLOAD, status=200)
+    places.search_places("zzz-warmup", office="SWT")  # warms SWT with matching rows
+    payload = places.search_places("FOSS")
+    assert payload["offices_searched"] == ["SWT"]
+    assert payload["results"]
+    assert "repair_hint" not in payload
+    assert "partial" not in payload
+
+
+def _flaky_locations(mocked, *, failing_office: str | set[str], fail_first_only: bool):
+    """Locations-catalog callback: `failing_office`(es) answer 500 (once, or always)."""
+    import json as _json
+    from urllib.parse import parse_qs, urlparse
+
+    calls = {"n": 0}
+    failing = {failing_office} if isinstance(failing_office, str) else failing_office
+
+    def cb(request):
+        office = parse_qs(urlparse(request.url).query).get("office", [""])[0]
+        if office in failing:
+            calls["n"] += 1
+            if not fail_first_only or calls["n"] == 1:
+                return (500, {}, _json.dumps({"message": "boom"}))
+        return (200, {}, _json.dumps({"locations": []}))
+
+    mocked.add_callback(
+        responses.GET, f"{API_ROOT}catalog/LOCATIONS", callback=cb, content_type="application/json"
+    )
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+
+
+def test_search_places_temporary_error_is_reported_not_carried_into_the_hint(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 2)
+    _flaky_locations(mocked, failing_office="SWT", fail_first_only=True)
+    first = places.search_places("Barkley", office=["NWDM", "SWT", "MVS"])
+    assert first["offices_skipped_for_budget"] == ["MVS"]
+    assert "SWT: upstream_error" in first["partial_reasons"]
+    assert any(r.startswith("temporary_errors_not_retried: SWT ") for r in first["partial_reasons"])
+    hint = first["repair_hint"]
+    assert hint["reason"] == "offices_skipped_for_budget"
+    assert hint["args"]["office"] == ["MVS"]
+    assert "temporary" not in hint["message"]
+    second = places.search_places(**hint["args"])
+    assert second["offices_searched"] == ["MVS"]
+    assert "repair_hint" not in second
+
+
+def test_search_places_persistent_temporary_errors_do_not_chain_forever(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Budget 1, two offices that both always fail: following the hint must end."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    _flaky_locations(mocked, failing_office={"NWDM", "NWDP"}, fail_first_only=False)
+    first = places.search_places("x", office=["NWDM", "NWDP"])
+    assert first["offices_skipped_for_budget"] == ["NWDP"]
+    hint = first["repair_hint"]
+    assert hint["args"]["office"] == ["NWDP"]  # NWDM is reported, not re-carried
+    assert any(
+        r.startswith("temporary_errors_not_retried: NWDM ") for r in first["partial_reasons"]
+    )
+    # Hop 2 is a single office with nothing skipped: its failure surfaces as the
+    # structured error, so the chain ends here instead of ping-ponging.
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places(**hint["args"])
+    assert exc.value.envelope.code is ErrorCode.UPSTREAM_ERROR
+
+
+def test_search_places_temporary_error_on_the_final_hop_is_reported_not_hinted(
+    configured, mocked
+) -> None:
+    _flaky_locations(mocked, failing_office="SWT", fail_first_only=False)
+    payload = places.search_places("Barkley", office=["NWDM", "SWT"])
+    assert "repair_hint" not in payload
+    assert payload["partial"] is True
+    assert any(
+        r.startswith("temporary_errors_not_retried: SWT ") for r in payload["partial_reasons"]
+    )
+
+
+def test_search_places_single_resolved_office_error_does_not_swallow_a_continuation(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Budget 1 + two requested offices resolves a single office; its upstream
+    error must degrade to partial so the NWDP continuation survives."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    _flaky_locations(mocked, failing_office="NWDM", fail_first_only=False)
+    payload = places.search_places("x", office=["NWDM", "NWDP"])
+    assert "NWDM: upstream_error" in payload["partial_reasons"]
+    assert payload["repair_hint"]["args"]["office"] == ["NWDP"]
+
+
+def test_search_places_explicit_empty_office_reason_says_so(configured, mocked) -> None:
+    payload = places.search_places("x", office=[])
+    assert payload["partial_reasons"] == [
+        "no_offices_in_scope: explicit empty office list; nothing was searched"
+    ]
+    assert "repair_hint" not in payload
+
+
+def test_search_places_use_cache_false_spends_budget_on_cached_offices(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forced refresh refetches every office, so a cached office is not free."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    places.search_places("warm", office=["SWT", "MVS"])
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    warm = places.search_places("x", office=["SWT", "MVS"])
+    assert warm["offices_skipped_for_budget"] == []
+    forced = places.search_places("x", office=["SWT", "MVS"], use_cache=False)
+    assert forced["offices_searched"] == ["SWT"]
+    assert forced["offices_skipped_for_budget"] == ["MVS"]
+
+
+def test_search_places_implicit_scope_budget_hint_keeps_the_curated_rest(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forced refresh over a partly-warm implicit scope can budget-skip a cached
+    office; the hint must still name the curated offices never cached."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    places.search_places("warm", office=["SWT", "MVS"])
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    payload = places.search_places("zzz", use_cache=False)
+    assert payload["offices_searched"] == ["MVS"]
+    assert payload["offices_skipped_for_budget"] == ["SWT"]
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "offices_skipped_for_budget"
+    expected = list(dict.fromkeys(["SWT", *(o for o in offices.discovery_office_candidates())]))
+    expected.remove("MVS")
+    assert hint["args"]["office"] == expected

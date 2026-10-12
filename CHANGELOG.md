@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `cwms_search_places` / `place search`: a cold-cache name-first search is now
+  followable to exhaustion. Whenever offices are skipped by the fan-out budget
+  the response sets `partial: true` and carries a `repair_hint` whose
+  `args.office` is the skipped offices (followed, when `office` was omitted, by
+  the curated offices not yet searched); keep following `repair_hint` while one
+  is present, the chain ends when a response carries none. The curated office list is now a
+  priority order (NWDM, NWDP, SWT, MVS, ...) so the first follow-up reaches the
+  data-rich offices. The `no_offices_in_scope` reason no longer tells the
+  caller to omit a field they omitted. A partly-warm cache (some curated offices
+  cached, no match) now also carries a continuation hint, and offices that failed
+  with a temporary upstream error are reported in `partial_reasons` as
+  `temporary_errors_not_retried` so the caller can retry them explicitly (#161).
+- `cwms_publishers_for_parameter` / `publisher for-parameter`:
+  `coverage.complete` is false when no office was indexed, and a cold cache with
+  `offices` omitted returns a `repair` naming the curated offices. A latent
+  cache-key mismatch meant previously indexed offices were never recognised as
+  cached; fixed. With `offices` omitted, `coverage.complete` is true only when
+  every curated office was indexed (#164).
+
+### Changed
+
+- Capability fingerprint moves (parameter descriptions).
+
 ## [0.8.0] - 2026-10-12
 
 ### Added

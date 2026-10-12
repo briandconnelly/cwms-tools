@@ -21,10 +21,8 @@ from cwms_tools.core import (
     projects,
     publishers,
 )
-from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox, GeoPoint, filter_by_bbox
-from cwms_tools.core.session import current_config
 
 DEFAULT_SEARCH_LIMIT: int = 50
 DEFAULT_BROWSE_LIMIT: int = 50
@@ -85,9 +83,17 @@ def search_places(
     `truncated: false` never implies every requested office was searched —
     check `offices_skipped_for_budget` for that. When the resolved scope is
     empty (a bare-name search with no cached offices), the response carries
-    a top-level `repair_hint`: a ready-to-use retry call naming the curated
-    data-bearing office list under `repair_hint.args.office`. It is omitted
-    whenever any office was searched.
+    a top-level `repair_hint` (reason `no_offices_in_scope`): a ready-to-use
+    retry call naming the curated data-bearing office list (priority order)
+    under `repair_hint.args.office`. Separately, whenever any office was
+    skipped for the fan-out budget (#161), the response sets `partial: true`
+    and carries a `repair_hint` (reason `offices_skipped_for_budget`) whose
+    `args.office` is the budget-skipped offices, followed (when `office` was
+    omitted) by the curated offices not yet searched. Keep following
+    `repair_hint` while one is present; the chain ends when a response
+    carries no `repair_hint`. That hint carries no `cursor` or
+    `limit` (a cursor locks the office set it was minted for) and is not
+    attached on a cursor continuation.
 
     `parameter`: optional CWMS parameter code (e.g. `Temp-Water`). When
     set, data-bearing rows that do not publish this parameter are dropped
@@ -121,10 +127,15 @@ def search_places(
 
     req = pagination.request_hash({"q": query, "parameter": parameter})
     decoded, offset, offices_searched, offices_skipped, partial_reasons = _resolve_scope(
-        office=office, cursor=cursor, limit=limit, req=req
+        office=office, cursor=cursor, limit=limit, req=req, use_cache=use_cache
     )
 
-    gathered, gather_reasons = _gather_enriched(offices_searched, query, use_cache=use_cache)
+    gathered, gather_reasons, temporary_errored = _gather_enriched(
+        offices_searched,
+        query,
+        use_cache=use_cache,
+        reraise_single=len(offices_searched) == 1 and not offices_skipped,
+    )
     partial_reasons.extend(gather_reasons)
     enriched, filtered_out = _apply_parameter_filter(
         gathered,
@@ -196,16 +207,114 @@ def search_places(
     if parameter is not None:
         response["parameter"] = parameter
         response["nearby_non_matching_count"] = filtered_out
+    extra_reasons, repair_hint = _continuation(
+        query,
+        parameter,
+        implicit_scope=office is None and decoded is None,
+        offices_searched=offices_searched,
+        offices_skipped=offices_skipped,
+        temporary_errored=temporary_errored,
+        total_count=total_count,
+    )
+    partial_reasons.extend(extra_reasons)
     if partial_reasons:
         response["partial"] = True
         response["partial_reasons"] = partial_reasons
-    # Name-first dead-end recovery (#24): only when the caller OMITTED `office`
-    # (office is None) and the implicit cached scope was empty. An explicit
-    # empty list (office=[]) is a deliberate "search nothing" — widening it with
-    # a hint would contradict the caller's stated scope, so don't.
-    if office is None and decoded is None and not offices_searched:
-        response["repair_hint"] = _empty_scope_repair_hint(query, parameter)
+    if repair_hint is not None:
+        response["repair_hint"] = repair_hint
     return response
+
+
+def _continuation(
+    query: str,
+    parameter: str | None,
+    *,
+    implicit_scope: bool,
+    offices_searched: list[str],
+    offices_skipped: list[str],
+    temporary_errored: list[str],
+    total_count: int,
+) -> tuple[list[str], dict[str, Any] | None]:
+    """Decide the continuation `partial_reasons` and `repair_hint` for a search.
+
+    `implicit_scope` is true when the caller omitted `office` on a fresh search
+    (no cursor). Hints apply to that case, and — for the budget hint — to any
+    fresh search; an explicit empty list is a deliberate "search nothing" and is
+    never widened. Precedence: empty scope (#24) > budget continuation (#161) >
+    partly-warm cache. The budget hint restarts a fresh search (no cursor: a
+    cursor locks the office set it was minted for) over the skipped offices; on an
+    implicit scope the curated offices never searched ride along after them.
+    Temporarily-errored offices are only reported (every hop), never re-carried:
+    carrying them would let two persistently failing offices chain forever.
+    """
+    reasons: list[str] = []
+    uncached = (
+        [o for o in offices.discovery_office_candidates() if o not in offices_searched]
+        if implicit_scope and offices_searched and total_count == 0
+        else []
+    )
+    if temporary_errored:
+        reasons.append(
+            f"temporary_errors_not_retried: {', '.join(temporary_errored)} failed with a "
+            "temporary upstream error and were not searched; retry them with `office`"
+        )
+    if uncached:
+        reasons.append(
+            f"cached_scope_incomplete: {len(uncached)} curated office(s) not cached and "
+            "therefore not searched; follow `repair_hint`"
+        )
+    if implicit_scope and not offices_searched:
+        return reasons, _empty_scope_repair_hint(query, parameter)
+    if offices_skipped:  # always empty on the cursor path, which rejects skips outright
+        return reasons, _skipped_scope_repair_hint(query, parameter, offices_skipped, uncached)
+    if uncached:
+        return reasons, _cached_scope_repair_hint(query, parameter, uncached)
+    return reasons, None
+
+
+def _skipped_scope_repair_hint(
+    query: str, parameter: str | None, skipped: list[str], also: list[str]
+) -> dict[str, Any]:
+    """Build the `repair_hint` for a search that skipped offices for budget.
+
+    `args.office` is the skipped offices followed by `also` (deduplicated): the
+    curated offices not yet searched when `office` was omitted, otherwise empty.
+    """
+    offices_next = list(dict.fromkeys([*skipped, *also]))
+    args: dict[str, Any] = {"query": query, "office": offices_next}
+    if parameter is not None:
+        args["parameter"] = parameter
+    return {
+        "reason": "offices_skipped_for_budget",
+        "message": (
+            f"{len(skipped)} office(s) were not searched because of the per-call fan-out "
+            "budget. Retry with `office` set to `args.office` (the skipped offices, then "
+            "any curated offices not yet searched); keep following `repair_hint` while "
+            "one is present. The chain ends when a response carries no `repair_hint`."
+        ),
+        "tool": "cwms_search_places",
+        "args": args,
+    }
+
+
+def _cached_scope_repair_hint(
+    query: str, parameter: str | None, uncached: list[str]
+) -> dict[str, Any]:
+    """Build the `repair_hint` for a partly-warm cache that matched nothing."""
+    args: dict[str, Any] = {"query": query, "office": list(uncached)}
+    if parameter is not None:
+        args["parameter"] = parameter
+    return {
+        "reason": "cached_scope_incomplete",
+        "message": (
+            "Only offices already cached were searched and nothing matched. Retry with "
+            "`office` set to the curated offices that were not cached (priority order); "
+            "keep following `repair_hint` while one is present; the chain ends when a "
+            "response carries no `repair_hint`."
+        ),
+        "tool": "cwms_search_places",
+        "args": args,
+    }
 
 
 def _empty_scope_repair_hint(query: str, parameter: str | None) -> dict[str, Any]:
@@ -223,9 +332,10 @@ def _empty_scope_repair_hint(query: str, parameter: str | None) -> dict[str, Any
     return {
         "reason": "no_offices_in_scope",
         "message": (
-            "No office in scope, so nothing was searched. Retry with an explicit "
-            "`office` list — the data-bearing offices below are the best starting "
-            "set; widen from there (or pass a known office) if the place isn't found."
+            "No office catalog is cached yet, so nothing was searched. Retry with "
+            "`office` set to this curated list (priority order; the budget takes the "
+            "first few per call) and keep following `repair_hint` while one is present; "
+            "the chain ends when a response carries no `repair_hint`."
         ),
         "tool": "cwms_search_places",
         "args": args,
@@ -238,6 +348,7 @@ def _resolve_scope(
     cursor: str | None,
     limit: int | None,
     req: str,
+    use_cache: bool,
 ) -> tuple[dict[str, Any] | None, int, list[str], list[str], list[str]]:
     """Resolve the office set to search, honoring a continuation cursor.
 
@@ -266,7 +377,9 @@ def _resolve_scope(
         requested = _normalize_office_arg(office)
         if requested is None:
             requested = offices.cached_offices_for_locations()
-        offices_searched, offices_skipped, partial_reasons = _run_fanout(requested)
+        offices_searched, offices_skipped, partial_reasons = _run_fanout(
+            requested, use_cache=use_cache, explicit_empty=office is not None and not requested
+        )
         return None, 0, offices_searched, offices_skipped, partial_reasons
 
     if limit is None:
@@ -281,7 +394,9 @@ def _resolve_scope(
     # and a bounded/typed office set (a forged cursor must not widen the fan-out).
     offset = pagination.validate_continuation(decoded, kind="search_places", req=req)
     locked_offices = pagination.coerce_offices(decoded)
-    offices_searched, offices_skipped, partial_reasons = _run_fanout(locked_offices)
+    offices_searched, offices_skipped, partial_reasons = _run_fanout(
+        locked_offices, use_cache=use_cache, explicit_empty=False
+    )
     if offices_skipped:
         # A locked office fell out of budget (cache TTL evicted it, or the
         # cursor was forged). Reject outright rather than silently searching
@@ -294,11 +409,16 @@ def _resolve_scope(
     return decoded, offset, offices_searched, offices_skipped, partial_reasons
 
 
-def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
+def _run_fanout(
+    requested: list[str], *, use_cache: bool, explicit_empty: bool
+) -> tuple[list[str], list[str], list[str]]:
     """Decide which offices to search; return (searched, skipped, reasons).
 
     Mirrors `publishers_index.publishers_for_parameter`: cached offices
-    are always allowed; uncached offices consume the per-call budget.
+    are always allowed; uncached offices consume the per-call budget. With
+    `use_cache=False` every office is refetched, so none counts as cached.
+    `explicit_empty` marks a caller-supplied `office=[]` (vs an empty cached
+    scope), which changes the wording of the empty-scope reason.
     Offices that error during the actual search are flagged via
     `partial_reasons` in the parent response.
     """
@@ -307,7 +427,7 @@ def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
     skipped: list[str] = []
     reasons: list[str] = []
     for office in requested:
-        cached = _location_catalog_cached(office)
+        cached = use_cache and catalog.location_catalog_cached(office)
         if cached or budget > 0:
             searched.append(office)
             if not cached:
@@ -315,17 +435,18 @@ def _run_fanout(requested: list[str]) -> tuple[list[str], list[str], list[str]]:
         else:
             skipped.append(office)
     if not requested:
-        reasons.append("no_offices_in_scope: omit `office` or pass an explicit list to widen")
+        reasons.append(
+            "no_offices_in_scope: explicit empty office list; nothing was searched"
+            if explicit_empty
+            else "no_offices_in_scope: no office catalog is cached yet; follow `repair_hint` "
+            "or pass `office` explicitly"
+        )
+    if skipped:
+        reasons.append(
+            f"offices_skipped_for_budget: {len(skipped)} office(s) not searched this call; "
+            "follow `repair_hint` to continue"
+        )
     return searched, skipped, reasons
-
-
-def _location_catalog_cached(office: str) -> bool:
-    """Cheap probe: is `office`'s unfiltered locations catalog cached?"""
-
-    cache = get_cache()
-    cfg = current_config()
-    key = build_cache_key("location_catalog", office, "", api_root=cfg.api_root)
-    return cache.get(key) is not None
 
 
 def _gather_enriched(
@@ -333,28 +454,31 @@ def _gather_enriched(
     query: str,
     *,
     use_cache: bool,
-) -> tuple[list[dict[str, Any]], list[str]]:
+    reraise_single: bool,
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     """Run filtered enrichment per office and merge.
 
-    Returns `(rows, error_reasons)`. A failing office in a multi-office
-    fan-out degrades to a `"<office>: <code>"` entry in `error_reasons`
-    (surfaced as `partial_reasons` on the response) instead of failing the
-    whole call. `error_reasons` entries are free-text diagnostics of the
-    form ``"<office>: <token>"``; the token is either an ErrorCode value
+    Returns `(rows, error_reasons, temporary_errored)`. A failing office in a
+    multi-office fan-out degrades to a `"<office>: <code>"` entry in
+    `error_reasons` (surfaced as `partial_reasons` on the response) instead of
+    failing the whole call. `error_reasons` entries are free-text diagnostics
+    of the form ``"<office>: <token>"``; the token is either an ErrorCode value
     (e.g. ``ghost_office``) or the literal string ``internal_error
     (<ExcType>)`` for unexpected exceptions — ``internal_error`` is
-    deliberately *not* an ErrorCode value.
+    deliberately *not* an ErrorCode value. `temporary_errored` lists the
+    offices whose structured error was marked `temporary` (5xx, connection
+    errors); the response reports them but never re-carries them.
 
-    When the resolved office set has exactly one entry (``office_ids`` is
-    the resolved set — cached scope or cursor-locked — not necessarily the
-    caller's literal request), a structured CwmsToolsError re-raises so
-    the full envelope — including the ghost-office repair hint — reaches
-    the agent instead of an empty result. Unexpected exceptions also
-    re-raise when there is only one office.
+    When `reraise_single` is true and the resolved office set has exactly one
+    entry, a structured CwmsToolsError re-raises so the full envelope —
+    including the ghost-office repair hint — reaches the agent instead of an
+    empty result; unexpected exceptions re-raise too. The caller passes false
+    when offices were budget-skipped, so a continuation is never swallowed.
     """
     merged: list[dict[str, Any]] = []
     reasons: list[str] = []
-    single = len(office_ids) == 1
+    temporary_errored: list[str] = []
+    single = reraise_single and len(office_ids) == 1
     for office_id in office_ids:
         try:
             rows = locations.search(office_id, query, use_cache=use_cache)
@@ -362,6 +486,8 @@ def _gather_enriched(
             if single:
                 raise
             reasons.append(f"{office_id}: {err.envelope.code.value}")
+            if err.envelope.temporary:
+                temporary_errored.append(office_id)
             continue
         except Exception as exc:  # unexpected — keep the fan-out alive but visible
             if single:
@@ -369,7 +495,7 @@ def _gather_enriched(
             reasons.append(f"{office_id}: internal_error ({type(exc).__name__})")
             continue
         merged.extend(rows)
-    return merged, reasons
+    return merged, reasons, temporary_errored
 
 
 def _apply_parameter_filter(

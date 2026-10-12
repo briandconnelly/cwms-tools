@@ -10,7 +10,7 @@ import responses
 from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
-from cwms_tools.core import publishers_index, session
+from cwms_tools.core import offices, publishers_index, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 
@@ -231,3 +231,103 @@ def test_cli_publisher_for_parameter_repeats_office_flag(configured) -> None:
     # Both offices appear in offices_requested, but only the first cache hit
     # was registered; the test just confirms the flag was accepted.
     assert {"SWT", "MVS"} <= set(payload["coverage"]["offices_requested"])
+
+
+def test_publishers_for_parameter_discovers_offices_indexed_through_the_producer(
+    configured,
+) -> None:
+    """#164 (Codex finding): `_office_has_cache` probed the key
+    ('ts_catalog', office, '') but the catalog writes ('ts_catalog', office,
+    '', 'no-extents'), so a genuinely indexed office was never seen as cached.
+    Index SWT explicitly, then ask with `offices` omitted: SWT must be found
+    from cache with NO second upstream call."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json=_ts_catalog("FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"),
+            status=200,
+        )
+        publishers_index.publishers_for_parameter("Elev", offices=["SWT"])
+        assert len(mocked.calls) == 1
+        payload = publishers_index.publishers_for_parameter("Elev")
+        assert len(mocked.calls) == 1, "cached office must not be refetched"
+    assert payload["coverage"]["offices_requested"] == ["SWT"]
+    assert payload["coverage"]["offices_indexed"] == ["SWT"]
+    # A cached slice is not the curated set: not complete, and `repair` names the rest.
+    assert payload["coverage"]["complete"] is False
+    assert payload["repair"]["next_step"] == "index_curated_offices"
+    assert payload["repair"]["arguments"] == {
+        "parameter": "Elev",
+        "offices": [o for o in offices.discovery_office_candidates() if o != "SWT"],
+    }
+
+
+def test_publishers_for_parameter_cold_cache_is_not_complete_and_names_curated_offices(
+    configured,
+) -> None:
+    """#164: on a fresh server with `offices` omitted the index answers from
+    nothing; `complete:true` read as 'nobody publishes Elev'."""
+    payload = publishers_index.publishers_for_parameter("Elev")
+    cov = payload["coverage"]
+    assert cov["offices_requested"] == [] and cov["offices_indexed"] == []
+    assert cov["complete"] is False
+    repair = payload["repair"]
+    assert repair["next_step"] == "index_curated_offices"
+    assert repair["tool"] == "cwms_publishers_for_parameter"
+    assert repair["arguments"] == {
+        "parameter": "Elev",
+        "offices": offices.discovery_office_candidates(),
+    }
+
+
+def test_publishers_for_parameter_complete_requires_an_indexed_office(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", status=500, body="err")
+        payload = publishers_index.publishers_for_parameter("Elev", offices=["SWT"])
+    assert payload["coverage"]["offices_indexed"] == []
+    assert payload["coverage"]["complete"] is False
+
+
+def test_publishers_for_parameter_use_cache_false_spends_budget_on_cached_offices(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forced refresh refetches every office, so a cached office is not free."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json=_ts_catalog("FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"),
+            status=200,
+        )
+        publishers_index.publishers_for_parameter("Elev", offices=["SWT", "MVS", "NWDM"])
+        assert len(mocked.calls) == 3
+        monkeypatch.setattr(publishers_index, "_budget", lambda: 1)
+        payload = publishers_index.publishers_for_parameter(
+            "Elev", offices=["SWT", "MVS", "NWDM"], use_cache=False
+        )
+        assert len(mocked.calls) == 4, "exactly one fetch attempted under budget 1"
+    assert payload["coverage"]["offices_indexed"] == ["SWT"]
+    assert payload["coverage"]["offices_skipped_for_budget"] == ["MVS", "NWDM"]
+
+
+def test_publishers_for_parameter_implicit_scope_skip_repair_keeps_the_curated_rest(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json=_ts_catalog("FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"),
+            status=200,
+        )
+        publishers_index.publishers_for_parameter("Elev", offices=["SWT", "MVS"])
+        monkeypatch.setattr(publishers_index, "_budget", lambda: 1)
+        payload = publishers_index.publishers_for_parameter("Elev", use_cache=False)
+    assert payload["coverage"]["offices_indexed"] == ["MVS"]
+    assert payload["coverage"]["offices_skipped_for_budget"] == ["SWT"]
+    repair = payload["repair"]
+    assert repair["next_step"] == "retry_skipped_offices"
+    expected = list(dict.fromkeys(["SWT", *offices.discovery_office_candidates()]))
+    expected.remove("MVS")
+    assert repair["arguments"]["offices"] == expected

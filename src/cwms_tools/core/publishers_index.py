@@ -14,9 +14,8 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from cwms_tools.core import catalog, concurrency, publishers
-from cwms_tools.core.cache import build_cache_key, get_cache
+from cwms_tools.core import offices as offices_mod
 from cwms_tools.core.errors import CwmsToolsError, RepairHint
-from cwms_tools.core.session import current_config
 
 
 def _budget() -> int:
@@ -29,58 +28,13 @@ def _budget() -> int:
 
 
 def _cached_offices() -> set[str]:
-    """Best-effort: which office IDs already have ts_catalog cache entries.
+    """Offices whose unfiltered ts_catalog is already on disk.
 
-    diskcache exposes iteration over keys; we filter to our ts_catalog
-    namespace prefix. The lookup is O(cache size), bounded by our own keyspace.
+    diskcache keys are hashed, so we cannot enumerate them; probe the curated
+    candidate set (`offices_mod.discovery_office_candidates()`) instead. Only
+    offices that are *actually* cached come back — nothing is fetched here.
     """
-    cache = get_cache()
-    cfg = current_config()
-    offices: set[str] = set()
-    try:
-        for raw_key in cache._l2.iterkeys():
-            if not isinstance(raw_key, str) or not raw_key.startswith("ts_catalog:"):
-                continue
-            # We can't easily reverse the SHA-256 hash to the office id, so
-            # instead match against a precomputed key for every known office.
-            # For now, return all NW + likely-active offices as the candidate
-            # set; the actual cache hits are validated in `_office_has_cache`.
-            offices.update(_KNOWN_LIKELY_OFFICES)
-            break
-    except Exception:  # pragma: no cover - diskcache iter failure is non-fatal
-        pass
-    cached: set[str] = set()
-    for office in offices:
-        key = build_cache_key("ts_catalog", office, "", api_root=cfg.api_root)
-        if cache.get(key) is not None:
-            cached.add(office)
-    return cached
-
-
-#: Heuristic candidate set for the "implicit all-offices" lookup. We never
-#: fetch any of these eagerly — they are *only* sampled when the caller does
-#: not name an office. cwms-overview.md §6.1 office list.
-_KNOWN_LIKELY_OFFICES = (
-    "NWDM",
-    "NWDP",
-    "MVS",
-    "MVK",
-    "MVM",
-    "MVN",
-    "MVP",
-    "MVR",
-    "SWT",
-    "SWL",
-    "SWG",
-    "SWF",
-    "LRB",
-    "LRC",
-    "LRE",
-    "LRH",
-    "LRL",
-    "LRN",
-    "LRP",
-)
+    return {o for o in offices_mod.discovery_office_candidates() if _office_has_cache(o)}
 
 
 def publishers_for_parameter(
@@ -93,6 +47,11 @@ def publishers_for_parameter(
 
     `offices=None` means "the offices already in cache" — we never expand to
     the full 68-office surface implicitly. Pass an explicit list to widen.
+    With `offices` omitted, `complete` is true only when every curated office
+    (`offices.discovery_office_candidates()`) was indexed; otherwise `repair`
+    names the curated offices not yet indexed — on a cold cache, all of them
+    (#164). With explicit `offices`, `complete` means "all requested offices
+    were indexed".
 
     The per-call budget caps how many *new* (uncached) offices we will fetch;
     additional offices are listed under `offices_skipped_for_budget` with a
@@ -116,7 +75,7 @@ def publishers_for_parameter(
 
     budget_remaining = _budget()
     for office in requested:
-        was_cached = _office_has_cache(office)
+        was_cached = use_cache and _office_has_cache(office)
         if was_cached or budget_remaining > 0:
             # An uncached office consumes the budget on *attempt*, not just on
             # success: the fetch hits the upstream regardless of outcome, so a
@@ -145,7 +104,11 @@ def publishers_for_parameter(
         else:
             skipped.append(office)
 
-    complete = not skipped and not error_skipped
+    curated_uncached = [o for o in offices_mod.discovery_office_candidates() if o not in indexed]
+    if offices is None:
+        complete = not curated_uncached and not skipped and not error_skipped
+    else:
+        complete = bool(indexed) and not skipped and not error_skipped
     publisher_rows = [
         {
             "publisher": pub,
@@ -157,13 +120,9 @@ def publishers_for_parameter(
     ]
     publisher_rows.sort(key=lambda r: (-r["rank"], r["publisher"]))
 
-    repair = None
-    if skipped:
-        repair = RepairHint(
-            next_step="retry_skipped_offices",
-            tool="cwms_publishers_for_parameter",
-            arguments={"parameter": parameter, "offices": skipped},
-        ).model_dump(mode="json")
+    repair = _repair_hint(
+        parameter, explicit=offices is not None, skipped=skipped, curated_uncached=curated_uncached
+    )
 
     return {
         "parameter": parameter,
@@ -184,12 +143,39 @@ def publishers_for_parameter(
     }
 
 
+def _repair_hint(
+    parameter: str, *, explicit: bool, skipped: list[str], curated_uncached: list[str]
+) -> dict[str, Any] | None:
+    """The `repair` for a coverage gap: budget skips first, else the curated rest.
+
+    With `offices` omitted (#164) only the cached slice was indexed — on a cold
+    cache, nothing — so name the curated offices not yet indexed, mirroring
+    `cwms_search_places`'s starting set.
+    """
+    if skipped:
+        hint = RepairHint(
+            next_step="retry_skipped_offices",
+            tool="cwms_publishers_for_parameter",
+            arguments={
+                "parameter": parameter,
+                # Implicit scope: the curated offices never indexed ride along.
+                "offices": list(dict.fromkeys([*skipped, *([] if explicit else curated_uncached)])),
+            },
+        )
+    elif not explicit and curated_uncached:
+        hint = RepairHint(
+            next_step="index_curated_offices",
+            tool="cwms_publishers_for_parameter",
+            arguments={"parameter": parameter, "offices": curated_uncached},
+        )
+    else:
+        return None
+    return hint.model_dump(mode="json")
+
+
 def _office_has_cache(office: str) -> bool:
-    """Cheap check: does the ts_catalog cache already hold this office?"""
-    cache = get_cache()
-    cfg = current_config()
-    key = build_cache_key("ts_catalog", office, "", api_root=cfg.api_root)
-    return cache.get(key) is not None
+    """Cheap check: is the office's unfiltered ts_catalog already on disk?"""
+    return catalog.ts_catalog_cached(office)
 
 
 def _gather_ts_ids(office: str, *, use_cache: bool) -> list[str]:

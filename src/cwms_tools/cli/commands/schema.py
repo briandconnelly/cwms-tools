@@ -176,7 +176,13 @@ def _commands() -> list[dict[str, Any]]:
                     "--office",
                     "string",
                     repeatable=True,
-                    help="Office code; repeat to fan out. List codes with `cwms-tools offices`.",
+                    help=(
+                        "Office code; repeat to fan out. If unknown, omit it and follow "
+                        "`repair_hint` while one is present (the chain ends when a response "
+                        "carries none); if known, "
+                        "pass it (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT Oklahoma, "
+                        "MVS St. Louis). List codes with `cwms-tools offices`."
+                    ),
                 ),
                 _opt("--parameter", "string", help="Filter to a published parameter."),
                 _opt("--limit", "integer", default=50, help="Result cap; 0 = no cap."),
@@ -401,7 +407,11 @@ def _commands() -> list[dict[str, Any]]:
                     "--office",
                     "string",
                     repeatable=True,
-                    help="Office code; repeat. List codes with `cwms-tools offices`.",
+                    help=(
+                        "Office code; repeat. Omit to answer from already-cached offices only "
+                        "(`coverage.complete` is false until every curated office is indexed); "
+                        "follow `repair` to index the rest. List codes with `cwms-tools offices`."
+                    ),
                 ),
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
