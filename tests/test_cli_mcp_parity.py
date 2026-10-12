@@ -1,19 +1,24 @@
-"""CLI ↔ MCP parity tests (#56).
+"""CLI ↔ MCP parity tests (#56, #143).
 
 The CLI and MCP surfaces wrap the *same* `core/` producers and share the
-`summary`/`full` `detail` toggle via `core.shaping`. These tests are the guard
-that the two surfaces cannot silently diverge again (the #45 / #55 class): for
-each tool, the same mocked producer payload is driven through both surfaces and
-the emitted data must agree field-for-field, in both detail modes.
+`summary`/`full` `detail` toggle via `core.shaping`, and the null-strip /
+float-round serialization step via `core._compact.surface_payload`. These tests
+are the guard that the two surfaces cannot silently diverge again (the #45 /
+#55 / #143 class): for each tool, the same producer payload is driven through
+both surfaces and the emitted data must agree field-for-field, in both detail
+modes.
 
-Method: each producer is monkeypatched to return a model-complete payload built
-by round-tripping a minimal input through the MCP response model's own
-`model_dump` — which null-strips non-semantic Nones and keeps the semantic
-(`_keep_null`) ones. That payload is therefore exactly what MCP re-emits as data,
-and the CLI emits it verbatim, so the two data dicts compare for *exact*
-equality (after only peeling the MCP `ok`/`source` envelope and the CLI
-`value get` batch wrapper — the deliberate per-surface envelopes). No null
-normalization, so the guard cannot mask a field-presence divergence.
+Method: each producer is monkeypatched to return a *producer-shaped* payload —
+the raw dict a real producer builds, including the `None`-valued keys real
+producers emit (`bbox`, `next_cursor`, per-row `public_name`, ...) and omitting
+fields the response model defaults. It is deliberately NOT pre-cleaned through
+the response model (#143: pre-cleaning hid the CLI printing nulls that MCP
+strips). The two data dicts must compare for *exact* equality after only
+peeling the MCP `ok`/`source` envelope and the CLI `value get` batch wrapper —
+the deliberate per-surface envelopes. No null normalization, so the guard
+cannot mask a field-presence divergence. `test_*_real_producer` tests below go
+one level further and stub only the catalog/upstream seam beneath a real
+producer.
 """
 
 from __future__ import annotations
@@ -32,7 +37,6 @@ from cwms_tools.cli.app import app
 from cwms_tools.core import models as M
 from cwms_tools.core import places, publishers_index, session, values
 from cwms_tools.core.cache import Cache, set_cache
-from cwms_tools.core.models import SourceMeta
 from cwms_tools.mcp.server import build_server
 
 API_ROOT = "https://example.test/cwms-data/"
@@ -52,19 +56,10 @@ def configured(tmp_path, monkeypatch: pytest.MonkeyPatch):
     session._state["config"] = None
 
 
-_DUMMY_SOURCE = SourceMeta(fingerprint="0" * 64)
-
-
-def _producer_payload(model_cls: type, **fields: Any) -> dict[str, Any]:
-    """A model-complete, null-stripped producer payload (no `ok`/`source`).
-
-    Round-tripping through the response model realizes every default so the MCP
-    re-validation adds nothing the CLI raw-dict would lack.
-    """
-    dumped = model_cls(source=_DUMMY_SOURCE, **fields).model_dump(mode="json")
-    dumped.pop("ok", None)
-    dumped.pop("source", None)
-    return dumped
+def _producer_payload(case: dict) -> dict[str, Any]:
+    """The raw producer-shaped payload for `case` — nulls included, defaults
+    absent, never round-tripped through the response model (#143)."""
+    return copy.deepcopy(case["fields"])
 
 
 def _branch(structured: dict | None) -> dict:
@@ -92,7 +87,24 @@ def _mcp_data(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 SEARCH = {
     "model": M.SearchPlacesResponse,
-    "fields": {"query": "FOSS", "results": [{"office_id": "SWT", "name": "FOSS", "raw": {"b": 1}}]},
+    "fields": {
+        "query": "FOSS",
+        "office": "SWT",
+        "parameter": None,
+        "repair_hint": None,
+        "next_cursor": None,
+        "results": [
+            {
+                "office_id": "SWT",
+                "name": "FOSS",
+                "public_name": None,
+                "depth": None,
+                "last_data_timestamp": None,
+                # Passthrough DTO: nulls inside it are upstream data, kept by both.
+                "raw": {"b": 1, "nearest-city": None},
+            }
+        ],
+    },
     "producer": (places, "search_places"),
     "cli": ["place", "search", "FOSS", "--office", "SWT"],
     "mcp": ("cwms_search_places", {"query": "FOSS", "office": "SWT"}),
@@ -104,7 +116,12 @@ DESCRIBE = {
     "fields": {
         "office_id": "SWT",
         "name": "FOSS",
-        "location": {"office-id": "SWT", "name": "FOSS", "description": "verbose"},
+        "location": {
+            "office-id": "SWT",
+            "name": "FOSS",
+            "description": "verbose",
+            "public-name": None,
+        },
         # A v1 Project payload as cwms-python >= 1.0.9 returns it: nested
         # location with CDA's 0.0 coordinates, verbose prose, zero costs.
         "project": {
@@ -119,6 +136,8 @@ DESCRIBE = {
         "parameter_count": 1,
         "publishers": [{"publisher": "Ccp-Rev", "rank": 9, "ts_count": 1, "parameters": ["Elev"]}],
         "ts_ids": ["FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"],
+        "last_data_timestamp": None,
+        "lock_lookup_status": None,
     },
     "producer": (places, "describe_place"),
     "cli": ["place", "describe", "SWT/FOSS"],
@@ -151,9 +170,12 @@ VALUE = {
                 "relation": "above",
                 "level_id": "LID",
                 "source_workaround": "wa",
+                "delta": None,
             }
         ],
         "level_lookup_status": "computed",
+        "publisher": None,
+        "truncation_hint": None,
     },
     "producer": (values, "get_value"),
     "cli": ["value", "get", "SWT/FOSS/Elev"],
@@ -173,8 +195,13 @@ HISTORY = {
         "end": "2026-01-02T00:00:00Z",
         "rollup": "raw",
         "summary": None,
-        "values": [{"timestamp": "2026-01-01T00:00:00Z", "value": 1.0, "quality": 3}],
-        "value_count": 1,
+        "values": [
+            {"timestamp": "2026-01-01T00:00:00Z", "value": 1.0, "quality": 3},
+            {"timestamp": "2026-01-01T01:00:00Z", "value": None, "quality": 3},
+        ],
+        "value_count": 2,
+        "buckets": None,
+        "next_begin": None,
     },
     "producer": (values, "get_history"),
     "cli": [
@@ -206,7 +233,7 @@ PROFILE = {
         "name": "GWLW_S1",
         "parameter": "Temp-Water",
         "unit": "degC",
-        "sensor_count": 1,
+        "sensor_count": 2,
         "profile": [
             {
                 "name": "S1",
@@ -214,8 +241,17 @@ PROFILE = {
                 "value": 20.0,
                 "timestamp": "2026-01-01T00:00:00Z",
                 "ts_id": "TSID",
-            }
+                "error": None,
+            },
+            {
+                "name": "S2",
+                "depth": {"value": 6.0, "unit": "ft"},
+                "value": None,
+                "timestamp": None,
+                "ts_id": "TSID2",
+            },
         ],
+        "note": None,
     },
     "producer": (values, "get_profile"),
     "cli": ["value", "profile", "NWDP/GWLW_S1/Temp-Water"],
@@ -235,6 +271,7 @@ PUBLISHERS = {
             "offices_indexed": ["NWDM"],
             "complete": True,
         },
+        "repair": None,
         "_observed_publishers_by_office": {"NWDM": ["Best-MRBWM"]},
     },
     "producer": (publishers_index, "publishers_for_parameter"),
@@ -258,6 +295,8 @@ LIST_PARAMETERS = {
             {"publisher": "Ccp-Rev", "rank": 9, "parameters": ["Elev"], "ts_count": 1}
         ],
         "all_parameters": ["Elev"],
+        "last_data_timestamp": None,
+        "data_at": None,
     },
     "producer": (places, "list_parameters"),
     "cli": ["place", "parameters", "SWT/FOSS"],
@@ -278,7 +317,20 @@ BROWSE_REGION = {
         "total_count": 1,
         "truncated": False,
         "has_more": False,
-        "results": [{"office_id": "SWT", "name": "FOSS", "raw": {"big": "blob"}}],
+        "bbox": None,
+        "state": None,
+        "limit": None,
+        "next_cursor": None,
+        "results": [
+            {
+                "office_id": "SWT",
+                "name": "FOSS",
+                "public_name": None,
+                "depth": None,
+                "last_data_timestamp": None,
+                "raw": {"big": "blob"},
+            }
+        ],
     },
     "producer": (places, "browse_region"),
     "cli": ["region", "browse", "--office", "SWT"],
@@ -314,7 +366,7 @@ def test_cli_mcp_parity(case: dict, detail: str, configured, monkeypatch) -> Non
     if not has_detail and detail == "full":
         pytest.skip("CLI command has no --detail toggle; only the summary shape exists")
 
-    raw = _producer_payload(case["model"], **case["fields"])
+    raw = _producer_payload(case)
     module, attr = case["producer"]
     monkeypatch.setattr(module, attr, lambda *a, **k: copy.deepcopy(raw))
 
@@ -327,10 +379,11 @@ def test_cli_mcp_parity(case: dict, detail: str, configured, monkeypatch) -> Non
     # 1. Exact field-for-field parity between the two surfaces — including
     #    semantic-null (`_keep_null`) fields. No normalization, so the guard
     #    cannot mask a divergence where one surface omits a field the other
-    #    emits (e.g. `history.summary: null`). This holds because the producer
-    #    payload is built via the response model's own `model_dump` (which
-    #    null-strips non-semantic Nones and keeps semantic ones), so it equals
-    #    exactly what MCP re-emits, and the CLI emits it verbatim.
+    #    emits (e.g. `history.summary: null`). The producer payload is raw
+    #    (Nones included, not pre-cleaned through a model), and each surface
+    #    serializes it independently through the tool's response model — MCP
+    #    via its handler, the CLI via `core._compact.surface_payload` (#143) —
+    #    so any null-strip or default drift between them fails here.
     assert cli_data == mcp_data
 
     # 2. The summary shaper actually fired on BOTH surfaces (the #55-class guard):
@@ -341,41 +394,54 @@ def test_cli_mcp_parity(case: dict, detail: str, configured, monkeypatch) -> Non
     assert check(mcp_data) is want_internal
 
 
-def _strip_nulls(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {k: _strip_nulls(v) for k, v in value.items() if v is not None}
-    if isinstance(value, list):
-        return [_strip_nulls(v) for v in value]
-    return value
-
-
+# Enriched catalog rows as `catalog.enrich_locations` returns them — including
+# the `None`s a real row carries (no public name, no coordinates, no data yet).
 _KIND_ROWS = [
     {
         "office_id": "SWT",
         "name": name,
+        "public_name": None,
         "location_kind": kind,
+        "latitude": None,
+        "longitude": None,
         "parameter_count": count,
         "parameters": ["Elev"] if count else [],
         "publishers": [],
+        "last_data_timestamp": None,
         "co_located": [],
-        "raw": {"state": "OK"},
+        "raw": {"state": "OK", "nearest-city": None},
     }
     for name, kind, count in [("FOSS", "PROJECT", 2), ("CHOU-Lock", "LOCK", 0), ("GAGE", None, 1)]
 ]
 
 
+def _stub_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        places.catalog,
+        "enrich_locations",
+        lambda office, use_cache=True, **_: copy.deepcopy(_KIND_ROWS),
+    )
+
+
+def _null_paths(value: Any, path: str = "") -> list[str]:
+    """Every path to a `None` in `value` (for asserting a payload has none)."""
+    if value is None:
+        return [path]
+    if isinstance(value, dict):
+        return [p for k, v in value.items() for p in _null_paths(v, f"{path}.{k}")]
+    if isinstance(value, list):
+        return [p for i, v in enumerate(value) for p in _null_paths(v, f"{path}[{i}]")]
+    return []
+
+
 @pytest.mark.parametrize("kind", [None, "lock"], ids=["kind_unset", "kind_set"])
 def test_browse_region_kind_parity_real_producer(kind, configured, monkeypatch) -> None:
-    """#133: `kind` parity driven through the REAL `browse_region` producer.
+    """#133/#143: parity driven through the REAL `browse_region` producer.
 
-    The table-driven cases above stub the producer with a model-cleaned payload,
-    which would hide a null-vs-omitted `kind` divergence (the CLI emits raw
-    producer dicts; MCP null-strips). Here only the catalog is stubbed, so the
-    producer's own dict reaches both surfaces.
+    Only the catalog is stubbed, so the producer's own dict — with its
+    `bbox`/`state`/`next_cursor` and per-row nulls — reaches both surfaces.
     """
-    monkeypatch.setattr(
-        places.catalog, "enrich_locations", lambda office, use_cache=True: copy.deepcopy(_KIND_ROWS)
-    )
+    _stub_catalog(monkeypatch)
     raw = places.browse_region(office="SWT", kind=kind)
     cli_data = _cli_data(
         BROWSE_REGION, ["region", "browse", "--office", "SWT", *(["--kind", kind] if kind else [])]
@@ -394,7 +460,45 @@ def test_browse_region_kind_parity_real_producer(kind, configured, monkeypatch) 
     else:
         assert raw["kind"] == cli_data["kind"] == mcp_data["kind"] == "LOCK"
         assert [r["name"] for r in cli_data["results"]] == ["CHOU-Lock"]
-    # Pre-existing (out of #133 scope): the CLI keeps other producer nulls
-    # (`bbox`, `state`, `next_cursor`, per-row nulls) that MCP strips, so compare
-    # the rest after null-stripping; `kind` presence is asserted exactly above.
-    assert _strip_nulls(cli_data) == _strip_nulls(mcp_data)
+    # #143: the producer really does emit nulls ...
+    assert {"bbox", "state", "next_cursor"} <= {k for k, v in raw.items() if v is None}
+    # ... and neither surface prints them: exact equality, no normalization.
+    assert _null_paths(cli_data) == []
+    assert cli_data == mcp_data
+
+
+def test_search_places_parity_real_producer(configured, monkeypatch) -> None:
+    """#143: search through the real producer; nulls inside the `raw`
+    passthrough DTO (full detail) are upstream data and survive on both."""
+    _stub_catalog(monkeypatch)
+    for detail in ("summary", "full"):
+        cli_data = _cli_data(
+            SEARCH, ["place", "search", "FOSS", "--office", "SWT", "--detail", detail]
+        )
+        mcp_data = _mcp_data(
+            "cwms_search_places", {"query": "FOSS", "office": "SWT", "detail": detail}
+        )
+        assert cli_data == mcp_data
+        assert cli_data["results"], "stub catalog should match FOSS"
+        assert "public_name" not in cli_data["results"][0]
+        if detail == "full":
+            assert cli_data["results"][0]["raw"]["nearest-city"] is None
+
+
+def test_list_parameters_parity_real_producer(configured, monkeypatch) -> None:
+    """#143: a data-bearing location's producer emits `data_at: None` and
+    `last_data_timestamp: None`; neither surface prints them."""
+    monkeypatch.setattr(
+        places.catalog,
+        "ts_ids_for_location",
+        lambda office, name, use_cache=True: ["FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"],
+    )
+    monkeypatch.setattr(
+        places.catalog, "freshness_for_location", lambda office, name, use_cache=True: None
+    )
+    raw = places.list_parameters("SWT", "FOSS")
+    assert raw["data_at"] is None and raw["last_data_timestamp"] is None
+    cli_data = _cli_data(LIST_PARAMETERS, ["place", "parameters", "SWT/FOSS"])
+    mcp_data = _mcp_data("cwms_list_parameters", {"office": "SWT", "name": "FOSS"})
+    assert _null_paths(cli_data) == []
+    assert cli_data == mcp_data

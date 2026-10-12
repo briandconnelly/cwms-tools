@@ -38,6 +38,20 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
+def failure_summary(exc: BaseException) -> str:
+    """Bounded description of an upstream failure: the HTTP status or the class name.
+
+    For call sites that keep their own error code/temporary classification but
+    must not interpolate `str(exc)` (#136).
+    """
+    if isinstance(exc, ApiError):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if isinstance(status, int) and 200 <= status < 300:
+            return f"unreadable upstream response (HTTP {status})"
+        return f"HTTP {status}" if status else "upstream error"
+    return type(exc).__name__
+
+
 def from_api_error(exc: ApiError, *, endpoint: str, operation: str) -> CwmsToolsError:
     """Status-classified envelope for an `ApiError`, with a bounded message."""
     response = getattr(exc, "response", None)
@@ -75,4 +89,4 @@ def upstream_call(endpoint: str, *, operation: str) -> Iterator[None]:
         raise from_transport_error(exc, endpoint=endpoint, operation=operation) from exc
 
 
-__all__ = ["from_api_error", "from_transport_error", "upstream_call"]
+__all__ = ["failure_summary", "from_api_error", "from_transport_error", "upstream_call"]

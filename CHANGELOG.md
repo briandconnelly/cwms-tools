@@ -61,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Error messages from failed location, project, and location-level lookups no
+  longer include the upstream exception text, which carried the full request
+  URL and response body (#136). They now name the operation, the endpoint or
+  place, and the HTTP status (or the exception class for a transport
+  failure), matching the catalog and timeseries paths. Error codes and
+  `temporary` flags are unchanged.
 - Upstream failures that used to escape the structured error envelope now
   return `{ok: false, error: {...}}` with `code: upstream_error` (#131). A CDA
   500 on a value, history, or profile fetch, a dropped connection or timeout,
@@ -78,6 +84,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented namespace TTLs (e.g. 6 h for the location catalog) were enforced
   only after a restart. In-memory entries now carry the same expiry as the
   on-disk cache.
+- CLI tool output now matches its MCP counterpart field for field (#143).
+  `region browse`, `place search`, `place describe`, `place parameters`,
+  `value get`, `value history`, `value profile`, and `publisher
+  for-parameter` printed `null` for unset fields, such as `bbox`, `state`,
+  and `next_cursor`, and per-row `public_name`, `depth`, and
+  `last_data_timestamp`, where the MCP tools omit them. They also left out
+  fields that MCP fills with a default, such as an empty `data_at` list. The
+  CLI now serializes through the same response models as MCP, so it drops
+  the same fields, fills the same defaults, and prints numbers with the same
+  declared types (e.g. a float-typed `20` prints as `20.0`). Nulls that carry meaning are
+  kept on both surfaces, such as a missing reading's `value`/`timestamp` and
+  history's `summary`. So are nulls inside upstream records passed through
+  verbatim (`location`, `project`, `raw`).
 
 ## [0.7.0] - 2026-09-15
 

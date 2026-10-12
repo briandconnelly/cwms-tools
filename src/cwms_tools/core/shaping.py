@@ -11,7 +11,9 @@ producer payload in place). Each surface imports and calls them, then layers on
 its own surface-specific concerns:
 
 - MCP: shape → stamp `source` → `Model.model_validate(...)`.
-- CLI: shape → `render.emit(...)`.
+- CLI: shape → `core._compact.surface_payload(Model, ...)` → `render.emit(...)`.
+  `surface_payload` runs the same response model as MCP (null-strip, defaults,
+  float rounding) minus the `ok`/`source` envelope (#143).
 
 What stays *out* of this module on purpose: stamping `source`, Pydantic
 validation, and pure serialization concerns (null-strip lives in

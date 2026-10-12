@@ -74,9 +74,10 @@ def emit(value: Any, *, mode: OutputMode | None = None) -> None:
     """
     out_mode = mode or OutputMode()
     indent = out_mode.indent
-    # Round float values to strip unit-conversion noise (issue #45). The CLI
-    # serializes core dicts straight to JSON, bypassing the Pydantic models, so
-    # this is the CLI-side twin of the rounding in `core._compact.CompactDumpMixin`.
+    # Round float values to strip unit-conversion noise (issue #45). Tool
+    # payloads with an MCP peer already arrive null-stripped and rounded via
+    # `core._compact.surface_payload` (#143); this covers the CLI-only payloads
+    # (config, env, schema, ...) that have no response model. Idempotent.
     typer.echo(
         json.dumps(round_floats(value), indent=indent, sort_keys=False, default=str),
         nl=True,

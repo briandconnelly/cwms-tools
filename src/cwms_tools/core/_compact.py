@@ -1,14 +1,21 @@
-"""Serialization mixin shared by response models and the error envelope."""
+"""Serialization shared by the MCP and CLI surfaces.
+
+`CompactDumpMixin` is the one null-strip / float-round implementation: response
+models and the error envelope inherit it, and the CLI reaches it through
+`surface_payload` (#143) rather than re-implementing the strip on raw dicts.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from pydantic import GetJsonSchemaHandler, model_serializer
+from pydantic import BaseModel, GetJsonSchemaHandler, model_serializer
 
 from cwms_tools.core.rounding import round_floats
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from pydantic.json_schema import JsonSchemaValue
     from pydantic_core import core_schema as _cs
 
@@ -72,3 +79,28 @@ class CompactDumpMixin:
         # `round_floats` recurses into raw `dict[str, Any]` passthrough fields a
         # nested model can't reach, and double application is a no-op.
         return round_floats(pruned)
+
+
+# Per-surface envelope fields: MCP stamps `ok`/`source`; the CLI emits neither.
+_ENVELOPE_FIELDS = frozenset({"ok", "source"})
+# Satisfies a response model's required `source` during validation; excluded
+# from the dump, so its value never reaches CLI output.
+_PLACEHOLDER_SOURCE: dict[str, Any] = {"fingerprint": ""}
+
+
+def surface_payload(model_cls: type[BaseModel], payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Serialize a shaped producer payload exactly as MCP does, minus its envelope.
+
+    The CLI's half of the shared serialization step (#143): validate through the
+    tool's response model and dump, so the CLI gets the same `CompactDumpMixin`
+    null-strip (honoring each nested model's `_keep_null`), defaults, aliases,
+    and float rounding that MCP gets — one implementation, no raw-dict twin to
+    drift. Passthrough dicts (`location`, `project`, `raw`, ...) stay verbatim
+    on both surfaces. `ok`/`source` are excluded: the CLI has no such envelope
+    (#56 keeps the CLI's raw-dict contract).
+    """
+    data = dict(payload)
+    if "source" in model_cls.model_fields:
+        data.setdefault("source", _PLACEHOLDER_SOURCE)
+    model = model_cls.model_validate(data)
+    return model.model_dump(mode="json", exclude=set(_ENVELOPE_FIELDS))

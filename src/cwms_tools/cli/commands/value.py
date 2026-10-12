@@ -15,8 +15,16 @@ from cwms_tools.cli.render import (
     rewrite_error_field,
 )
 from cwms_tools.core import shaping, values
+from cwms_tools.core._compact import surface_payload
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
-from cwms_tools.core.models import Detail, Rollup, Unit
+from cwms_tools.core.models import (
+    Detail,
+    HistoryResponse,
+    ProfileResponse,
+    Rollup,
+    Unit,
+    ValueWithContextResponse,
+)
 from cwms_tools.core.offices import nw_rollup_target
 
 app = typer.Typer(
@@ -124,7 +132,9 @@ def get(
                 unit=unit.value,
                 classify_against_levels=with_status,
             )
-            payload = shaping.shape_value_detail(payload, detail)
+            payload = surface_payload(
+                ValueWithContextResponse, shaping.shape_value_detail(payload, detail)
+            )
             results.append({"id": spec, "ok": True, "data": payload})
             ok_count += 1
         except CwmsToolsError as err:
@@ -247,7 +257,7 @@ def history(
             unit=unit.value,
             rollup=rollup.value,
         )
-        emit(shaping.shape_history_detail(payload, detail))
+        emit(surface_payload(HistoryResponse, shaping.shape_history_detail(payload, detail)))
     except CwmsToolsError as err:
         # No `--office` flag on this command — `id_spec` (the declared CLI
         # argument, per `cli/commands/schema.py`) is the retryable arg.
@@ -318,7 +328,7 @@ def profile(
         payload = values.get_profile(
             office, name, parameter, window=timedelta(hours=window_hours), unit=unit.value
         )
-        emit(shaping.shape_profile_detail(payload, detail))
+        emit(surface_payload(ProfileResponse, shaping.shape_profile_detail(payload, detail)))
     except CwmsToolsError as err:
         # No `--office` flag on this command — `id_spec` (this command's
         # actual positional argument, matching `history`'s) is the retryable

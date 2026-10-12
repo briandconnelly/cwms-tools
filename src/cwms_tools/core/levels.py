@@ -24,6 +24,7 @@ import cwms.levels.location_levels as ll_api
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.session import current_config
+from cwms_tools.core.upstream import failure_summary
 
 # Substring fingerprint of the seasonal-bug detection. We treat any level
 # whose configuration carries seasonalValues / intervalMonths / intervalMinutes
@@ -70,7 +71,7 @@ def list_levels(
     except Exception as exc:
         raise CwmsToolsError.of(
             ErrorCode.UPSTREAM_ERROR,
-            f"levels listing failed for {office} mask={level_id_mask!r}: {exc}",
+            f"levels listing failed for {office} mask={level_id_mask!r} ({failure_summary(exc)}).",
             endpoints_called=["/levels"],
         ) from exc
     payload = data.json if hasattr(data, "json") else data
@@ -132,7 +133,7 @@ def fetch_level_value(
     except Exception as exc:
         raise CwmsToolsError.of(
             ErrorCode.UPSTREAM_ERROR,
-            f"get_location_level failed for {office}/{level_id}: {exc}",
+            f"get_location_level failed for {office}/{level_id} ({failure_summary(exc)}).",
             endpoints_called=[f"/levels/{level_id}"],
         ) from exc
     payload = data.json if hasattr(data, "json") else data
@@ -295,7 +296,7 @@ def _seasonal_workaround(
     except Exception as exc:
         raise CwmsToolsError.of(
             ErrorCode.WRAPPER_BUG,
-            f"seasonal-level workaround failed for {office}/{level_id}: {exc}",
+            f"seasonal-level workaround failed for {office}/{level_id} ({failure_summary(exc)}).",
             reason=(
                 "Seasonal levels are routed around cwms-python issue #286 by "
                 "hitting /levels/{id}/timeseries directly; this request failed."

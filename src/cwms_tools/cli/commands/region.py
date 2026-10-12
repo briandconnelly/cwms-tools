@@ -8,9 +8,10 @@ import typer
 
 from cwms_tools.cli.render import attach_ghost_office_repair, emit, emit_error
 from cwms_tools.core import places, shaping
+from cwms_tools.core._compact import surface_payload
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.geo import BBox, first_missing_bbox_field
-from cwms_tools.core.models import Detail
+from cwms_tools.core.models import BrowseRegionResponse, Detail
 
 app = typer.Typer(
     name="region",
@@ -172,4 +173,4 @@ def browse(
     # `region browse` has no `--detail` toggle; it always emits the summary
     # shape, routed through the shared shaper so it stays in lockstep with the
     # `cwms_browse_region` MCP tool (e.g. both strip `raw` from results).
-    emit(shaping.shape_place_detail(payload, Detail.SUMMARY))
+    emit(surface_payload(BrowseRegionResponse, shaping.shape_place_detail(payload, Detail.SUMMARY)))

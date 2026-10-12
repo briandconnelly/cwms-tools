@@ -24,7 +24,7 @@ _PAYLOAD = {
     "publishers": [{"publisher": "Best-MRBWM", "rank": 9, "locations_known": 3}],
     "publisher_count": 1,
     "ts_count": 3,
-    "coverage": {"offices_requested": ["NWDM"], "complete": True},
+    "coverage": {"offices_requested": ["NWDM"], "offices_indexed": ["NWDM"], "complete": True},
     "repair": None,
     "_observed_publishers_by_office": {"NWDM": ["Best-MRBWM"]},
 }
