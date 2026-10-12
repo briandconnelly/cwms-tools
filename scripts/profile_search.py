@@ -1,6 +1,9 @@
 """Profile a cold and a warm office search against live CDA (#169). Dev-only.
 
-Usage: uv run python scripts/profile_search.py NWDM "Fort Peck"
+Usage: uv run python scripts/profile_search.py NWDM "Fort Peck" [--no-profile]
+
+cProfile inflates wall time (roughly 1.3x to 4x observed); pass --no-profile to
+print only the true cold/warm totals.
 """
 
 from __future__ import annotations
@@ -17,20 +20,25 @@ from cwms_tools.core import places, session
 from cwms_tools.core.cache import Cache, set_cache
 
 
-def main(office: str, query: str) -> None:
+def main(office: str, query: str, *, profile: bool = True) -> None:
     session.configure_session()
     set_cache(Cache(directory=Path(tempfile.mkdtemp(prefix="cwms-profile-"))))
     for label in ("cold", "warm"):
         prof = cProfile.Profile()
         t0 = time.perf_counter()
-        prof.enable()
+        if profile:
+            prof.enable()
         resp = places.search_places(query, office=office, limit=1)
-        prof.disable()
+        if profile:
+            prof.disable()
         print(f"== {label}: {time.perf_counter() - t0:.1f}s total_count={resp['total_count']}")
+        if not profile:
+            continue
         out = io.StringIO()
         pstats.Stats(prof, stream=out).sort_stats("cumulative").print_stats(12)
         print(out.getvalue())
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    args = [a for a in sys.argv[1:] if a != "--no-profile"]
+    main(args[0], args[1], profile="--no-profile" not in sys.argv)
