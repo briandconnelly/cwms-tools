@@ -231,3 +231,27 @@ def test_cli_publisher_for_parameter_repeats_office_flag(configured) -> None:
     # Both offices appear in offices_requested, but only the first cache hit
     # was registered; the test just confirms the flag was accepted.
     assert {"SWT", "MVS"} <= set(payload["coverage"]["offices_requested"])
+
+
+def test_publishers_for_parameter_discovers_offices_indexed_through_the_producer(
+    configured,
+) -> None:
+    """#164 (Codex finding): `_office_has_cache` probed the key
+    ('ts_catalog', office, '') but the catalog writes ('ts_catalog', office,
+    '', 'no-extents'), so a genuinely indexed office was never seen as cached.
+    Index SWT explicitly, then ask with `offices` omitted: SWT must be found
+    from cache with NO second upstream call."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json=_ts_catalog("FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"),
+            status=200,
+        )
+        publishers_index.publishers_for_parameter("Elev", offices=["SWT"])
+        assert len(mocked.calls) == 1
+        payload = publishers_index.publishers_for_parameter("Elev")
+        assert len(mocked.calls) == 1, "cached office must not be refetched"
+    assert payload["coverage"]["offices_requested"] == ["SWT"]
+    assert payload["coverage"]["offices_indexed"] == ["SWT"]
+    assert payload["coverage"]["complete"] is True

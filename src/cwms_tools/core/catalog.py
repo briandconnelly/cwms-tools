@@ -69,6 +69,29 @@ def get_locations_catalog(
     return payload
 
 
+def _ts_catalog_key(office_id: str, *, like: str | None, include_extents: bool) -> str:
+    cfg = current_config()
+    return build_cache_key(
+        "ts_catalog",
+        office_id,
+        like or "",
+        "extents" if include_extents else "no-extents",
+        api_root=cfg.api_root,
+    )
+
+
+def ts_catalog_cached(
+    office_id: str, *, like: str | None = None, include_extents: bool = False
+) -> bool:
+    """True iff `get_timeseries_catalog(office_id, like=, include_extents=)` is a cache hit.
+
+    The single place that knows the ts_catalog key shape — probes elsewhere
+    (`publishers_index`) drifted from it once (#164).
+    """
+    key = _ts_catalog_key(office_id, like=like, include_extents=include_extents)
+    return get_cache().get(key) is not None
+
+
 def get_timeseries_catalog(
     office_id: str,
     *,
@@ -90,14 +113,7 @@ def get_timeseries_catalog(
         raise ghost_office_error(office_id)
     cache = get_cache()
     ttl = cache.ttl_for("ts_catalog")
-    cfg = current_config()
-    key = build_cache_key(
-        "ts_catalog",
-        office_id,
-        like or "",
-        "extents" if include_extents else "no-extents",
-        api_root=cfg.api_root,
-    )
+    key = _ts_catalog_key(office_id, like=like, include_extents=include_extents)
     if use_cache:
         hit = cache.get(key)
         if hit is not None:
@@ -426,5 +442,6 @@ __all__ = [
     "freshness_for_location",
     "get_locations_catalog",
     "get_timeseries_catalog",
+    "ts_catalog_cached",
     "ts_ids_for_location",
 ]

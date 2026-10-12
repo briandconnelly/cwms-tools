@@ -15,9 +15,7 @@ from typing import Any
 
 from cwms_tools.core import catalog, concurrency, publishers
 from cwms_tools.core import offices as offices_mod
-from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, RepairHint
-from cwms_tools.core.session import current_config
 
 
 def _budget() -> int:
@@ -141,11 +139,8 @@ def publishers_for_parameter(
 
 
 def _office_has_cache(office: str) -> bool:
-    """Cheap check: does the ts_catalog cache already hold this office?"""
-    cache = get_cache()
-    cfg = current_config()
-    key = build_cache_key("ts_catalog", office, "", api_root=cfg.api_root)
-    return cache.get(key) is not None
+    """Cheap check: is the office's unfiltered ts_catalog already on disk?"""
+    return catalog.ts_catalog_cached(office)
 
 
 def _gather_ts_ids(office: str, *, use_cache: bool) -> list[str]:
