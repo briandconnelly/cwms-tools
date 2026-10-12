@@ -708,7 +708,7 @@ class PublishersForParameterResponse(CompactDumpMixin, BaseModel):
 
 
 class OfficeRecord(CompactDumpMixin, BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     long_name: str | None = None
@@ -726,7 +726,7 @@ class OfficesGuidance(CompactDumpMixin, BaseModel):
 
 
 class OfficesResponse(CompactDumpMixin, BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     count: int
     offices: list[OfficeRecord]
