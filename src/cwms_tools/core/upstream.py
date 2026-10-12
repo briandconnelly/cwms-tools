@@ -83,7 +83,9 @@ def is_record(payload: Any) -> TypeGuard[dict[str, Any]]:
 
     cwms-python 1.1.x returns `{}` for an empty 200/204 body, so `{}` (or a
     non-object body) from a single-record endpoint is an anomaly, not a record
-    (#137). List endpoints are different: there `{}` legitimately means "none".
+    (#137). Don't use this for list endpoints, where a real empty result is
+    a valid collection: validate their shape with `require_collection` or the
+    endpoint's own parser instead, since `{}` is an anomaly there too (#152).
     """
     return isinstance(payload, dict) and bool(payload)
 
