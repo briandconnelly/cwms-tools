@@ -126,6 +126,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rollup` descriptions steer windows longer than about two days to
   `hourly`/`daily` and state the raw cap and typical size (#168). Fingerprint
   moves.
+- Passthrough upstream DTOs (`location`, `project`, `locks`, `raw`) are
+  documented as verbatim kebab-case records; envelope fields stay snake_case
+  (#172).
+- `cwms://offices` resource description no longer mentions internal executor
+  details (#172).
+- `cwms://overview` index summaries for the reference and sources sections are
+  now real one-line summaries instead of "---" and a link list; summaries are a
+  fingerprint input (#172).
+- Unifying the success-side `repair_hint` shape with the error `repair` shape is
+  deferred to 0.9.0 as a breaking change (#177).
 
 ## [0.8.0] - 2026-10-12
 
