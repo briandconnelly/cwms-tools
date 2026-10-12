@@ -353,3 +353,29 @@ def test_publishers_for_parameter_dedupes_normalized_offices_and_skips_invalid(
     cov = payload["coverage"]
     assert cov["offices_indexed"] == ["SWT"] and cov["offices_error_skipped"] == ["XYZ"]
     assert payload["ts_count"] == 1
+
+
+def test_publishers_for_parameter_all_invalid_explicit_offices_raise(
+    configured, validating_directory
+) -> None:
+    """The search rule (#163): when every explicit office fails validation, raise
+    the first invalid_field instead of an ok, empty, repair-less result."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}offices",
+            json=[{"office-id": "SWT", "type": "DIS"}],
+            status=200,
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            publishers_index.publishers_for_parameter("Elev", offices=["XYZ", "ABC"])
+        result = runner.invoke(app, ["publisher", "for-parameter", "Elev", "--office", "XYZ"])
+    env = ex.value.envelope
+    assert env.code is ErrorCode.INVALID_FIELD
+    assert env.details is not None and env.details.value == "XYZ"
+    assert env.repair is not None and env.repair.tool == "cwms_list_offices"
+    # The CLI names its own runnable offices command.
+    assert result.exit_code == 2
+    cli_error = json.loads(result.stderr)["error"]
+    assert cli_error["code"] == "invalid_field"
+    assert cli_error["repair"]["tool"] == "cwms-tools offices"

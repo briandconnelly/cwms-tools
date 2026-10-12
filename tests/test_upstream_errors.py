@@ -163,8 +163,9 @@ def test_cli_place_describe_location_failure_names_spec(configured, status, code
     assert result.exit_code != 0
     envelope = json.loads(result.stderr)
     assert envelope["error"]["code"] == code
-    if code != "not_found":  # the catalog-built not_found carries no endpoint trail
-        assert envelope["error"]["source"]["endpoints_called"] == ["/locations/FOSS"]
+    # The catalog-built not_found keeps the /locations hit and adds the catalog read.
+    expected = ["/locations/FOSS"] + (["/catalog/LOCATIONS"] if code == "not_found" else [])
+    assert envelope["error"]["source"]["endpoints_called"] == expected
     details = envelope["error"]["details"]
     assert (details["field"], details["value"]) == ("spec", "FOSS")
 

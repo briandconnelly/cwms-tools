@@ -18,6 +18,7 @@ from cwms_tools.cli.render import (
     attach_repair_intent,
     emit_error,
     emit_model,
+    localize_repair,
     rewrite_error_field,
 )
 from cwms_tools.core import places, shaping
@@ -202,7 +203,7 @@ def search(
             tool="cwms-tools place search",
             args={**repair_args, **({"office": list(office)} if office else {})},
         )
-        emit_error(err)
+        emit_error(localize_repair(err))
     emit_model(SearchPlacesResponse, shaping.shape_place_detail(payload, detail))
 
 
@@ -211,7 +212,10 @@ def describe(
     spec: Annotated[
         str,
         typer.Argument(
-            help="OFFICE/NAME with the case-sensitive catalog id, e.g. SWT/FOSS (not SWT/Foss)."
+            help=(
+                "OFFICE/NAME with the case-sensitive catalog id (from `place search`), "
+                "e.g. SWT/FOSS (not SWT/Foss)."
+            )
         ),
     ],
     detail: Annotated[
@@ -276,7 +280,7 @@ def describe(
             spec_key="spec",
             spec_fields={"office": office, "name": name},
         )
-        emit_error(err)
+        emit_error(localize_repair(err))
     shaped = shaping.shape_place_detail(payload, detail)
     # The CLI has no `source` wrapper to fold these into (unlike MCP's
     # source.workaround/source.upstream_status); with no consumer, they were
@@ -291,7 +295,10 @@ def parameters(
     spec: Annotated[
         str,
         typer.Argument(
-            help="OFFICE/NAME with the case-sensitive catalog id, e.g. SWT/FOSS (not SWT/Foss)."
+            help=(
+                "OFFICE/NAME with the case-sensitive catalog id (from `place search`), "
+                "e.g. SWT/FOSS (not SWT/Foss)."
+            )
         ),
     ],
 ) -> None:
@@ -319,7 +326,7 @@ def parameters(
             spec_key="spec",
             spec_fields={"office": office, "name": name},
         )
-        emit_error(err)
+        emit_error(localize_repair(err))
     # No `--detail` toggle here; routed through the shared shaper (a no-op for
     # this response shape) to stay structurally in lockstep with the
     # `cwms_list_parameters` MCP tool, which applies the same place shaper.

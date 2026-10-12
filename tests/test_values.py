@@ -678,6 +678,13 @@ def test_get_profile_empty_returns_note(configured, monkeypatch) -> None:
     monkeypatch.setattr(
         catalog_mod, "enrich_locations", lambda office, like=None, use_cache=True: []
     )
+    # The parent exists in the catalog (an empty profile under an absent parent
+    # is not_found, #163); it just has no depth children publishing the parameter.
+    monkeypatch.setattr(
+        catalog_mod,
+        "get_locations_catalog",
+        lambda office, use_cache=True: {"entries": [{"office": "NWDP", "name": "GWLW_S1"}]},
+    )
     payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
     assert payload["sensor_count"] == 0
     assert payload["profile"] == []
@@ -992,3 +999,125 @@ def test_get_history_inherits_ghost_location(configured) -> None:
                 end=datetime(2026, 5, 18, tzinfo=UTC),
             )
     assert ex.value.envelope.code is ErrorCode.GHOST_LOCATION
+
+
+# --------------------------------------------------------------------------
+# One enrichment per ghost path (#96): call counts
+# --------------------------------------------------------------------------
+
+
+def _endpoint(url: str) -> str:
+    """`TIMESERIES(scoped)` vs `TIMESERIES(office-wide)`, `catalog/LOCATIONS`, `offices`."""
+    path = url.split(API_ROOT, 1)[1].split("?", 1)[0]
+    if path == "catalog/TIMESERIES":
+        scoped = "like=" in url.replace("group-like=", "")
+        return "TIMESERIES(scoped)" if scoped else "TIMESERIES(office-wide)"
+    return path
+
+
+def test_case_c_makes_four_upstream_calls_with_cache(configured, validating_directory) -> None:
+    """offices + scoped TIMESERIES + LOCATIONS + office-wide TIMESERIES: the
+    two sibling filters share one enrichment, and the existence check reuses
+    the same locations catalog."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=[{"office-id": "NWDP", "type": "DIV"}])
+        _arm_catalog(
+            mocked,
+            locations=GWLW_LOCATIONS,
+            ts_for_location={"entries": []},
+            ts_full={"entries": []},
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("NWDP", "LONELY", "Elev")
+        hits = [_endpoint(str(c.request.url)) for c in mocked.calls]
+    assert ex.value.envelope.code is ErrorCode.GHOST_LOCATION
+    assert sorted(hits) == sorted(
+        ["offices", "TIMESERIES(scoped)", "catalog/LOCATIONS", "TIMESERIES(office-wide)"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "code", "expected"),
+    [
+        (
+            "GWLW_S1",  # case B
+            ErrorCode.GHOST_LOCATION,
+            ["TIMESERIES(scoped)", "catalog/LOCATIONS", "TIMESERIES(office-wide)"],
+        ),
+        (
+            "LONELY",  # case C
+            ErrorCode.GHOST_LOCATION,
+            ["TIMESERIES(scoped)", "catalog/LOCATIONS", "TIMESERIES(office-wide)"],
+        ),
+        (
+            "gwlw_s1",  # wrong case: not_found, no enrichment at all
+            ErrorCode.NOT_FOUND,
+            ["TIMESERIES(scoped)", "catalog/LOCATIONS"],
+        ),
+    ],
+    ids=["case-b", "case-c", "not-found"],
+)
+def test_ghost_paths_fetch_each_endpoint_once_without_cache(
+    configured, name, code, expected
+) -> None:
+    from cwms_tools.core import timeseries
+
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(
+            mocked, locations=GWLW_LOCATIONS, ts_for_location={"entries": []}, ts_full=GWLW_TS
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            timeseries.require_canonical_ts_id("NWDP", name, "Temp-Water", use_cache=False)
+        hits = [_endpoint(str(c.request.url)) for c in mocked.calls]
+    assert ex.value.envelope.code is code
+    assert hits == expected
+
+
+def test_ghost_and_not_found_errors_name_the_endpoints_hit(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(
+            mocked, locations=GWLW_LOCATIONS, ts_for_location={"entries": []}, ts_full=GWLW_TS
+        )
+        with pytest.raises(CwmsToolsError) as ghost:
+            values.get_value("NWDP", "GWLW_S1", "Temp-Water")
+        with pytest.raises(CwmsToolsError) as missing:
+            values.get_value("NWDP", "gwlw_s1", "Temp-Water")
+    trail = ["/catalog/TIMESERIES", "/catalog/LOCATIONS"]
+    assert ghost.value.envelope.source.endpoints_called == trail
+    assert missing.value.envelope.source.endpoints_called == trail
+
+
+# --------------------------------------------------------------------------
+# get_profile: an absent parent is not_found, not an empty success (#163)
+# --------------------------------------------------------------------------
+
+
+def test_get_profile_wrong_case_parent_is_not_found(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(mocked, locations=GWLW_LOCATIONS, ts_for_location=GWLW_TS, ts_full=GWLW_TS)
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_profile("NWDP", "gwlw_s1", "Temp-Water")
+    err = ex.value
+    assert err.envelope.code is ErrorCode.NOT_FOUND
+    assert _details(err).field == "name"
+    assert _intent(err).next_step == "retry_with_catalog_id"
+    assert _intent(err).overrides == {"name": "GWLW_S1"}
+    assert err.envelope.source.endpoints_called == ["/catalog/LOCATIONS"]
+
+
+def test_get_profile_catalog_failure_keeps_empty_success(configured, monkeypatch) -> None:
+    """A failed existence read is not evidence of absence: profile keeps its
+    empty, noted success rather than turning a transient failure into not_found."""
+    from cwms_tools.core import catalog as catalog_mod
+
+    monkeypatch.setattr(
+        catalog_mod, "enrich_locations", lambda office, like=None, use_cache=True: []
+    )
+
+    def _down(office, use_cache=True):
+        raise CwmsToolsError.of(ErrorCode.UPSTREAM_ERROR, "down", temporary=True)
+
+    monkeypatch.setattr(catalog_mod, "get_locations_catalog", _down)
+    payload = values.get_profile("NWDP", "gwlw_s1", "Temp-Water")
+    assert payload["sensor_count"] == 0
+    assert "note" in payload

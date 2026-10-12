@@ -22,11 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cwms://offices` instead of an `ok:true` ghost-looking result, and a
   wrong-case code (`swt`) is normalized to `SWT` and echoed canonically. NW
   district stubs keep `ghost_office` precedence (case-insensitive, even offline).
-  The lookup is bounded and backs off for 60 s after a failed directory fetch, so
-  a degraded directory never blocks a call. In a multi-office search or
-  publisher index an invalid office becomes a partial reason or lands in
-  `offices_error_skipped`. `invalid_field` is now advertised for the place, region
-  and value tools on both surfaces.
+  The directory is fetched in a single attempt with no retries, and a failed
+  fetch starts a 60 s cooldown during which calls skip validation, so a degraded
+  directory never stalls a tool. In a multi-office search or publisher index an
+  invalid office becomes a partial reason or lands in `offices_error_skipped`;
+  the single-survivor re-raise keys on the number of offices requested (not the
+  number left after validation), and an explicit list whose offices are all
+  invalid raises `invalid_field` instead of returning an empty success (search
+  and `cwms_publishers_for_parameter` / `publisher for-parameter` alike).
+  `invalid_field` is now advertised for the place, region, value and publisher
+  tools on both surfaces.
 - `cwms_search_places` / `place search`: a cold-cache name-first search is now
   followable to exhaustion. Whenever offices are skipped by the fan-out budget
   the response sets `partial: true` and carries a `repair_hint` whose
@@ -45,14 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache-key mismatch meant previously indexed offices were never recognised as
   cached; fixed. With `offices` omitted, `coverage.complete` is true only when
   every curated office was indexed (#164).
-
-- Office validation (#163), additions: the CDA office directory is fetched in a
-  single attempt with no retries, and a failed fetch starts a 60 s cooldown
-  during which calls skip validation, so a degraded directory never stalls a
-  tool. In multi-office search the single-survivor re-raise now keys on the
-  number of offices requested (not the number left after validation), and a
-  list whose offices are all invalid raises `invalid_field` instead of returning
-  an empty success.
 - A location id that differs from the catalog id only by case (`Foss` for
   `FOSS`) now returns `not_found{field: "name"}` with a `retry_with_catalog_id`
   repair on `cwms_describe_place`, `cwms_list_parameters`, `cwms_get_value` and
@@ -61,6 +58,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ghost-looking success with `ts_count: 0`. A 404 on describe converts to
   `not_found` only when the catalog agrees the record is absent; otherwise the
   original upstream error is kept (#163).
+- `cwms_get_profile` / `value profile` on a parent id the catalog lacks
+  (`gwlw_s1` for `GWLW_S1`) returns `not_found` with the `retry_with_catalog_id`
+  repair instead of an `ok` profile with `sensor_count: 0`. If the catalog read
+  itself fails, the empty profile is kept (#163).
+- CLI repairs name runnable commands: a repair built against an MCP tool is
+  rewritten to its CLI command (`place search`, `place parameters`,
+  `offices`), and the depth-string `repair.alternative` names
+  `value profile OFFICE/NAME/PARAMETER` (#96).
+- Catalog-built `not_found` and `ghost_location` errors list the endpoints they
+  hit in `source.endpoints_called` (previously empty).
+- A ghost `value get` / `value history` reads the office catalogs once: the
+  co-located sibling lookup no longer repeats the office-wide enrichment (#96).
+- A `cwms_browse_region` cursor minted while the office directory was
+  unavailable (`swt` passed through) now validates once the directory recovers
+  and the office arrives as `SWT`.
 
 ### Changed
 

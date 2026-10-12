@@ -119,7 +119,8 @@ def get_timeseries_catalog(
     `include_extents` controls whether each row carries the `extents`
     array with `latest-time` / `last-update` / `earliest-time`. The
     enriched response shape needs them for freshness; `ts_ids_for_location`
-    and `canonical_ts_id` don't, so the flag stays off by default.
+    (and so `timeseries.require_canonical_ts_id`) doesn't, so the flag stays
+    off by default.
     Requesting extents materially enlarges the response (tens of times
     larger for big offices), so flipping this for queries that don't
     need it is what made `value get` unusable in evaluation.
@@ -308,6 +309,7 @@ def enrich_locations(
     *,
     like: str | None = None,
     use_cache: bool = True,
+    loc_payload: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Return the locations catalog plus per-record enrichment.
 
@@ -320,8 +322,12 @@ def enrich_locations(
     "FTPK". So we always fetch the full per-office locations catalog
     (cached for 6 hours) and filter client-side across `name`,
     `public-name`, `long-name`, and `description`.
+
+    `loc_payload` lets a caller that already holds this office's locations
+    catalog reuse it, so a `use_cache=False` path fetches it once (#96).
     """
-    loc_payload = get_locations_catalog(office_id, use_cache=use_cache)
+    if loc_payload is None:
+        loc_payload = get_locations_catalog(office_id, use_cache=use_cache)
     raw_rows = list(_iter_location_entries(loc_payload))
     if like:
         raw_rows = [r for r in raw_rows if _matches_like(r, like)]
@@ -474,39 +480,83 @@ def sibling_data_at(
     return sorted(out)
 
 
-def data_bearing_siblings(
+def enriched_by_name(
     office_id: str,
-    name: str,
     *,
-    parameter: str | None = None,
     use_cache: bool = True,
-) -> list[str]:
-    """Co-located siblings of `name` that publish data (optionally `parameter`).
+    loc_payload: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """The full-office enrichment indexed by location name.
 
-    `[]` when `name` is not in the office catalog or no sibling publishes —
-    callers that need to tell those apart check `location_catalog_row` first.
+    Build it once per call and apply `siblings_with_data` as often as needed:
+    each `enrich_locations` pass fetches the office-wide timeseries catalog
+    (refetched on a `use_cache=False` path) and rebuilds the co-location
+    index (#96).
     """
-    enriched = enrich_locations(office_id, use_cache=use_cache)
-    by_name = {r["name"]: r for r in enriched}
+    enriched = enrich_locations(office_id, use_cache=use_cache, loc_payload=loc_payload)
+    return {r["name"]: r for r in enriched}
+
+
+def siblings_with_data(
+    by_name: dict[str, dict[str, Any]], name: str, parameter: str | None = None
+) -> list[str]:
+    """Co-located siblings of `name` in `by_name` that publish data (optionally `parameter`)."""
     target = by_name.get(name)
     if target is None:
         return []
     return sibling_data_at(target.get("co_located") or [], by_name, parameter)
 
 
+def data_bearing_siblings(
+    office_id: str,
+    name: str,
+    *,
+    parameter: str | None = None,
+    use_cache: bool = True,
+    loc_payload: dict[str, Any] | None = None,
+) -> list[str]:
+    """Co-located siblings of `name` that publish data (optionally `parameter`).
+
+    `[]` when `name` is not in the office catalog or no sibling publishes —
+    callers that need to tell those apart check `location_catalog_row` first.
+    """
+    by_name = enriched_by_name(office_id, use_cache=use_cache, loc_payload=loc_payload)
+    return siblings_with_data(by_name, name, parameter)
+
+
 def location_catalog_row(
-    office_id: str, name: str, *, use_cache: bool = True
+    office_id: str,
+    name: str,
+    *,
+    use_cache: bool = True,
+    payload: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """The exact-name (case-sensitive) locations-catalog row, or None if absent."""
-    payload = get_locations_catalog(office_id, use_cache=use_cache)
+    """The exact-name (case-sensitive) locations-catalog row, or None if absent.
+
+    `payload` reuses a locations catalog the caller already fetched for this office.
+    """
+    payload = _payload_or_fetch(office_id, payload, use_cache=use_cache)
     for row in _iter_location_entries(payload):
         if (row.get("name") or row.get("location-id")) == name:
             return row
     return None
 
 
+def _payload_or_fetch(
+    office_id: str, payload: dict[str, Any] | None, *, use_cache: bool
+) -> dict[str, Any]:
+    """`payload` when the caller already holds the locations catalog, else fetch it."""
+    if payload is None:
+        return get_locations_catalog(office_id, use_cache=use_cache)
+    return payload
+
+
 def suggest_location(
-    office_id: str, name: str, *, use_cache: bool = True
+    office_id: str,
+    name: str,
+    *,
+    use_cache: bool = True,
+    payload: dict[str, Any] | None = None,
 ) -> tuple[str | None, list[str]]:
     """`(exact_ci_match, fuzzy)`: the catalog id whose id/public/long name equals
     `name` case-insensitively, else up to three fuzzy candidates (#163).
@@ -514,10 +564,10 @@ def suggest_location(
     Fuzzy = difflib close matches over every label (cutoff 0.6) plus labels
     whose first word equals the query's first word ("Foss Lake" → FOSS via
     "Foss Reservoir"). Pure string matching: no regex is built from `name`.
+    `payload` reuses a locations catalog the caller already fetched.
     """
-    rows = _dedupe_rows_by_name(
-        list(_iter_location_entries(get_locations_catalog(office_id, use_cache=use_cache)))
-    )
+    payload = _payload_or_fetch(office_id, payload, use_cache=use_cache)
+    rows = _dedupe_rows_by_name(list(_iter_location_entries(payload)))
     folded = name.casefold().strip()
     ids: dict[str, str] = {}  # casefolded catalog id -> catalog id
     aliases: dict[str, list[str]] = {}  # casefolded public/long name -> catalog ids
@@ -541,7 +591,9 @@ def suggest_location(
     if len(alias_hits) == 1:
         return alias_hits[0], []
     fuzzy: list[str] = list(alias_hits)
-    labels: dict[str, str] = {**ids, **{k: v[0] for k, v in aliases.items()}}
+    # Ids are applied last so an alias equal to another row's id cannot
+    # shadow that id's label.
+    labels: dict[str, str] = {**{k: v[0] for k, v in aliases.items()}, **ids}
     for key in difflib.get_close_matches(folded, list(labels), n=5, cutoff=0.6):
         if labels[key] not in fuzzy:
             fuzzy.append(labels[key])
@@ -554,15 +606,25 @@ def suggest_location(
 
 
 def location_not_found_error(
-    office_id: str, name: str, *, use_cache: bool = True
+    office_id: str,
+    name: str,
+    *,
+    use_cache: bool = True,
+    payload: dict[str, Any] | None = None,
+    endpoints_called: list[str] | None = None,
 ) -> CwmsToolsError:
     """`not_found{field:"name"}` for a name absent from the office catalog (#163).
 
     Distinct from a ghost: the record does not exist at all. Carries a
     case-insensitive suggestion as a same-tool `RepairIntent` when unique, and
     always a generic `cwms_search_places` repair.
+
+    `payload` reuses the locations catalog the caller already checked.
+    `endpoints_called` names the endpoints the caller hit first;
+    `/catalog/LOCATIONS` is appended so the provenance trail is complete.
     """
-    exact, fuzzy = suggest_location(office_id, name, use_cache=use_cache)
+    exact, fuzzy = suggest_location(office_id, name, use_cache=use_cache, payload=payload)
+    trail = [*(endpoints_called or []), "/catalog/LOCATIONS"]
     search = RepairHint(
         next_step="resolve_name_with_search",
         tool="cwms_search_places",
@@ -581,6 +643,7 @@ def location_not_found_error(
             reason=f"{base} {exact!r} matches case-insensitively; retry with name={exact!r}.",
             repair=search,
             repair_intent=RepairIntent("retry_with_catalog_id", {"name": exact}),
+            endpoints_called=trail,
         )
     hint = f" Similar catalog ids: {', '.join(fuzzy)}." if fuzzy else ""
     return CwmsToolsError.of(
@@ -590,12 +653,14 @@ def location_not_found_error(
         value=name,
         reason=f"{base}{hint}",
         repair=search,
+        endpoints_called=trail,
     )
 
 
 __all__ = [
     "data_bearing_siblings",
     "enrich_locations",
+    "enriched_by_name",
     "freshness_for_location",
     "get_locations_catalog",
     "get_timeseries_catalog",
@@ -603,6 +668,7 @@ __all__ = [
     "location_catalog_row",
     "location_not_found_error",
     "sibling_data_at",
+    "siblings_with_data",
     "suggest_location",
     "ts_catalog_cached",
     "ts_ids_for_location",

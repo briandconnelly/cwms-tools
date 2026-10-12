@@ -14,6 +14,7 @@ from cwms_tools.cli.render import (
     emit,
     emit_error,
     emit_model,
+    localize_repair,
     rewrite_error_field,
 )
 from cwms_tools.core import shaping, values
@@ -63,7 +64,8 @@ def get(
         typer.Argument(
             help=(
                 "One or more ids, each OFFICE/NAME/PARAMETER with the case-sensitive "
-                "catalog id as NAME (SWT/FOSS/Elev, not SWT/Foss/Elev). Examples: "
+                "catalog id as NAME (from `place search`; SWT/FOSS/Elev, not SWT/Foss/Elev). "
+                "Examples: "
                 "`NWDM/FTPK/Elev`, "
                 "`NWDP/UBLW_S1-D21,0ft/Temp-Water` (depth-tagged sensor with "
                 "comma in the name)."
@@ -180,6 +182,7 @@ def get(
                 spec_fields={"office": office, "name": name, "parameter": parameter},
                 spec_as_list=True,
             )
+            localize_repair(err)
             results.append({"id": spec, "ok": False, "error": err.envelope.model_dump(mode="json")})
             failed_count += 1
             last_exit_code = from_error_code(err.envelope.code)
@@ -201,7 +204,8 @@ def history(
         str,
         typer.Argument(
             help=(
-                "OFFICE/NAME/PARAMETER with the case-sensitive catalog id as NAME. Examples: "
+                "OFFICE/NAME/PARAMETER with the case-sensitive catalog id (from `place "
+                "search`) as NAME. Examples: "
                 "`SWT/FOSS/Elev`, `NWDP/UBLW_S1-D21,0ft/Temp-Water` "
                 "(depth-tagged WQ sensor)."
             )
@@ -311,7 +315,7 @@ def history(
             spec_key="id_spec",
             spec_fields={"office": office, "name": name, "parameter": parameter},
         )
-        emit_error(err)
+        emit_error(localize_repair(err))
 
 
 @app.command("profile")
@@ -321,7 +325,8 @@ def profile(
         typer.Argument(
             help=(
                 "Parent string + parameter in OFFICE/NAME/PARAMETER form, where "
-                "NAME is the case-sensitive catalog id of the parent 'string' "
+                "NAME is the case-sensitive catalog id (from `place search`) of the "
+                "parent 'string' "
                 "(e.g. `NWDP/GWLW_S1/Temp-Water`), "
                 "NOT a single depth-tagged sensor."
             )
@@ -386,7 +391,7 @@ def profile(
             spec_key="id_spec",
             spec_fields={"office": office, "name": name, "parameter": parameter},
         )
-        emit_error(err)
+        emit_error(localize_repair(err))
 
 
 def _parse_iso(value: str, *, field: str) -> datetime:

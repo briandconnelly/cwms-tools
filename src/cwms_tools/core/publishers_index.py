@@ -15,7 +15,7 @@ from typing import Any
 
 from cwms_tools.core import catalog, concurrency, publishers
 from cwms_tools.core import offices as offices_mod
-from cwms_tools.core.errors import CwmsToolsError, RepairHint
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
 
 
 def _budget() -> int:
@@ -59,17 +59,7 @@ def publishers_for_parameter(
     `offices` argument.
     """
     requested = list(offices) if offices is not None else sorted(_cached_offices())
-    requested_unique: list[str] = []
-    error_skipped: list[str] = []
-    for requested_office in requested:
-        try:
-            canonical = offices_mod.require_known_office(requested_office)
-        except CwmsToolsError:
-            error_skipped.append(requested_office)
-            continue
-        if canonical not in requested_unique:
-            requested_unique.append(canonical)
-    requested = requested_unique
+    requested, error_skipped = _validate_offices(requested, explicit=offices is not None)
 
     indexed: list[str] = []
     skipped: list[str] = []
@@ -144,6 +134,31 @@ def publishers_for_parameter(
             office: sorted(Counter(by_publisher)) for office in indexed
         },
     }
+
+
+def _validate_offices(requested: list[str], *, explicit: bool) -> tuple[list[str], list[str]]:
+    """Canonicalize and dedupe; return `(valid, error_skipped)` (#163).
+
+    An office that fails validation lands in `error_skipped`. When nothing valid
+    survives an explicit list, the first `invalid_field` is raised instead of an
+    ok, empty, repair-less result (the `cwms_search_places` rule).
+    """
+    valid: list[str] = []
+    error_skipped: list[str] = []
+    first_invalid: CwmsToolsError | None = None
+    for requested_office in requested:
+        try:
+            canonical = offices_mod.require_known_office(requested_office)
+        except CwmsToolsError as err:
+            if first_invalid is None and err.envelope.code is ErrorCode.INVALID_FIELD:
+                first_invalid = err
+            error_skipped.append(requested_office)
+            continue
+        if canonical not in valid:
+            valid.append(canonical)
+    if explicit and not valid and first_invalid is not None:
+        raise first_invalid
+    return valid, error_skipped
 
 
 def _repair_hint(

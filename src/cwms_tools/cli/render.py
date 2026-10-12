@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -155,7 +156,8 @@ def attach_ghost_office_repair(
     """If `error` is `ghost_office`, attach a same-command retry repair.
 
     `tool`/`args` are THIS command's own name and original (wire-format,
-    `--flag`-ready) arguments minus `office` — core no longer hardcodes a
+    `--flag`-ready) arguments; `office` is set to the rollup target whether or
+    not `args` carries it — core no longer hardcodes a
     same-tool-switching repair (it doesn't know which command is calling),
     so each CLI command supplies its own identity here, mirroring
     `mcp.tools._safe`'s `_repair_call` (#69). No-op for any other error code.
@@ -218,13 +220,78 @@ def attach_repair_intent(
         fields = dict(spec_fields or {})
         fields.update({k: v for k, v in intent.overrides.items() if k in fields})
         spec = "/".join(str(v) for v in fields.values())
-        arguments = {**args, spec_key: [spec] if spec_as_list else spec}
+        # Overrides that are not part of the positional are ordinary options.
+        extra = {k: v for k, v in intent.overrides.items() if k not in fields}
+        arguments = {**args, **extra, spec_key: [spec] if spec_as_list else spec}
     error.envelope.repair = RepairHint(
         next_step=intent.next_step,
         tool=tool,
         arguments=arguments,
         alternative=intent.alternative,
     )
+    return error
+
+
+#: `cwms_get_profile with office='O', name='N', parameter='P'` — the profile
+#: alternative `core.timeseries` writes on a depth-string ghost (either quote
+#: style, since `repr` switches to double quotes around an apostrophe).
+_PROFILE_ALTERNATIVE = re.compile(
+    r"cwms_get_profile with office=(?P<q1>['\"])(?P<office>.*?)(?P=q1), "
+    r"name=(?P<q2>['\"])(?P<name>.*?)(?P=q2), "
+    r"parameter=(?P<q3>['\"])(?P<parameter>.*?)(?P=q3)"
+)
+
+
+def _localize_tool(repair: RepairHint) -> tuple[str, dict[str, Any]] | None:
+    """The CLI `(command, arguments)` for an MCP-named repair, or None if unmapped."""
+    args = repair.arguments
+    if repair.tool == "cwms_search_places":
+        out: dict[str, Any] = {}
+        if args.get("query") is not None:
+            out["query"] = args["query"]
+        office = args.get("office")
+        if office is not None:
+            # `place search --office` is a repeatable (list) option.
+            out["office"] = list(office) if isinstance(office, list) else [office]
+        if args.get("parameter") is not None:
+            out["parameter"] = args["parameter"]
+        return "cwms-tools place search", out
+    if repair.tool == "cwms_list_parameters" and "office" in args and "name" in args:
+        return "cwms-tools place parameters", {"spec": f"{args['office']}/{args['name']}"}
+    if repair.tool == "cwms_list_offices":
+        return "cwms-tools offices", {}
+    return None
+
+
+def localize_repair(error: CwmsToolsError) -> CwmsToolsError:
+    """Rewrite a core-built repair that names an MCP tool into a runnable CLI command.
+
+    Core producers build generic repairs against the MCP tools
+    (`cwms_search_places`, `cwms_list_parameters`, `cwms_list_offices`) and
+    name `cwms_get_profile` in the depth-string `alternative`; printed verbatim
+    by the CLI, none of them can be replayed (#96). The tool rewrite is a no-op
+    when `repair.tool` is already a `cwms-tools ...` command (an intent- or
+    ghost-office-built repair) and for unmapped tool names; the `alternative`
+    rewrite applies to any repair, since an intent-built CLI repair carries
+    the core alternative text. Call after `attach_repair_intent`.
+    """
+    repair = error.envelope.repair
+    if repair is None:
+        return error
+    update: dict[str, Any] = {}
+    if not repair.tool.startswith("cwms-tools "):
+        mapped = _localize_tool(repair)
+        if mapped is not None:
+            update["tool"], update["arguments"] = mapped
+    if repair.alternative is not None:
+        alternative = _PROFILE_ALTERNATIVE.sub(
+            lambda m: f"cwms-tools value profile {m['office']}/{m['name']}/{m['parameter']}",
+            repair.alternative,
+        )
+        if alternative != repair.alternative:
+            update["alternative"] = alternative
+    if update:
+        error.envelope.repair = repair.model_copy(update=update)
     return error
 
 
@@ -247,6 +314,7 @@ __all__ = [
     "emit",
     "emit_error",
     "isolated",
+    "localize_repair",
     "no_cache",
     "rewrite_error_field",
     "set_isolated",

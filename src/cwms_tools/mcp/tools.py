@@ -198,11 +198,11 @@ def register_place_tools(mcp: FastMCP) -> None:
         query: Annotated[str, "Name fragment to match, case-insensitive."],
         office: Annotated[
             str | list[str] | None,
-            "Office code(s). If unknown, omit it: on a fresh server the first call "
-            "returns no rows and a `repair_hint`; keep following `repair_hint` while "
-            "one is present (the chain ends when a response carries none). If you know the "
-            "region, pass the "
-            "office directly (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT "
+            "Office code(s), case-insensitive. If unknown, omit it: on a fresh "
+            "server the first call returns no rows and a `repair_hint`; keep "
+            "following `repair_hint` while one is present (the chain ends when a "
+            "response carries none). If you know the region, pass it "
+            "directly (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT "
             "Oklahoma, MVS St. Louis; full list at `cwms://offices`).",
         ] = None,
         parameter: Annotated[

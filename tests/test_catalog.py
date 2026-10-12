@@ -691,6 +691,19 @@ def test_suggest_location_ambiguous_alias_is_not_an_exact_match(configured, mock
     assert catalog.suggest_location("SWT", "shared", use_cache=False) == (None, ["A", "B"])
 
 
+def test_suggest_location_fuzzy_id_label_beats_an_identical_alias(configured, mocked) -> None:
+    """T10: OTHER's public name equals DAM1's id; the fuzzy pass must map the
+    shared label to the id's own record, not let the alias shadow it."""
+    rows = {
+        "locations": [
+            {"office-id": "SWT", "name": "OTHER", "public-name": "Dam1"},
+            {"office-id": "SWT", "name": "DAM1", "public-name": "Something Else"},
+        ]
+    }
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=rows, status=200)
+    assert catalog.suggest_location("SWT", "dam1x") == (None, ["DAM1"])
+
+
 def test_suggest_location_handles_comma_and_regex_names(configured, mocked) -> None:
     """Review focus #1: ids with commas/regex metacharacters flow through the
     matcher untouched (no regex is built from the query here)."""

@@ -1268,6 +1268,19 @@ def kind_catalog(monkeypatch):
     )
 
 
+def test_browse_region_cursor_minted_on_fallback_case_validates_after_recovery(
+    kind_catalog,
+) -> None:
+    """T11: on the directory fallback `swt` passes through un-canonicalized; once
+    the directory recovers the same office arrives as `SWT`. The cursor must
+    survive that, so the request hash is built on the upper-cased code."""
+    first = places.browse_region(office="swt", limit=2)
+    assert first["has_more"] is True
+    second = places.browse_region(office="SWT", limit=2, cursor=first["next_cursor"])
+    assert second["results"]
+    assert {r["name"] for r in second["results"]}.isdisjoint({r["name"] for r in first["results"]})
+
+
 def test_browse_region_kind_filter_is_case_insensitive(kind_catalog) -> None:
     for kind in ("PROJECT", "project", "  Project "):
         payload = places.browse_region(office="SWT", kind=kind)
@@ -1732,7 +1745,18 @@ def test_describe_place_wrong_case_id_same_on_cli_and_mcp(configured, mocked) ->
     assert cli.exit_code != 0
     cli_err = json.loads(cli.stderr)["error"]
     assert mcp_err["code"] == cli_err["code"] == "not_found"
-    assert "FOSS" in mcp_err["message"] and "FOSS" in cli_err["message"]
+    assert mcp_err["message"] == cli_err["message"]
+    assert "FOSS" in mcp_err["message"]
+    # Each surface's repair replays on that surface with the catalog id.
+    assert mcp_err["repair"]["next_step"] == cli_err["repair"]["next_step"]
+    assert mcp_err["repair"]["tool"] == "cwms_describe_place"
+    assert mcp_err["repair"]["arguments"] == {
+        "office": "SWT",
+        "name": "FOSS",
+        "detail": "summary",
+    }
+    assert cli_err["repair"]["tool"] == "cwms-tools place describe"
+    assert cli_err["repair"]["arguments"] == {"detail": "summary", "spec": "SWT/FOSS"}
 
 
 def test_describe_place_404_with_catalog_listing_name_keeps_original_error(
@@ -1755,6 +1779,62 @@ def test_describe_place_404_with_failing_catalog_keeps_original_not_found(
     with pytest.raises(CwmsToolsError) as ex:
         places.describe_place("SWT", "Foss")
     assert ex.value.envelope.code is ErrorCode.NOT_FOUND
+    # The catalog could not confirm a spelling, so no same-tool retry is offered.
+    assert ex.value.repair_intent is None
+
+
+def test_describe_place_404_not_found_carries_endpoint_trail(configured, mocked) -> None:
+    _arm_all(mocked)
+    mocked.add(responses.GET, f"{API_ROOT}locations/Foss", json={"detail": "nope"}, status=404)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.describe_place("SWT", "Foss")
+    assert ex.value.envelope.source.endpoints_called == ["/locations/Foss", "/catalog/LOCATIONS"]
+
+
+def test_describe_place_wrong_case_not_found_skips_project_fetch(configured, mocked) -> None:
+    """The existence check runs before the project read: a wrong-case id stops
+    after /locations, the scoped ts catalog, and the locations catalog."""
+    _foss_catalogs(mocked)
+    mocked.add(responses.GET, f"{API_ROOT}locations/Foss", json=LOCATION_SINGLE_PAYLOAD, status=200)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.describe_place("SWT", "Foss")
+    assert ex.value.envelope.code is ErrorCode.NOT_FOUND
+    assert not any("/projects/" in c.request.url for c in mocked.calls)
+    assert ex.value.envelope.source.endpoints_called == [
+        "/locations/Foss",
+        "/catalog/TIMESERIES",
+        "/catalog/LOCATIONS",
+    ]
+
+
+def test_describe_place_ghost_degrades_when_locations_catalog_fails(configured, mocked) -> None:
+    """#170: the existence check is part of the ghost enrichment; with
+    /catalog/LOCATIONS down the describe still succeeds, `data_at` is null,
+    and no office-wide enrichment is attempted (it needs the same catalog)."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"detail": "x"}, status=503)
+    mocked.add(
+        responses.GET,
+        re.compile(rf"{re.escape(API_ROOT)}catalog/TIMESERIES\?.*[?&]like=.*"),
+        json={"entries": []},
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/GARR-Garrison_Dam",
+        json={"office-id": "NWDM", "name": "GARR-Garrison_Dam"},
+        status=200,
+    )
+    mocked.add(
+        responses.GET, f"{API_ROOT}projects/GARR-Garrison_Dam", json={"detail": "no"}, status=404
+    )
+    payload = places.describe_place("NWDM", "GARR-Garrison_Dam")
+    assert payload["data_at"] is None
+    assert payload["partial"] is True
+    assert payload["partial_reasons"] == ["not_a_project", "data_at_lookup_failed: upstream_error"]
+    ts_urls = [c.request.url for c in mocked.calls if "catalog/TIMESERIES" in c.request.url]
+    assert ts_urls and all("like=" in u.replace("group-like=", "") for u in ts_urls), (
+        "no office-wide ts-catalog enrichment after the locations catalog failed"
+    )
 
 
 def test_describe_place_ghost_sibling_lookup_failure_degrades(configured, mocked) -> None:
@@ -1790,4 +1870,4 @@ def test_describe_place_ghost_sibling_lookup_failure_degrades(configured, mocked
     payload = places.describe_place("NWDM", "GARR-Garrison_Dam")
     assert payload["data_at"] is None
     assert payload["partial"] is True
-    assert any(r.startswith("data_at_lookup_failed") for r in payload["partial_reasons"])
+    assert payload["partial_reasons"] == ["not_a_project", "data_at_lookup_failed: upstream_error"]

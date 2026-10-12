@@ -106,18 +106,21 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
     ],
     # Per-sensor read failures degrade into the profile rows' `error` field
     # rather than failing the call, so only catalog-level failures (plus the
-    # up-front window_hours validation) surface here.
+    # up-front window_hours validation) surface here. An empty profile under a
+    # parent id absent from the catalog is `not_found` (#163).
     "cwms_get_profile": [
         "ghost_office",
         "invalid_field",
+        "not_found",
         "rate_limited",
         "upstream_error",
         "usage_error",
     ],
     # Per-office failures are absorbed into coverage.offices_error_skipped rather
     # than failing the call, so this tool returns a result (with coverage) instead
-    # of an error.code in normal operation.
-    "cwms_publishers_for_parameter": [],
+    # of an error.code in normal operation. The exception: an explicit `offices`
+    # list in which every code fails validation raises `invalid_field` (#163).
+    "cwms_publishers_for_parameter": ["invalid_field"],
     "cwms_get_overview_section": ["not_found", "usage_error"],
     # offices_payload() never raises: core.offices.list_offices() catches both
     # upstream fetch failure and cache init/read/write failure, degrading to

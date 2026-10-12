@@ -696,31 +696,16 @@ def describe_place(
     fails the describe. Without it, none of those keys are present.
     """
     office = offices.require_known_office(office)
-    try:
-        location = locations.get_one(office, name, use_cache=use_cache)
-    except CwmsToolsError as err:
-        details = err.envelope.details
-        if err.envelope.code is ErrorCode.NOT_FOUND and details and details.field == "name":
-            # Convert only when the catalog agrees the name is absent; a stale
-            # snapshot listing it would suggest the same name (a retry loop).
-            try:
-                absent = catalog.location_catalog_row(office, name, use_cache=use_cache) is None
-                repaired = (
-                    catalog.location_not_found_error(office, name, use_cache=use_cache)
-                    if absent
-                    else None
-                )
-            except CwmsToolsError:
-                raise err from None
-            if repaired is not None:
-                raise repaired from err
-        raise
-    project_resp = projects.get_one(office, name, use_cache=use_cache)
+    location = _get_location_or_not_found(office, name, use_cache=use_cache)
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
     # CDA resolves /locations/ case-insensitively but the ts filter is exact, so
-    # a wrong-case id lands here as an empty ghost; confirm the catalog id exists.
-    if not ts_ids and catalog.location_catalog_row(office, name, use_cache=use_cache) is None:
-        raise catalog.location_not_found_error(office, name, use_cache=use_cache)
+    # a wrong-case id lands here as an empty ghost; confirm the catalog id exists
+    # before the project fetch, so a wrong-case describe stops early.
+    loc_payload: dict[str, Any] | None = None
+    catalog_failure: str | None = None
+    if not ts_ids:
+        loc_payload, catalog_failure = _confirm_ghost_in_catalog(office, name, use_cache=use_cache)
+    project_resp = projects.get_one(office, name, use_cache=use_cache)
     param_counts = publishers.parameter_counts(ts_ids)
     pub_facts = publishers.aggregate_publishers(ts_ids)
     freshness = catalog.freshness_for_location(office, name, use_cache=use_cache)
@@ -751,11 +736,16 @@ def describe_place(
         "upstream_status": project_resp.get("upstream_status"),
     }
     if not ts_ids:
-        try:
-            response["data_at"] = catalog.data_bearing_siblings(office, name, use_cache=use_cache)
-        except CwmsToolsError as err:
+        if catalog_failure is None:
+            try:
+                response["data_at"] = catalog.data_bearing_siblings(
+                    office, name, use_cache=use_cache, loc_payload=loc_payload
+                )
+            except CwmsToolsError as err:
+                catalog_failure = err.envelope.code.value
+        if catalog_failure is not None:
             response["partial"] = True
-            response["partial_reasons"].append(f"data_at_lookup_failed: {err.envelope.code.value}")
+            response["partial_reasons"].append(f"data_at_lookup_failed: {catalog_failure}")
     if include_locks:
         lock_resp = locks.lookup(office, name, location.get("location-kind"), use_cache=use_cache)
         response.update(lock_resp)
@@ -763,6 +753,55 @@ def describe_place(
             response["partial"] = True
             response["partial_reasons"].append("lock_lookup_failed")
     return response
+
+
+def _get_location_or_not_found(office: str, name: str, *, use_cache: bool) -> dict[str, Any]:
+    """`/locations/{name}`; a 404 on `name` becomes the catalog-built `not_found`
+    with a spelling suggestion, but only when the catalog agrees the name is
+    absent — a stale snapshot listing it would suggest the same name (a retry
+    loop) — and the original error stands when the catalog read fails."""
+    try:
+        return locations.get_one(office, name, use_cache=use_cache)
+    except CwmsToolsError as err:
+        details = err.envelope.details
+        if err.envelope.code is ErrorCode.NOT_FOUND and details and details.field == "name":
+            try:
+                loc_payload = catalog.get_locations_catalog(office, use_cache=use_cache)
+            except CwmsToolsError:
+                raise err from None
+            if catalog.location_catalog_row(office, name, payload=loc_payload) is None:
+                raise catalog.location_not_found_error(
+                    office,
+                    name,
+                    payload=loc_payload,
+                    endpoints_called=list(err.envelope.source.endpoints_called),
+                ) from err
+        raise
+
+
+def _confirm_ghost_in_catalog(
+    office: str, name: str, *, use_cache: bool
+) -> tuple[dict[str, Any] | None, str | None]:
+    """`(locations_catalog, None)` once the ghost's id is confirmed in the catalog.
+
+    Raises `not_found` when the catalog lacks the id (a wrong-case or misspelled
+    name). The check is part of the ghost enrichment (#170): if the catalog read
+    fails, returns `(None, <error code>)` so `data_at` degrades instead of
+    failing the describe; the sibling lookup needs the same catalog, so it is
+    skipped too.
+    """
+    try:
+        loc_payload = catalog.get_locations_catalog(office, use_cache=use_cache)
+    except CwmsToolsError as err:
+        return None, err.envelope.code.value
+    if catalog.location_catalog_row(office, name, payload=loc_payload) is None:
+        raise catalog.location_not_found_error(
+            office,
+            name,
+            payload=loc_payload,
+            endpoints_called=[f"/locations/{name}", "/catalog/TIMESERIES"],
+        )
+    return loc_payload, None
 
 
 def list_parameters(
@@ -781,8 +820,13 @@ def list_parameters(
     """
     office = offices.require_known_office(office)
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
-    if not ts_ids and catalog.location_catalog_row(office, name, use_cache=use_cache) is None:
-        raise catalog.location_not_found_error(office, name, use_cache=use_cache)
+    loc_payload: dict[str, Any] | None = None
+    if not ts_ids:
+        loc_payload = catalog.get_locations_catalog(office, use_cache=use_cache)
+        if catalog.location_catalog_row(office, name, payload=loc_payload) is None:
+            raise catalog.location_not_found_error(
+                office, name, payload=loc_payload, endpoints_called=["/catalog/TIMESERIES"]
+            )
     pub_facts = publishers.aggregate_publishers(ts_ids)
     freshness = catalog.freshness_for_location(office, name, use_cache=use_cache)
     return {
@@ -800,7 +844,9 @@ def list_parameters(
         ],
         "all_parameters": sorted(publishers.parameter_counts(ts_ids).keys()),
         "last_data_timestamp": freshness,
-        "data_at": catalog.data_bearing_siblings(office, name, use_cache=use_cache)
+        "data_at": catalog.data_bearing_siblings(
+            office, name, use_cache=use_cache, loc_payload=loc_payload
+        )
         if not ts_ids
         else None,
     }
@@ -847,7 +893,9 @@ def browse_region(
 
     norm_kind = _normalize_kind(kind)
     office = offices.require_known_office(office)
-    req = _browse_request_hash(office=office, bbox=bbox, state=state, kind=norm_kind)
+    # Hash the upper-cased code: a cursor minted while the office directory was
+    # on fallback (`swt` passed through) must still validate after recovery.
+    req = _browse_request_hash(office=office.upper(), bbox=bbox, state=state, kind=norm_kind)
     decoded: dict[str, Any] | None = None
     offset = 0
     if cursor is not None:

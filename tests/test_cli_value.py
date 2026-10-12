@@ -121,7 +121,9 @@ def test_value_get_partial_failure_exits_nonzero(configured) -> None:
     assert payload["summary"]["failed"] == 1
     failed = next(r for r in payload["results"] if not r["ok"])
     assert failed["error"]["code"] == "not_found"
-    assert failed["error"]["repair"]["tool"] == "cwms_list_parameters"
+    # The CLI names a runnable command, not the MCP tool (#96).
+    assert failed["error"]["repair"]["tool"] == "cwms-tools place parameters"
+    assert failed["error"]["repair"]["arguments"] == {"spec": "SWT/FOSS"}
 
 
 def test_value_get_rejects_bad_id_shape() -> None:
@@ -395,3 +397,182 @@ def test_value_get_ghost_location_exits_12(monkeypatch) -> None:
     result = runner.invoke(app, ["value", "get", "SWT/X/Elev"])
     assert result.exit_code == 12
     assert json.loads(result.stdout)["results"][0]["error"]["code"] == "ghost_location"
+
+
+# --------------------------------------------------------------------------
+# CLI repairs name runnable commands (#96): real core errors, mocked catalogs
+# --------------------------------------------------------------------------
+
+GWLW_LOCATIONS = {
+    "entries": [
+        {"office": "NWDP", "name": "GWLW_S1", "latitude": 47.65, "longitude": -122.33},
+        {"office": "NWDP", "name": "GWLW_S1-D3,0ft", "latitude": 47.6501, "longitude": -122.33},
+        {"office": "NWDP", "name": "LONELY", "latitude": 46.0, "longitude": -120.0},
+    ]
+}
+GWLW_TS = {"entries": [{"name": "GWLW_S1-D3,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"}]}
+
+
+def _arm_gwlw(mocked, *, ts_for_location=None) -> None:
+    # The scoped ts read carries `like=`; the office-wide enrichment does not.
+    mocked.add(
+        responses.GET,
+        re.compile(rf"{re.escape(API_ROOT)}catalog/TIMESERIES\?.*[?&]like=.*"),
+        json=ts_for_location if ts_for_location is not None else {"entries": []},
+        status=200,
+    )
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=GWLW_TS, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=GWLW_LOCATIONS, status=200)
+
+
+def test_value_get_case_c_search_repair_is_place_search(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_gwlw(mocked)
+        result = runner.invoke(app, ["value", "get", "NWDP/LONELY/Elev"])
+    item = json.loads(result.stdout)["results"][0]
+    assert item["error"]["code"] == "ghost_location"
+    assert item["error"]["repair"]["tool"] == "cwms-tools place search"
+    assert item["error"]["repair"]["arguments"] == {"query": "LONELY", "office": ["NWDP"]}
+
+
+def test_value_get_depth_ghost_profile_alternative_is_value_profile(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_gwlw(mocked)
+        result = runner.invoke(app, ["value", "get", "NWDP/GWLW_S1/Temp-Water"])
+    repair = json.loads(result.stdout)["results"][0]["error"]["repair"]
+    assert repair["tool"] == "cwms-tools value get"
+    assert repair["arguments"]["id_specs"] == ["NWDP/GWLW_S1-D3,0ft/Temp-Water"]
+    assert repair["alternative"] == (
+        "cwms-tools value profile NWDP/GWLW_S1/Temp-Water reads every depth of this "
+        "string in one call."
+    )
+    assert "cwms_get_profile" not in repair["alternative"]
+
+
+def test_value_history_unknown_office_repair_is_offices_command(
+    configured, validating_directory
+) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=[{"office-id": "SWT", "type": "DIS"}])
+        result = runner.invoke(
+            app,
+            [
+                "value",
+                "history",
+                "XYZ/FOSS/Elev",
+                "--begin",
+                "2026-05-17T00:00:00Z",
+                "--end",
+                "2026-05-18T00:00:00Z",
+            ],
+        )
+    error = json.loads(result.stderr)["error"]
+    assert error["code"] == "invalid_field"
+    assert error["repair"]["tool"] == "cwms-tools offices"
+    assert error["repair"]["arguments"] == {}
+
+
+def test_value_history_wrong_case_repair_arguments_are_pinned(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_gwlw(mocked)
+        result = runner.invoke(
+            app,
+            [
+                "value",
+                "history",
+                "NWDP/gwlw_s1/Temp-Water",
+                "--begin",
+                "2026-05-17T00:00:00Z",
+                "--end",
+                "2026-05-18T00:00:00Z",
+                "--rollup",
+                "daily",
+            ],
+        )
+    assert result.exit_code == 3
+    repair = json.loads(result.stderr)["error"]["repair"]
+    assert repair["tool"] == "cwms-tools value history"
+    assert repair["next_step"] == "retry_with_catalog_id"
+    assert repair["arguments"] == {
+        "begin": "2026-05-17T00:00:00Z",
+        "end": "2026-05-18T00:00:00Z",
+        "unit": "EN",
+        "rollup": "daily",
+        "detail": "summary",
+        "id_spec": "NWDP/GWLW_S1/Temp-Water",
+    }
+
+
+def test_profile_wrong_case_parent_repairs_on_each_surface(configured) -> None:
+    """#163/#96: the same core not_found replays as `cwms_get_profile` on MCP and
+    as `value profile` on the CLI, each with the catalog id."""
+    import asyncio
+
+    from cwms_tools.mcp.server import build_server
+
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_gwlw(mocked, ts_for_location=GWLW_TS)
+        res = asyncio.run(
+            build_server().call_tool(
+                "cwms_get_profile",
+                arguments={"office": "NWDP", "name": "gwlw_s1", "parameter": "Temp-Water"},
+            )
+        )
+        cli = runner.invoke(app, ["value", "profile", "NWDP/gwlw_s1/Temp-Water"])
+    structured = res.structured_content or {}
+    mcp_err = structured.get("result", structured)["error"]
+    assert mcp_err["code"] == "not_found"
+    assert mcp_err["repair"]["tool"] == "cwms_get_profile"
+    assert mcp_err["repair"]["arguments"]["name"] == "GWLW_S1"
+    assert mcp_err["repair"]["arguments"]["office"] == "NWDP"
+    assert mcp_err["repair"]["arguments"]["parameter"] == "Temp-Water"
+    cli_err = json.loads(cli.stderr)["error"]
+    assert cli.exit_code == 3
+    assert cli_err["code"] == "not_found"
+    assert cli_err["repair"]["tool"] == "cwms-tools value profile"
+    assert cli_err["repair"]["arguments"] == {
+        "window_hours": 24,
+        "unit": "EN",
+        "detail": "summary",
+        "id_spec": "NWDP/GWLW_S1/Temp-Water",
+    }
+
+
+def test_localize_repair_passes_unknown_tools_through() -> None:
+    from cwms_tools.cli.render import localize_repair
+    from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
+
+    hint = RepairHint(next_step="x", tool="cwms_future_tool", arguments={"a": 1})
+    err = CwmsToolsError.of(ErrorCode.NOT_FOUND, "no", repair=hint)
+    assert localize_repair(err).envelope.repair == hint
+    # A repair already naming a CLI command is untouched too.
+    cli_hint = RepairHint(next_step="y", tool="cwms-tools place search", arguments={"query": "q"})
+    err = CwmsToolsError.of(ErrorCode.NOT_FOUND, "no", repair=cli_hint)
+    assert localize_repair(err).envelope.repair == cli_hint
+
+
+def test_attach_repair_intent_spec_mode_keeps_non_positional_overrides() -> None:
+    """T9: an override that is part of the positional is re-joined into it; any
+    other override becomes an ordinary option instead of being dropped."""
+    from cwms_tools.cli.render import attach_repair_intent
+    from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairIntent
+
+    err = CwmsToolsError.of(
+        ErrorCode.NOT_FOUND,
+        "no",
+        repair_intent=RepairIntent("retry", {"parameter": "Elev", "window_hours": 48}),
+    )
+    attach_repair_intent(
+        err,
+        tool="cwms-tools value get",
+        args={"window_hours": 24, "unit": "EN"},
+        spec_key="id_specs",
+        spec_fields={"office": "SWT", "name": "FOSS", "parameter": "elev"},
+        spec_as_list=True,
+    )
+    assert err.envelope.repair is not None
+    assert err.envelope.repair.arguments == {
+        "window_hours": 48,
+        "unit": "EN",
+        "id_specs": ["SWT/FOSS/Elev"],
+    }

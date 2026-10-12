@@ -168,6 +168,42 @@ for tool in ("cwms_get_value", "cwms_get_history"):
     ARMED[(tool, "ghost_location")] = _arm_ghost
 
 
+def _arm_wrong_case_profile_parent(mocked) -> None:
+    """The catalog lists the canonical `GWLW_S1` (and its depth children); the
+    call asks for `gwlw_s1`, so no child matches and the parent is absent."""
+    _arm_directory(mocked)
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json={
+            "entries": [
+                {"office": "SWT", "name": "GWLW_S1"},
+                {"office": "SWT", "name": "GWLW_S1-D3,0ft"},
+            ]
+        },
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        json={"entries": [{"name": "GWLW_S1-D3,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"}]},
+        status=200,
+    )
+
+
+PROVOCATIONS[("cwms_get_profile", "not_found")] = (
+    {**GOOD_ARGS["cwms_get_profile"], "name": "gwlw_s1"},
+    None,
+)
+ARMED[("cwms_get_profile", "not_found")] = _arm_wrong_case_profile_parent
+# Every explicit office fails validation: raise rather than an ok, empty result.
+PROVOCATIONS[("cwms_publishers_for_parameter", "invalid_field")] = (
+    {"parameter": "Elev", "offices": ["XYZ"]},
+    None,
+)
+ARMED[("cwms_publishers_for_parameter", "invalid_field")] = _arm_directory
+
+
 def test_every_advertised_code_has_a_provocation() -> None:
     advertised = {(tool, code) for tool, codes in TOOL_ERROR_CODES.items() for code in codes}
     assert advertised == set(PROVOCATIONS), (

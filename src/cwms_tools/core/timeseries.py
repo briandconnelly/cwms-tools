@@ -119,6 +119,10 @@ def require_canonical_ts_id(
        (else `not_found{field:name}` with a spelling suggestion), then
        `ghost_location` pointing at data-bearing co-located siblings (B) or,
        when none exist, at `cwms_search_places` (C).
+
+    The failure path reads each catalog once: the locations catalog fetched for
+    the existence check feeds the suggestion and the single office-wide
+    enrichment, which both sibling filters (with and without `parameter`) share.
     """
     ts_ids = catalog.ts_ids_for_location(office, location, use_cache=use_cache)
     tsid = publishers.pick_canonical(ts_ids, parameter=parameter)
@@ -126,9 +130,13 @@ def require_canonical_ts_id(
         return tsid
     if ts_ids:
         raise _parameter_not_found(office, location, parameter, ts_ids)
-    if catalog.location_catalog_row(office, location, use_cache=use_cache) is None:
-        raise catalog.location_not_found_error(office, location, use_cache=use_cache)
-    raise _ghost_location_error(office, location, parameter, use_cache=use_cache)
+    loc_payload = catalog.get_locations_catalog(office, use_cache=use_cache)
+    if catalog.location_catalog_row(office, location, payload=loc_payload) is None:
+        raise catalog.location_not_found_error(
+            office, location, payload=loc_payload, endpoints_called=["/catalog/TIMESERIES"]
+        )
+    by_name = catalog.enriched_by_name(office, use_cache=use_cache, loc_payload=loc_payload)
+    raise _ghost_location_error(office, location, parameter, by_name)
 
 
 def _closest_parameter(parameter: str, published: list[str]) -> str | None:
@@ -162,16 +170,18 @@ def _parameter_not_found(
         repair_intent=(
             RepairIntent("use_published_parameter", {"parameter": match}) if match else None
         ),
+        endpoints_called=["/catalog/TIMESERIES"],
     )
+
+
+_GHOST_TRAIL = ["/catalog/TIMESERIES", "/catalog/LOCATIONS"]
 
 
 def _ghost_location_error(
-    office: str, location: str, parameter: str, *, use_cache: bool
+    office: str, location: str, parameter: str, by_name: dict[str, dict[str, Any]]
 ) -> CwmsToolsError:
-    with_param = catalog.data_bearing_siblings(
-        office, location, parameter=parameter, use_cache=use_cache
-    )
-    any_data = with_param or catalog.data_bearing_siblings(office, location, use_cache=use_cache)
+    with_param = catalog.siblings_with_data(by_name, location, parameter)
+    any_data = with_param or catalog.siblings_with_data(by_name, location)
     if not any_data:  # Case C: the genuine dead end
         return CwmsToolsError.of(
             ErrorCode.GHOST_LOCATION,
@@ -189,6 +199,7 @@ def _ghost_location_error(
                 tool="cwms_search_places",
                 arguments={"query": location, "office": office},
             ),
+            endpoints_called=list(_GHOST_TRAIL),
         )
     # Case B: siblings carry the data. Prefer the shallowest depth child of THIS
     # string (so the intent is a child of the requested name, not a neighbour);
@@ -228,6 +239,7 @@ def _ghost_location_error(
             arguments={"query": location, "office": office, "parameter": parameter},
         ),
         repair_intent=intent,
+        endpoints_called=list(_GHOST_TRAIL),
     )
 
 

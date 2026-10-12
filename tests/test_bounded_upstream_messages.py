@@ -22,7 +22,7 @@ from cwms.api import ApiError
 from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
-from cwms_tools.core import levels, locations, projects, session
+from cwms_tools.core import catalog, levels, locations, projects, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.mcp.server import build_server
@@ -142,6 +142,13 @@ def test_location_transport_error_is_bounded(configured, monkeypatch) -> None:
 
 def test_project_5xx_is_bounded_on_both_surfaces(configured, monkeypatch) -> None:
     monkeypatch.setattr(locations, "get_location", lambda **_k: {"name": "FOSS"})
+    # describe reads the ts catalog before the project (wrong-case ids stop
+    # early), so pin it to a data-bearing answer: only the project fails here.
+    monkeypatch.setattr(
+        catalog,
+        "ts_ids_for_location",
+        lambda *_a, **_k: ["FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"],
+    )
     monkeypatch.setattr(projects, "_upstream_get_project", _raiser(_api_error(503)))
 
     is_error, payload, raw = _mcp("cwms_describe_place", {"office": "SWT", "name": "FOSS"})

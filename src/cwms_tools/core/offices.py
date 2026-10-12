@@ -75,8 +75,9 @@ def ghost_office_repair(office_id: str, *, tool: str, args: dict[str, Any]) -> R
     """Build a same-call retry repair hint: `office` swapped to the rollup target.
 
     `tool`/`args` are the FAILING call's own name and original (wire-format)
-    arguments minus `office` — the caller (an MCP tool handler or CLI command)
-    is the only thing that knows which surface call is retrying, so it
+    arguments; an `office` in `args` is overwritten with the rollup target, so
+    callers may include it or leave it out. The caller (an MCP tool handler or
+    CLI command) is the only thing that knows which surface call is retrying, so it
     supplies its own identity here rather than this being hardcoded to a
     single fallback tool (#69: the repair no longer silently switches from,
     say, `cwms_get_value` to `cwms_browse_region`, discarding the agent's
