@@ -47,3 +47,37 @@ def test_document_sha256_is_stable_64_hex() -> None:
     digest = overview.document_sha256()
     assert len(digest) == 64
     assert overview.document_sha256() == digest
+
+
+_SOURCES_LIST = """\
+- Repository: [cwms-python](https://example.test)
+- Latest release: v1.1.2 (2026-09-28)
+- Key modules:
+  [`cwms/api.py`](https://example.test/blob/main/cwms/api.py) (HTTP core),
+  [`cwms/timeseries/timeseries.py`](https://example.test/blob/main/cwms/timeseries/timeseries.py),
+  [`cwms/levels/specified_levels.py`](https://example.test/blob/main/cwms/levels/specified_levels.py)
+- Examples: `cwms-python/examples/` (8 Jupyter notebooks)
+- License: MIT
+"""
+
+
+def test_first_summary_skips_list_blocks_with_continuation_lines() -> None:
+    body = _SOURCES_LIST + "\nThis is the real prose. It has two sentences.\n"
+    assert overview._first_summary(body, title="Sources") == (
+        "This is the real prose. It has two sentences."
+    )
+
+
+def test_first_summary_falls_back_when_only_a_list() -> None:
+    assert overview._first_summary(_SOURCES_LIST, title="Sources") == "Reference section: Sources."
+
+
+def test_summaries_are_prose_not_rules_or_link_lists() -> None:
+    by_id = {s.section_id: s.summary for s in overview.all_sections()}
+    assert by_id["reference-where-to-look-for-specific-things"] == (
+        "Reference section: Reference — where to look for specific things."
+    )
+    assert by_id["sources"].startswith("Reference section:")
+    for section_id, summary in by_id.items():
+        assert summary and summary != "---", section_id
+        assert not summary.startswith(("-", "|", "#")), section_id
