@@ -229,6 +229,24 @@ def capability_contract_payload() -> dict[str, Any]:
             "Decode DSS or XML forecast file attachments.",
             "Pre-warm caches or scan the catalog in the background.",
         ],
+        "first_call": {
+            "requires": ["office", "name"],
+            "office": (
+                "USACE office code, case-insensitive (cwms://offices; NW Division uses NWDM/NWDP)."
+            ),
+            "name": (
+                "Case-sensitive catalog id (FOSS, not 'Foss' or 'Foss Lake'); "
+                "from cwms_search_places."
+            ),
+            "parameter": "Case-sensitive code (Elev, Flow-In); from cwms_list_parameters.",
+            "typical_chain": [
+                "cwms_search_places",
+                "cwms_describe_place | cwms_list_parameters",
+                "cwms_get_value | cwms_get_history",
+            ],
+            "one_shot": "cwms_get_value",
+            "not_available": "Forecasts (see does_not).",
+        },
         # Latency class is agent-selection guidance same as description/error
         # codes: a tool moving from cached/local to network/slow changes
         # whether an agent should call it eagerly, so it must move the
@@ -331,6 +349,7 @@ def capabilities_payload() -> dict[str, Any]:
         "fingerprint_scope": fingerprint.FINGERPRINT_SCOPE,
         "description": contract["description"],
         "does_not": contract["does_not"],
+        "first_call": contract["first_call"],
         "prerequisites": {
             "auth": contract["auth"],
             "api_root": cfg.api_root,

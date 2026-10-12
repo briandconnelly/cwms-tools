@@ -438,3 +438,20 @@ def test_overview_summaries_are_a_fingerprint_input(monkeypatch) -> None:
     patched = [dataclasses.replace(sections[0], summary="changed"), *sections[1:]]
     monkeypatch.setattr(ov, "all_sections", lambda: patched)
     assert fingerprint.compute(tools={}, resources=[]) != base
+
+
+def test_instructions_and_capabilities_state_the_first_call_contract() -> None:
+    """#171: an agent must not have to infer office+catalog-name, case
+    sensitivity, the tool chain, or the no-forecasts scope from trial calls."""
+    text = server_instructions()
+    for needle in ("office", "case-sensitive", "cwms_search_places", "cwms_get_value", "forecast"):
+        assert needle in text, needle
+    first_call = capability_contract_payload()["first_call"]
+    assert first_call["requires"] == ["office", "name"]
+    assert "case-sensitive" in first_call["name"].casefold()
+    assert first_call["typical_chain"][0] == "cwms_search_places"
+    assert first_call["one_shot"] == "cwms_get_value"
+    assert "forecast" in first_call["not_available"].lower()
+    assert capabilities_payload()["first_call"] == first_call
+    # Fingerprinted: it is agent-selection prose.
+    assert "first_call" in capability_contract_payload()
