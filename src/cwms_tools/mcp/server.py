@@ -230,7 +230,8 @@ def build_server() -> FastMCP:
         """USACE office directory for office-code discovery.
 
         Lists every office (name, long name, type, reporting parent) plus the
-        NW regional-rollup guidance. Network-backed (cached 7 days); degrades
+        NW regional-rollup guidance and `region_hints` (region → office with
+        example ids). Network-backed (cached 7 days); degrades
         to a documented fallback slice with `partial: true` when upstream is
         unreachable on a cold start.
         """

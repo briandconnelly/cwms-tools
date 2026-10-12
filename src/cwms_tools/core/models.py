@@ -780,12 +780,27 @@ class OfficeRecord(CompactDumpMixin, BaseModel):
     reports_to: str | None = None
 
 
+class RegionHint(CompactDumpMixin, BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    office: str
+    region: str
+    examples: list[str]
+
+
 class OfficesGuidance(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     nw_regional_rollup: str
     nw_district_stubs: list[str]
     nw_rollup_targets: dict[str, str]
+    region_hints: list[RegionHint] = Field(
+        default_factory=list,
+        description=(
+            "Static region → office hints with example catalog ids; a starting "
+            "point, not the full directory."
+        ),
+    )
 
 
 class OfficesResponse(CompactDumpMixin, BaseModel):

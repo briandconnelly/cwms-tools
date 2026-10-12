@@ -397,16 +397,7 @@ def offices_payload() -> dict[str, Any]:
     return {
         "count": len(records),
         "offices": records,
-        "guidance": {
-            "nw_regional_rollup": (
-                "In Northwestern Division, query the regional rollups — NWDM "
-                "(Missouri River) or NWDP (Pacific Northwest). The NW district "
-                "offices (NWO, NWK, NWS, NWP, NWW) are catalog stubs that "
-                "publish no operational data in CDA."
-            ),
-            "nw_district_stubs": sorted(NW_ROLLUP_TARGETS),
-            "nw_rollup_targets": dict(NW_ROLLUP_TARGETS),
-        },
+        "guidance": offices.static_guidance(),
         "partial": used_fallback,
     }
 

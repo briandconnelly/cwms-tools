@@ -417,3 +417,19 @@ def test_require_known_office_fallback_first_call_uppercases(
         mocked.add(responses.GET, f"{API_ROOT}offices", status=503)
         assert offices.require_known_office("swt") == "SWT"
         assert len(mocked.calls) == 1
+
+
+def test_offices_payload_carries_region_hints(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+        from cwms_tools.mcp.resources import offices_payload
+
+        payload = offices_payload()
+    hints = {h["office"]: h for h in payload["guidance"]["region_hints"]}
+    assert hints["SWT"]["region"].startswith("Tulsa District")
+    assert "FOSS" in hints["SWT"]["examples"]
+    assert hints["NWDM"]["examples"][0] == "FTPK"
+    assert hints["LRN"]["examples"] == []
+    from cwms_tools.core.models import OfficesResponse
+
+    OfficesResponse.model_validate(payload)  # the shared model accepts the new block

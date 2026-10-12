@@ -455,3 +455,11 @@ def test_instructions_and_capabilities_state_the_first_call_contract() -> None:
     assert capabilities_payload()["first_call"] == first_call
     # Fingerprinted: it is agent-selection prose.
     assert "first_call" in capability_contract_payload()
+
+
+def test_office_guidance_is_a_fingerprint_input() -> None:
+    base = fingerprint.compute(tools={}, resources=[], office_guidance={"region_hints": []})
+    changed = fingerprint.compute(
+        tools={}, resources=[], office_guidance={"region_hints": [{"office": "SWT"}]}
+    )
+    assert base != changed

@@ -392,10 +392,71 @@ def _parse_office_records(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+#: Static region -> office hints for first-call office selection (#171). Only
+#: offices the bundled overview has evidence for; examples are data-bearing
+#: catalog ids an agent can pass to `cwms_get_value` directly. Fingerprinted via
+#: `static_guidance()`: editing this changes what an agent does next.
+REGION_HINTS: tuple[dict[str, Any], ...] = (
+    {
+        "office": "NWDM",
+        "region": (
+            "Missouri River mainstem (MT, ND, SD, NE): Fort Peck, Garrison, Oahe, "
+            "Big Bend, Fort Randall, Gavins Point"
+        ),
+        "examples": ["FTPK", "GARR", "OAHE", "GAPT"],
+    },
+    {
+        "office": "NWDP",
+        "region": (
+            "Columbia and Snake rivers (WA, OR, ID): Bonneville, The Dalles, John Day, "
+            "McNary, Grand Coulee, Lower Granite"
+        ),
+        "examples": ["BON", "TDA", "JDA", "MCN", "GCL", "LWG"],
+    },
+    {
+        "office": "SWT",
+        "region": "Tulsa District (OK, KS, north TX) flood-control reservoirs and locks",
+        "examples": ["FOSS", "WEBB"],
+    },
+    {
+        "office": "MVS",
+        "region": "St. Louis District (MO, IL): middle Mississippi gages and lakes",
+        "examples": ["Carlyle Lk"],
+    },
+    {
+        "office": "LRN",
+        "region": "Nashville District (TN, KY): Cumberland River projects",
+        "examples": [],
+    },
+    {
+        "office": "MVR",
+        "region": "Rock Island District (IA, IL, MO): upper Mississippi locks and dams",
+        "examples": ["IL02"],
+    },
+    {"office": "SPK", "region": "Sacramento District (CA, NV)", "examples": []},
+)
+
+
+def static_guidance() -> dict[str, Any]:
+    """The static, agent-facing guidance block of `cwms://offices` (fingerprinted)."""
+    return {
+        "nw_regional_rollup": (
+            "In Northwestern Division, query the regional rollups — NWDM "
+            "(Missouri River) or NWDP (Pacific Northwest). The NW district "
+            "offices (NWO, NWK, NWS, NWP, NWW) are catalog stubs that "
+            "publish no operational data in CDA."
+        ),
+        "nw_district_stubs": sorted(NW_ROLLUP_TARGETS),
+        "nw_rollup_targets": dict(NW_ROLLUP_TARGETS),
+        "region_hints": [{**h, "examples": list(h["examples"])} for h in REGION_HINTS],
+    }
+
+
 __all__ = [
     "DISCOVERY_OFFICE_PRIORITY",
     "NW_ROLLUP_TARGETS",
     "NW_STUBS",
+    "REGION_HINTS",
     "cached_offices_for_locations",
     "directory_for_validation",
     "discovery_office_candidates",
@@ -405,4 +466,5 @@ __all__ = [
     "list_offices",
     "nw_rollup_target",
     "require_known_office",
+    "static_guidance",
 ]
