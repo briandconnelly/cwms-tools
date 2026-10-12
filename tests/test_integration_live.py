@@ -59,14 +59,6 @@ def live_session(isolated_cache: Cache, monkeypatch: pytest.MonkeyPatch) -> Iter
         session._state["config"] = None
 
 
-def _strip_nulls(obj: Any) -> Any:
-    if isinstance(obj, dict):
-        return {k: _strip_nulls(v) for k, v in obj.items() if v is not None}
-    if isinstance(obj, list):
-        return [_strip_nulls(v) for v in obj]
-    return obj
-
-
 def _mcp_payload(result: Any) -> dict[str, Any]:
     structured = result.structured_content or {}
     return structured.get("result", structured)
@@ -145,9 +137,8 @@ async def test_list_parameters_cli_mcp_parity_live() -> None:
     """CLI `place parameters` and MCP `cwms_list_parameters` agree on live data.
 
     The first call populates the isolated cache, so both surfaces shape the
-    same upstream snapshot. Nulls are stripped on both sides because the CLI
-    does not yet null-strip like the MCP response models do (#143); drop
-    `_strip_nulls` here once that lands.
+    same upstream snapshot. The comparison is exact: since #143 both surfaces
+    serialize through the same response model, so nulls must match too.
     """
     server = build_server()
     mcp_payload = _mcp_payload(
@@ -159,4 +150,4 @@ async def test_list_parameters_cli_mcp_parity_live() -> None:
 
     mcp_payload.pop("source", None)
     mcp_payload.pop("ok", None)
-    assert _strip_nulls(cli_payload) == _strip_nulls(mcp_payload)
+    assert cli_payload == mcp_payload
