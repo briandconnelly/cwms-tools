@@ -117,14 +117,15 @@ def co_located_index(
     O(N²) (#169: a 10 k-row office took 160 s under the pairwise form).
 
     Points are hashed into a cubic grid over ECEF coordinates with cell size
-    `radius_m`. The chord between two points is never longer than their
+    `radius_m` (floored at 1e-9 m so a zero radius still buckets and the exact
+    haversine test decides). The chord between two points is never longer than their
     great-circle distance, so any pair within `radius_m` along the surface is
     within `radius_m` on every axis and lands in the same or an adjacent cell.
     Only those 27 cells are compared, then the exact haversine test runs as
     before. A degree grid was rejected because its longitude cells shrink
     with latitude; this hash has no latitude, antimeridian, or pole cases.
     """
-    cell = float(radius_m)
+    cell = max(float(radius_m), 1e-9)
     keys: list[tuple[int, int, int]] = []
     buckets: dict[tuple[int, int, int], list[int]] = {}
     for i, p in enumerate(points):

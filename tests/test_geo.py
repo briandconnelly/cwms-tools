@@ -112,9 +112,44 @@ def test_co_located_index_preserves_input_order_and_excludes_self() -> None:
     assert idx[("SWT", "FOSS")] == []
 
 
-def test_co_located_index_skips_rows_without_coordinates() -> None:
-    """Review focus #2: callers filter None coordinates before building GeoPoints;
-    the index must accept an empty list and a single point without error."""
+def test_co_located_index_handles_empty_and_singleton() -> None:
+    """Review focus #2: the index must accept an empty list and a single point
+    without error (callers drop rows lacking coordinates before building points)."""
     assert geo.co_located_index([]) == {}
     only = geo.GeoPoint("X", "A", 1.0, 1.0)
     assert geo.co_located_index([only]) == {("X", "A"): []}
+
+
+def test_co_located_index_identical_coordinates_across_offices() -> None:
+    a = geo.GeoPoint("NWO", "BECR", 39.633, -105.293)
+    b = geo.GeoPoint("NWDM", "BECR", 39.633, -105.293)
+    far = geo.GeoPoint("SWT", "FOSS", 35.55, -98.97)
+    pts = [a, b, far]
+    idx = geo.co_located_index(pts)
+    assert idx[("NWO", "BECR")] == [b]
+    assert idx[("NWDM", "BECR")] == [a]
+    assert idx[("SWT", "FOSS")] == []
+    for p in pts:
+        assert idx[(p.office_id, p.name)] == geo.co_located(p, pts)
+
+
+def test_co_located_index_pairs_points_straddling_the_antimeridian() -> None:
+    a = geo.GeoPoint("X", "A", 10.0, 179.9997)
+    b = geo.GeoPoint("X", "B", 10.0, -179.9997)
+    assert geo.haversine_m(a.latitude, a.longitude, b.latitude, b.longitude) < 100.0
+    pts = [a, b]
+    idx = geo.co_located_index(pts, radius_m=100.0)
+    assert idx[("X", "A")] == [b]
+    assert idx[("X", "B")] == [a]
+    assert idx == _brute(pts, 100.0)
+
+
+def test_co_located_index_zero_radius_matches_brute_force() -> None:
+    pts = [
+        geo.GeoPoint("X", "A", 39.633, -105.293),
+        geo.GeoPoint("Y", "A", 39.633, -105.293),
+        geo.GeoPoint("X", "Z", 35.55, -98.97),
+    ]
+    idx = geo.co_located_index(pts, radius_m=0.0)
+    assert idx == _brute(pts, 0.0)
+    assert idx[("X", "A")] == [pts[1]]

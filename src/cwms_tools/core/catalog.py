@@ -15,6 +15,7 @@ front of both. Live CDA hits go through `core.session` for the User-Agent
 from __future__ import annotations
 
 import difflib
+import math
 import re
 from typing import Any
 from urllib.parse import quote
@@ -453,6 +454,8 @@ def _to_geopoint(row: dict[str, Any]) -> GeoPoint | None:
         or not isinstance(lat, (int, float))
         or not isinstance(lon, (int, float))
     ):
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon)):
         return None
     return GeoPoint(office_id=office, name=name, latitude=float(lat), longitude=float(lon))
 
