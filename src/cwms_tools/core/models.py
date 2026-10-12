@@ -322,14 +322,22 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     project: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Upstream Project DTO; null if not a project. detail=summary keeps only "
+            "Upstream Project DTO; null if not a project or the project lookup "
+            "failed (see partial_reasons). detail=summary keeps only "
             "project-owner and authorizing-law ({} when neither is set); detail=full "
             "is verbatim, and its nested location's 0.0 lat/lon are placeholders "
             "(use the top-level location)."
         ),
     )
     partial: bool
-    partial_reasons: list[str]
+    partial_reasons: list[str] = Field(
+        description=(
+            "Why `partial` is set: not_a_project, project_lookup_4xx (project null; "
+            "stable, cached), project_lookup_empty (project null; upstream sent an "
+            "empty body — transient and not cached, so a retry may succeed), "
+            "lock_lookup_failed."
+        ),
+    )
     parameters: list[str]
     parameter_count: int
     publishers: list[PublisherFingerprint]

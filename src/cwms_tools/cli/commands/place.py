@@ -240,6 +240,8 @@ def describe(
         # a real MCP `cwms_describe_place` argument, so the repair.tool must
         # be the CLI command, not the MCP tool name.
         rewrite_error_field(err, when="office_id", to="spec")
+        # Location lookup failures name `name` (the MCP arg); here it's in `spec`.
+        rewrite_error_field(err, when="name", to="spec")
         attach_ghost_office_spec_repair(
             err,
             tool="cwms-tools place describe",

@@ -17,7 +17,7 @@ from cwms.locations.physical_locations import get_location
 from cwms_tools.core import catalog
 from cwms_tools.core.errors import ErrorCode, ErrorDetails
 from cwms_tools.core.offices import NW_STUBS, ghost_office_error
-from cwms_tools.core.upstream import from_api_error, from_transport_error
+from cwms_tools.core.upstream import from_api_error, from_transport_error, require_record
 
 # NW Division district stubs — publish no data in CDA. Documented in
 # cwms-overview.md §6.1. Mirror the short-circuit from `core.catalog` so
@@ -44,7 +44,8 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
     Wraps upstream errors with status-code routing: 404 → NOT_FOUND,
     other 4xx → UPSTREAM_ERROR (not temporary), 5xx → UPSTREAM_ERROR
     (temporary). Previously every failure became NOT_FOUND, hiding
-    transient upstream issues behind a "not found" envelope.
+    transient upstream issues behind a "not found" envelope. An empty or
+    non-object body (#137) → UPSTREAM_ERROR (temporary), never cached.
     """
     if office_id in NW_STUBS:
         raise ghost_office_error(office_id)
@@ -69,7 +70,13 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
         raise from_transport_error(
             exc, endpoint=endpoint, operation=f"Location {office_id}/{name}"
         ) from exc
-    payload = data.json if hasattr(data, "json") else data
+    payload = require_record(
+        data.json if hasattr(data, "json") else data,
+        endpoint=endpoint,
+        operation=f"Location {office_id}/{name}",
+        field="name",
+        value=name,
+    )
     cache.set(key, payload, ttl=cache.ttl_for("location_catalog"))
     return payload
 

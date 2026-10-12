@@ -125,6 +125,68 @@ def test_profile_degrades_a_sensor_whose_fetch_500s(configured, monkeypatch) -> 
 
 
 # --------------------------------------------------------------------------
+# Empty singleton body (#137): both surfaces report the same envelope
+# --------------------------------------------------------------------------
+
+
+def _arm_empty_location(mocked, status: int = 200) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}locations/FOSS", body="", status=status)
+
+
+def test_mcp_describe_place_empty_location_body_returns_envelope(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_empty_location(mocked)
+        is_error, payload = _mcp("cwms_describe_place", {"office": "SWT", "name": "FOSS"})
+    assert is_error is True
+    assert payload["error"]["code"] == "upstream_error"
+    assert payload["error"]["temporary"] is True
+    assert payload["error"]["source"]["endpoints_called"] == ["/locations/FOSS"]
+    # `name` is a real cwms_describe_place argument, so MCP keeps it.
+    assert payload["error"]["details"]["field"] == "name"
+
+
+@pytest.mark.parametrize(
+    ("status", "code"), [(200, "upstream_error"), (404, "not_found")], ids=["empty", "404"]
+)
+def test_cli_place_describe_location_failure_names_spec(configured, status, code) -> None:
+    """`place describe` has no `name` argument; the retryable field is `spec`."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_empty_location(mocked, status=status)
+        result = runner.invoke(app, ["place", "describe", "SWT/FOSS"])
+    assert result.exit_code != 0
+    envelope = json.loads(result.stderr)
+    assert envelope["error"]["code"] == code
+    assert envelope["error"]["source"]["endpoints_called"] == ["/locations/FOSS"]
+    assert envelope["error"]["details"] == {"field": "spec", "value": "FOSS"}
+
+
+def _arm_empty_project(mocked) -> None:
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/FOSS",
+        json={"office-id": "SWT", "name": "FOSS", "location-kind": "PROJECT"},
+    )
+    mocked.add(responses.GET, f"{API_ROOT}projects/FOSS", body="", status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
+
+
+def test_describe_place_empty_project_body_is_partial_on_both_surfaces(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_empty_project(mocked)
+        is_error, mcp_payload = _mcp("cwms_describe_place", {"office": "SWT", "name": "FOSS"})
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_empty_project(mocked)
+        result = runner.invoke(app, ["place", "describe", "SWT/FOSS"])
+    assert is_error is False
+    assert result.exit_code == 0, result.stderr
+    cli_payload = json.loads(result.stdout)
+    for payload in (mcp_payload, cli_payload):
+        assert payload["partial"] is True
+        assert payload["partial_reasons"] == ["project_lookup_empty"]
+        assert payload.get("project") is None
+
+
+# --------------------------------------------------------------------------
 # Catalog fetch: transport failures
 # --------------------------------------------------------------------------
 
