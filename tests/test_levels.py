@@ -189,6 +189,9 @@ FOSS_FT = [  # SWT/FOSS Elev vocabulary observed live 2026-10-12 (metres -> ft, 
         ("Flood Pool Bottom", "watch"),
         ("Top of Exclusive Flood Control", "flood"),
         ("Deadpool", None),
+        ("Beginning of Flood Control", "watch"),
+        ("Flood Control Starts", "watch"),
+        ("Flooding Stage", None),
     ],
 )
 def test_level_zone_vocabulary(name, zone) -> None:

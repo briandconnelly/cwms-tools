@@ -465,11 +465,14 @@ class StatusClass(StrEnum):
     """Heuristic status on `cwms_get_value` with `with_status`.
 
     The most severe zone among the thresholds the observation is at or above:
-    flood (name contains 'flood'), action ('action', 'warning', 'surveillance'),
-    watch ('watch', 'monitor', or a conservation ceiling such as Top of
+    flood (name contains the word 'flood'), action (whose name contains the
+    word 'action', 'warning', or 'surveillance'), watch (whose name contains the
+    word 'watch' or 'monitor', or a conservation ceiling such as Top of
     Conservation / Top of Normal / Rule Curve, or a flood-pool base such as
-    Base of Flood Control). Floor-type levels (inactive, bottom, streambed,
-    dead, minimum) count as nominal: `nominal` means no level above a floor is
+    Base of Flood Control). Terms match as whole words (so 'Flooding Stage' is
+    unrecognized); names such as 'Base/Bottom/Beginning of ... Flood ...' are the
+    conservation ceiling (watch), not flood. Floor-type levels (inactive, bottom,
+    streambed, dead, minimum) count as nominal: `nominal` means no level above a floor is
     crossed; the classifier is flood-side only and does not represent low-pool
     or drought conditions. 'unknown' when no levels exist, the lookup was
     skipped or failed, only unrecognized level names were crossed, or an

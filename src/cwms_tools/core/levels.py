@@ -221,7 +221,7 @@ def fetch_level_value(
 # next, so a floor name never reads as a flood crossing; then `flood`, then
 # `action` and `watch` last. Anything else is an unrecognized name (zone None)
 # and never downgrades a recognized crossing.
-_FLOOD_FLOOR_WORDS = ("bottom", "base", "begin", "begins", "start")
+_FLOOD_FLOOR_WORDS = ("bottom", "base", "begin", "begins", "beginning", "start", "starts")
 _CEILING_TERMS = (
     "top of conservation",
     "top of constant conservation",
