@@ -27,7 +27,13 @@ from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
 from cwms_tools.core import concurrency, offices, places, publishers_index, shaping, values
-from cwms_tools.core.errors import CwmsToolsError, ErrorCode, ErrorEnvelope, surface_field_name
+from cwms_tools.core.errors import (
+    CwmsToolsError,
+    ErrorCode,
+    ErrorEnvelope,
+    resolve_repair_intent,
+    surface_field_name,
+)
 from cwms_tools.core.geo import BBox, first_missing_bbox_field
 from cwms_tools.core.models import (
     BrowseRegionResponse,
@@ -51,7 +57,11 @@ if TYPE_CHECKING:
 
 #: Shared param prose (#67): defined once so every tool's copy stays in sync
 #: and short, instead of each repeating a full paragraph in its own schema.
-_OFFICE_HINT = "USACE office code. Discover valid codes at `cwms://offices`."
+_OFFICE_HINT = "USACE office code, case-insensitive (e.g. SWT). Valid codes: `cwms://offices`."
+_NAME_HINT = (
+    "Case-sensitive catalog id (FOSS, not 'Foss'), from `cwms_search_places`; "
+    "keep commas (UBLW_S1-D21,0ft)."
+)
 _CURSOR_HINT = (
     "Opaque cursor from a prior `next_cursor`; omit for page one. A stale "
     "cursor returns `invalid_cursor` — retry without it."
@@ -188,11 +198,11 @@ def register_place_tools(mcp: FastMCP) -> None:
         query: Annotated[str, "Name fragment to match, case-insensitive."],
         office: Annotated[
             str | list[str] | None,
-            "Office code(s). If unknown, omit it: on a fresh server the first call "
-            "returns no rows and a `repair_hint`; keep following `repair_hint` while "
-            "one is present (the chain ends when a response carries none). If you know the "
-            "region, pass the "
-            "office directly (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT "
+            "Office code(s), case-insensitive. If unknown, omit it: on a fresh "
+            "server the first call returns no rows and a `repair_hint`; keep "
+            "following `repair_hint` while one is present (the chain ends when a "
+            "response carries none). If you know the region, pass it "
+            "directly (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT "
             "Oklahoma, MVS St. Louis; full list at `cwms://offices`).",
         ] = None,
         parameter: Annotated[
@@ -232,6 +242,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_search_places",
                 {
+                    **({"office": office} if office is not None else {}),
                     "query": query,
                     **({"parameter": parameter} if parameter is not None else {}),
                     "limit": limit,
@@ -257,7 +268,7 @@ def register_place_tools(mcp: FastMCP) -> None:
     @iserror_aware
     async def cwms_describe_place(
         office: Annotated[str, _OFFICE_HINT],
-        name: Annotated[str, "Location id within the office (e.g. FTPK, FOSS)."],
+        name: Annotated[str, _NAME_HINT],
         include_locks: Annotated[
             bool,
             "Add navigation-lock dimensions for a PROJECT (1 list call + 1 per "
@@ -279,6 +290,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_describe_place",
                 {
+                    "office": office,
                     "name": name,
                     **({"include_locks": True} if include_locks else {}),
                     "detail": detail.value,
@@ -310,7 +322,7 @@ def register_place_tools(mcp: FastMCP) -> None:
     @iserror_aware
     async def cwms_list_parameters(
         office: Annotated[str, _OFFICE_HINT],
-        name: Annotated[str, "Location id within the office."],
+        name: Annotated[str, _NAME_HINT],
         detail: Detail = Detail.SUMMARY,
     ) -> ListParametersResponse | ErrorRef:
         """List the parameters published at a location, grouped by publisher.
@@ -322,7 +334,10 @@ def register_place_tools(mcp: FastMCP) -> None:
             places.list_parameters,
             office,
             name,
-            _repair_call=("cwms_list_parameters", {"name": name, "detail": detail.value}),
+            _repair_call=(
+                "cwms_list_parameters",
+                {"office": office, "name": name, "detail": detail.value},
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -400,6 +415,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_browse_region",
                 {
+                    "office": office,
                     **(
                         {"south": south, "west": west, "north": north, "east": east}
                         if bbox is not None
@@ -434,11 +450,7 @@ def register_value_tools(mcp: FastMCP) -> None:
     @iserror_aware
     async def cwms_get_value(
         office: Annotated[str, _OFFICE_HINT],
-        name: Annotated[
-            str,
-            "CWMS location name/id within the office (e.g. FTPK, FOSS, "
-            "or a depth-tagged sensor like UBLW_S1-D21,0ft).",
-        ],
+        name: Annotated[str, _NAME_HINT],
         parameter: Annotated[str, _PARAMETER_HINT],
         window_hours: Annotated[
             int,
@@ -472,6 +484,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_get_value",
                 {
+                    "office": office,
                     "name": name,
                     "parameter": parameter,
                     "window_hours": window_hours,
@@ -498,7 +511,7 @@ def register_value_tools(mcp: FastMCP) -> None:
     @iserror_aware
     async def cwms_get_history(
         office: Annotated[str, _OFFICE_HINT],
-        name: Annotated[str, "CWMS location name/id within the office (e.g. FTPK, FOSS)."],
+        name: Annotated[str, _NAME_HINT],
         parameter: Annotated[str, _PARAMETER_HINT],
         begin_iso: Annotated[
             str, "Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z)."
@@ -564,6 +577,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_get_history",
                 {
+                    "office": office,
                     "name": name,
                     "parameter": parameter,
                     "begin_iso": begin_iso,
@@ -593,7 +607,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         office: Annotated[str, _OFFICE_HINT],
         name: Annotated[
             str,
-            "Parent 'string' location id (e.g. GWLW_S1) — NOT a single "
+            "Parent 'string' case-sensitive catalog id (e.g. GWLW_S1) — NOT a single "
             "depth-tagged sensor; finds the sensors hanging off this string.",
         ],
         parameter: Annotated[
@@ -624,6 +638,7 @@ def register_value_tools(mcp: FastMCP) -> None:
             _repair_call=(
                 "cwms_get_profile",
                 {
+                    "office": office,
                     "name": name,
                     "parameter": parameter,
                     "window_hours": window_hours,
@@ -673,6 +688,7 @@ def register_publisher_tools(mcp: FastMCP) -> None:
             publishers_index.publishers_for_parameter,
             parameter,
             offices=offices,
+            _field_names={"office_id": "offices"},
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -699,7 +715,11 @@ def _negative_limit_error(limit: int) -> CwmsToolsError:
 
 
 async def _safe(
-    fn, *args, _repair_call: tuple[str, dict[str, Any]] | None = None, **kwargs
+    fn,
+    *args,
+    _repair_call: tuple[str, dict[str, Any]] | None = None,
+    _field_names: dict[str, str] | None = None,
+    **kwargs,
 ) -> dict[str, Any] | ErrorRef:
     """Run a sync core function on the bounded executor; surface known errors structured.
 
@@ -708,25 +728,36 @@ async def _safe(
     return it directly.
 
     `_repair_call`, when given, is `(tool_name, wire_format_args)` for THIS
-    handler's own call (args as the agent would actually pass them, minus
-    `office`) — the single place a `ghost_office` failure gets a same-tool
+    handler's own call (args as the agent would actually pass them,
+    including `office`) — the single place a `ghost_office` failure gets a same-tool
     retry repair instead of core's old hardcoded `cwms_browse_region` switch
     (#69). Core can't build this itself: it doesn't know which surface/tool
     is calling, and `_safe`'s own `*args`/`**kwargs` are already core-format
     (`timedelta`/`datetime`/`BBox`, not `window_hours`/`begin_iso`/bbox
     floats), so this takes the handler's ORIGINAL wire-format args instead.
+
+    `_field_names` is a per-tool override of `details.field` (producer name ->
+    this tool's real argument name), applied before the generic
+    `surface_field_name` translation (e.g. `office_id` -> `offices` for the
+    tool whose argument is `offices`).
     """
     try:
         return await concurrency.run_sync(fn, *args, **kwargs)
     except CwmsToolsError as err:
-        office_id = err.envelope.details.value if err.envelope.details else None
-        if (
-            _repair_call is not None
-            and err.envelope.code is ErrorCode.GHOST_OFFICE
-            and isinstance(office_id, str)
-        ):
+        details = err.envelope.details
+        if _field_names and details is not None and details.field in _field_names:
+            details.field = _field_names[details.field]
+        if _repair_call is not None:
             tool, call_args = _repair_call
-            err.envelope.repair = offices.ghost_office_repair(office_id, tool=tool, args=call_args)
+            office_id = err.envelope.details.value if err.envelope.details else None
+            if err.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
+                err.envelope.repair = offices.ghost_office_repair(
+                    office_id, tool=tool, args=call_args
+                )
+            elif err.repair_intent is not None:
+                err.envelope.repair = resolve_repair_intent(
+                    err.repair_intent, tool=tool, args=call_args
+                )
         return error_ref(err)
 
 

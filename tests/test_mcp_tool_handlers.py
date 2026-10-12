@@ -801,3 +801,50 @@ def test_semantic_nulls_survive_fastmcp_wire_serialization() -> None:
     wire = pydantic_core.to_jsonable_python(resp)
     assert wire["value"] is None and wire["timestamp"] is None
     assert "publisher" not in wire
+
+
+def test_get_history_resolves_repair_intent_to_same_tool_with_window_preserved(
+    configured, monkeypatch
+) -> None:
+    """#96/#163 (Codex): a corrected-argument repair must retry THIS tool with the
+    caller's window/unit/rollup, never switch to get_value."""
+    from cwms_tools.core import values
+    from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint, RepairIntent
+
+    def boom(*a, **k):
+        raise CwmsToolsError.of(
+            ErrorCode.NOT_FOUND,
+            "no",
+            field="parameter",
+            value="elev",
+            repair=RepairHint(next_step="list", tool="cwms_list_parameters", arguments={}),
+            repair_intent=RepairIntent("use_published_parameter", {"parameter": "Elev"}),
+        )
+
+    monkeypatch.setattr(values, "get_history", boom)
+    server = build_server()
+    args = {
+        "office": "SWT",
+        "name": "FOSS",
+        "parameter": "elev",
+        "begin_iso": "2026-05-17T00:00:00Z",
+        "end_iso": "2026-05-18T00:00:00Z",
+        "unit": "SI",
+        "rollup": "daily",
+    }
+    result = _call(server, "cwms_get_history", args)
+    repair = _branch(result.structured_content)["error"]["repair"]
+    assert repair["tool"] == "cwms_get_history"
+    assert repair["next_step"] == "use_published_parameter"
+    assert repair["arguments"] == {**args, "parameter": "Elev", "detail": "summary"}
+    # And the resolved repair is itself a valid call: replay it through the real
+    # MCP parser and check the producer receives the corrected parameter.
+    seen: dict = {}
+
+    def record(office, name, parameter, **kwargs):
+        seen.update(office=office, name=name, parameter=parameter, **kwargs)
+        raise CwmsToolsError.of(ErrorCode.NOT_FOUND, "stop")
+
+    monkeypatch.setattr(values, "get_history", record)
+    _call(server, "cwms_get_history", repair["arguments"])
+    assert seen["parameter"] == "Elev" and seen["unit"] == "SI" and seen["rollup"] == "daily"

@@ -7,8 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cwms_describe_place` / `place describe` carry `data_at` (co-located records
+  that publish) when the described location is a ghost, matching search and
+  browse (#170). The sibling lookup needs the office location catalog; if it
+  fails the describe still succeeds, with `data_at` null, `partial: true` and a
+  `data_at_lookup_failed: <code>` reason.
+
 ### Fixed
 
+- Office codes are validated once per top-level producer against the CDA office
+  directory (#163): an unknown code (`XYZ`) is `invalid_field` with a pointer at
+  `cwms://offices` instead of an `ok:true` ghost-looking result, and a
+  wrong-case code (`swt`) is normalized to `SWT` and echoed canonically. NW
+  district stubs keep `ghost_office` precedence (case-insensitive, even offline).
+  The directory is fetched in a single attempt with no retries, and a failed
+  fetch starts a 60 s cooldown during which calls skip validation, so a degraded
+  directory never stalls a tool. In a multi-office search or publisher index an
+  invalid office becomes a partial reason or lands in `offices_error_skipped`;
+  the single-survivor re-raise keys on the number of offices requested (not the
+  number left after validation), and an explicit list whose offices are all
+  invalid raises `invalid_field` instead of returning an empty success (search
+  and `cwms_publishers_for_parameter` / `publisher for-parameter` alike).
+  `invalid_field` is now advertised for the place, region, value and publisher
+  tools on both surfaces.
 - `cwms_search_places` / `place search`: a cold-cache name-first search is now
   followable to exhaustion. Whenever offices are skipped by the fan-out budget
   the response sets `partial: true` and carries a `repair_hint` whose
@@ -27,10 +50,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache-key mismatch meant previously indexed offices were never recognised as
   cached; fixed. With `offices` omitted, `coverage.complete` is true only when
   every curated office was indexed (#164).
+- A location id that differs from the catalog id only by case (`Foss` for
+  `FOSS`) now returns `not_found{field: "name"}` with a `retry_with_catalog_id`
+  repair on `cwms_describe_place`, `cwms_list_parameters`, `cwms_get_value` and
+  `cwms_get_history` (and the CLI equivalents). CDA resolves
+  `/locations/{name}` case-insensitively, which previously produced a
+  ghost-looking success with `ts_count: 0`. A 404 on describe converts to
+  `not_found` only when the catalog agrees the record is absent; otherwise the
+  original upstream error is kept (#163).
+- `cwms_get_profile` / `value profile` on a parent id the catalog lacks
+  (`gwlw_s1` for `GWLW_S1`) returns `not_found` with the `retry_with_catalog_id`
+  repair instead of an `ok` profile with `sensor_count: 0`. If the catalog read
+  itself fails, the empty profile is kept (#163).
+- CLI repairs name runnable commands: a repair built against an MCP tool is
+  rewritten to its CLI command (`place search`, `place parameters`,
+  `offices`), and the depth-string `repair.alternative` names
+  `value profile OFFICE/NAME/PARAMETER` (#96).
+- Catalog-built `not_found` and `ghost_location` errors list the endpoints they
+  hit in `source.endpoints_called` (previously empty).
+- A ghost `value get` / `value history` reads the office catalogs once: the
+  co-located sibling lookup no longer repeats the office-wide enrichment (#96).
+- A `cwms_browse_region` cursor minted while the office directory was
+  unavailable (`swt` passed through) now validates once the directory recovers
+  and the office arrives as `SWT`.
 
 ### Changed
 
-- Capability fingerprint moves (parameter descriptions).
+- `ghost_location` is now a live error code (it was reserved):
+  `cwms_get_value` / `cwms_get_history` (and `value get` / `value history`,
+  exit code 12 instead of 3) return it for a catalog record that exists but
+  publishes no timeseries. The envelope names the data-bearing co-located
+  records and repairs to the same tool on the best one. A depth-tagged sibling
+  repairs to a same-tool retry on the shallowest child, with `cwms_get_profile`
+  named as `repair.alternative`, so `get_history` never repairs into
+  `get_profile` (#96).
+- Repairs now retry the same operation with the caller's options preserved
+  (window, unit, rollup, detail, with_status); the CLI rebuilds its
+  `OFFICE/NAME/PARAMETER` positional (#96, #163).
+- A location name absent from the catalog returns `not_found{field: "name"}`
+  with a case-insensitive or fuzzy suggestion ("did you mean FOSS") instead of
+  a ghost-looking `ts_count: 0` (#163).
+- `not_found` for a parameter lists the parameters the location does publish
+  and suggests the closest code (#96).
+- Argument descriptions: `office` is case-insensitive and normalized; `name` is
+  a case-sensitive catalog id (get it from `cwms_search_places`), with the
+  `retry_with_catalog_id` repair on a mismatch.
+- Capability fingerprint moves (error codes, argument descriptions, the
+  `data_at` field on describe).
 
 ## [0.8.0] - 2026-10-12
 

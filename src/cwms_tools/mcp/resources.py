@@ -49,7 +49,8 @@ TOOL_INVENTORY: list[str] = [
 # wrapper_bug has no MCP emission path: failures on the issue-286 seasonal-level bypass
 # are classified as ordinary upstream failures (tagged `source.workaround`) (#153).
 # The CLI emits it when a producer payload fails its response model (#158).
-RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable", "wrapper_bug"]
+# ghost_location left the reserved list in 0.8.1: the value tools emit it (#96).
+RESERVED_ERROR_CODES: list[str] = ["publisher_unavailable", "wrapper_bug"]
 
 #: Per-tool error catalog. The codes each tool can return as `error.code`, so an
 #: agent can branch per tool instead of against the global enum. Curated from the
@@ -58,18 +59,45 @@ RESERVED_ERROR_CODES: list[str] = ["ghost_location", "publisher_unavailable", "w
 #: return `upstream_error`/`rate_limited`; office-scoped tools reach the NW-stub
 #: guard (`ghost_office`).
 TOOL_ERROR_CODES: dict[str, list[str]] = {
-    "cwms_search_places": ["ghost_office", "invalid_cursor", "rate_limited", "upstream_error"],
-    "cwms_describe_place": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
-    "cwms_list_parameters": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_search_places": [
+        "ghost_office",
+        "invalid_cursor",
+        "invalid_field",
+        "rate_limited",
+        "upstream_error",
+    ],
+    "cwms_describe_place": [
+        "ghost_office",
+        "invalid_field",
+        "not_found",
+        "rate_limited",
+        "upstream_error",
+    ],
+    "cwms_list_parameters": [
+        "ghost_office",
+        "invalid_field",
+        "not_found",
+        "rate_limited",
+        "upstream_error",
+    ],
     "cwms_browse_region": [
         "ghost_office",
         "invalid_cursor",
+        "invalid_field",
         "rate_limited",
         "upstream_error",
         "usage_error",
     ],
-    "cwms_get_value": ["ghost_office", "not_found", "rate_limited", "upstream_error"],
+    "cwms_get_value": [
+        "ghost_location",
+        "ghost_office",
+        "invalid_field",
+        "not_found",
+        "rate_limited",
+        "upstream_error",
+    ],
     "cwms_get_history": [
+        "ghost_location",
         "ghost_office",
         "invalid_field",
         "not_found",
@@ -78,12 +106,21 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
     ],
     # Per-sensor read failures degrade into the profile rows' `error` field
     # rather than failing the call, so only catalog-level failures (plus the
-    # up-front window_hours validation) surface here.
-    "cwms_get_profile": ["ghost_office", "rate_limited", "upstream_error", "usage_error"],
+    # up-front window_hours validation) surface here. An empty profile under a
+    # parent id absent from the catalog is `not_found` (#163).
+    "cwms_get_profile": [
+        "ghost_office",
+        "invalid_field",
+        "not_found",
+        "rate_limited",
+        "upstream_error",
+        "usage_error",
+    ],
     # Per-office failures are absorbed into coverage.offices_error_skipped rather
     # than failing the call, so this tool returns a result (with coverage) instead
-    # of an error.code in normal operation.
-    "cwms_publishers_for_parameter": [],
+    # of an error.code in normal operation. The exception: an explicit `offices`
+    # list in which every code fails validation raises `invalid_field` (#163).
+    "cwms_publishers_for_parameter": ["invalid_field"],
     "cwms_get_overview_section": ["not_found", "usage_error"],
     # offices_payload() never raises: core.offices.list_offices() catches both
     # upstream fetch failure and cache init/read/write failure, degrading to

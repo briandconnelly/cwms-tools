@@ -17,11 +17,12 @@ from datetime import UTC, datetime
 import cwms
 import pytest
 import requests
+import responses
 from cwms.api import ApiError
 from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
-from cwms_tools.core import levels, locations, projects, session
+from cwms_tools.core import catalog, levels, locations, projects, session
 from cwms_tools.core.cache import Cache, set_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.mcp.server import build_server
@@ -88,14 +89,21 @@ def test_location_api_error_is_bounded_on_both_surfaces(
     configured, monkeypatch, status, code, temporary
 ) -> None:
     monkeypatch.setattr(locations, "get_location", _raiser(_api_error(status)))
-
-    is_error, payload, raw = _mcp("cwms_describe_place", {"office": "SWT", "name": "FOSS"})
+    # A 404 name is re-raised via the catalog (spelling-suggestion lookup).
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/LOCATIONS",
+            json={"entries": [{"office": "SWT", "name": "OTHER"}]},
+            status=200,
+        )
+        is_error, payload, raw = _mcp("cwms_describe_place", {"office": "SWT", "name": "FOSS"})
+        result = runner.invoke(app, ["place", "describe", "SWT/FOSS"])
     assert is_error is True
     assert payload["error"]["code"] == code
     assert payload["error"]["temporary"] is temporary
     _assert_no_leak(raw)
 
-    result = runner.invoke(app, ["place", "describe", "SWT/FOSS"])
     assert result.exit_code != 0
     _assert_no_leak(result.stdout + result.stderr)
     assert code in result.stdout + result.stderr
@@ -134,6 +142,13 @@ def test_location_transport_error_is_bounded(configured, monkeypatch) -> None:
 
 def test_project_5xx_is_bounded_on_both_surfaces(configured, monkeypatch) -> None:
     monkeypatch.setattr(locations, "get_location", lambda **_k: {"name": "FOSS"})
+    # describe reads the ts catalog before the project (wrong-case ids stop
+    # early), so pin it to a data-bearing answer: only the project fails here.
+    monkeypatch.setattr(
+        catalog,
+        "ts_ids_for_location",
+        lambda *_a, **_k: ["FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"],
+    )
     monkeypatch.setattr(projects, "_upstream_get_project", _raiser(_api_error(503)))
 
     is_error, payload, raw = _mcp("cwms_describe_place", {"office": "SWT", "name": "FOSS"})

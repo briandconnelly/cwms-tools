@@ -126,15 +126,21 @@ def search_places(
         limit = None  # 0 means "no cap"; normalize so pagination math is well-defined
 
     req = pagination.request_hash({"q": query, "parameter": parameter})
-    decoded, offset, offices_searched, offices_skipped, partial_reasons = _resolve_scope(
-        office=office, cursor=cursor, limit=limit, req=req, use_cache=use_cache
-    )
+    (
+        decoded,
+        offset,
+        offices_searched,
+        offices_skipped,
+        partial_reasons,
+        asked_single,
+        office_echo,
+    ) = _resolve_scope(office=office, cursor=cursor, limit=limit, req=req, use_cache=use_cache)
 
     gathered, gather_reasons, temporary_errored = _gather_enriched(
         offices_searched,
         query,
         use_cache=use_cache,
-        reraise_single=len(offices_searched) == 1 and not offices_skipped,
+        reraise_single=asked_single and not offices_skipped,
     )
     partial_reasons.extend(gather_reasons)
     enriched, filtered_out = _apply_parameter_filter(
@@ -191,7 +197,7 @@ def search_places(
 
     response: dict[str, Any] = {
         "query": query,
-        "office": office,
+        "office": office_echo,
         "offices_searched": offices_searched,
         "offices_skipped_for_budget": offices_skipped,
         "results": results,
@@ -349,11 +355,17 @@ def _resolve_scope(
     limit: int | None,
     req: str,
     use_cache: bool,
-) -> tuple[dict[str, Any] | None, int, list[str], list[str], list[str]]:
+) -> tuple[
+    dict[str, Any] | None, int, list[str], list[str], list[str], bool, str | list[str] | None
+]:
     """Resolve the office set to search, honoring a continuation cursor.
 
     Returns `(decoded_cursor, offset, offices_searched, offices_skipped,
-    partial_reasons)`. On the cursor path the office set is bounded to the
+    partial_reasons, asked_single, office_echo)`; `office_echo` is the canonical
+    requested scope (single code for a string, deduplicated list for a list,
+    `None` when omitted; on the cursor path, the cursor's locked offices); `asked_single` is
+    true when the caller asked for exactly one (canonical) office, so a failure there re-raises
+    instead of degrading to a partial (#163). On the cursor path the office set is bounded to the
     cursor's locked list — a forged cursor cannot WIDEN the fan-out beyond
     what `coerce_offices` structurally allows (at most `MAX_CURSOR_OFFICES`
     entries) — but that list is then re-run through `_run_fanout` (#72), the
@@ -377,10 +389,28 @@ def _resolve_scope(
         requested = _normalize_office_arg(office)
         if requested is None:
             requested = offices.cached_offices_for_locations()
+        explicit_empty = office is not None and not requested
+        requested, invalid_reasons = _validate_offices(requested)
+        asked_single = len(requested) + len(invalid_reasons) == 1
+        office_echo: str | list[str] | None
+        if office is None:
+            office_echo = None
+        elif isinstance(office, str):
+            office_echo = requested[0] if requested else office
+        else:
+            office_echo = list(requested)
         offices_searched, offices_skipped, partial_reasons = _run_fanout(
-            requested, use_cache=use_cache, explicit_empty=office is not None and not requested
+            requested, use_cache=use_cache, explicit_empty=explicit_empty
         )
-        return None, 0, offices_searched, offices_skipped, partial_reasons
+        return (
+            None,
+            0,
+            offices_searched,
+            offices_skipped,
+            [*invalid_reasons, *partial_reasons],
+            asked_single,
+            office_echo,
+        )
 
     if limit is None:
         # `cursor` implies paged access; an unlimited limit (None / CLI 0)
@@ -406,7 +436,58 @@ def _resolve_scope(
             "(cache expired, or the cursor is invalid); restart without `cursor`",
             offending_value=", ".join(offices_skipped)[: pagination.CURSOR_ECHO_MAX],
         )
-    return decoded, offset, offices_searched, offices_skipped, partial_reasons
+    return (
+        decoded,
+        offset,
+        offices_searched,
+        offices_skipped,
+        partial_reasons,
+        len(offices_searched) == 1,
+        _cursor_office_echo(office, locked_offices),
+    )
+
+
+def _cursor_office_echo(
+    office: str | list[str] | None, locked_offices: list[str]
+) -> str | list[str] | None:
+    """Canonical scope echo on the cursor path: the cursor's locked (validated)
+    offices, never the raw argument's spelling; same shape as the fresh path."""
+    if office is None:
+        return None
+    if isinstance(office, str) and len(locked_offices) == 1:
+        return locked_offices[0]
+    return list(locked_offices)
+
+
+def _validate_offices(requested: list[str]) -> tuple[list[str], list[str]]:
+    """Canonicalize and deduplicate the requested offices (#163). A single
+    invalid office raises (the agent gets the full envelope); in a fan-out it
+    becomes a `"<office>: <code>"` partial reason and is dropped (NW stubs
+    are kept so the fan-out reports their `ghost_office`). Dedup runs on
+    the CANONICAL code (`["SWT", "swt"]` is one office), first occurrence wins."""
+    valid: list[str] = []
+    reasons: list[str] = []
+    first_error: CwmsToolsError | None = None
+    for office in requested:
+        try:
+            canonical = offices.require_known_office(office)
+        except CwmsToolsError as err:
+            if len(requested) == 1:
+                raise
+            first_error = first_error or err
+            if err.envelope.code is not ErrorCode.GHOST_OFFICE:
+                reasons.append(f"{office}: {err.envelope.code.value}")
+                continue
+            # NW stubs stay in the fan-out so the catalog guard reports
+            # `"<office>: ghost_office"` exactly as before validation existed.
+            canonical = office.upper()
+        if canonical not in valid:
+            valid.append(canonical)
+    if not valid and first_error is not None:
+        # Nothing valid survived an explicit list: raise rather than return an
+        # ok:true "no offices in scope" result for offices the caller DID pass.
+        raise first_error
+    return valid, reasons
 
 
 def _run_fanout(
@@ -541,12 +622,12 @@ def _apply_parameter_filter(
         office_id = row["office_id"]
         in_office_by_name = by_office[office_id]
         siblings = row.get("co_located") or []
-        data_at = _sibling_data_at(siblings, in_office_by_name, parameter)
+        data_at = catalog.sibling_data_at(siblings, in_office_by_name, parameter)
         if not data_at and row.get("parameter_count", 0) == 0:
             broader_by_name = broader(office_id)
             target = broader_by_name.get(row["name"])
             broader_siblings = (target or {}).get("co_located") or siblings
-            data_at = _sibling_data_at(broader_siblings, broader_by_name, parameter)
+            data_at = catalog.sibling_data_at(broader_siblings, broader_by_name, parameter)
         row["data_at"] = data_at if row.get("parameter_count", 0) == 0 else []
 
     kept: list[dict[str, Any]] = []
@@ -625,27 +706,6 @@ def _append_unique_promotions(
         kept_keys.add(key)
 
 
-def _sibling_data_at(
-    siblings: list[str],
-    by_name: dict[str, dict[str, Any]],
-    parameter: str | None = None,
-) -> list[str]:
-    """Shared predicate: filter siblings to those that publish data.
-
-    When `parameter` is set, further filter to siblings that publish that
-    specific parameter. Stable ordering so snapshot tests don't churn.
-    """
-    out: list[str] = []
-    for s in siblings:
-        info = by_name.get(s)
-        if not info or info.get("parameter_count", 0) <= 0:
-            continue
-        if parameter is not None and parameter not in (info.get("parameters") or []):
-            continue
-        out.append(s)
-    return sorted(out)
-
-
 def describe_place(
     office: str,
     name: str,
@@ -666,9 +726,17 @@ def describe_place(
     lock lookup appends `lock_lookup_failed` to `partial_reasons`; it never
     fails the describe. Without it, none of those keys are present.
     """
-    location = locations.get_one(office, name, use_cache=use_cache)
-    project_resp = projects.get_one(office, name, use_cache=use_cache)
+    office = offices.require_known_office(office)
+    location = _get_location_or_not_found(office, name, use_cache=use_cache)
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
+    # CDA resolves /locations/ case-insensitively but the ts filter is exact, so
+    # a wrong-case id lands here as an empty ghost; confirm the catalog id exists
+    # before the project fetch, so a wrong-case describe stops early.
+    loc_payload: dict[str, Any] | None = None
+    catalog_failure: str | None = None
+    if not ts_ids:
+        loc_payload, catalog_failure = _confirm_ghost_in_catalog(office, name, use_cache=use_cache)
+    project_resp = projects.get_one(office, name, use_cache=use_cache)
     param_counts = publishers.parameter_counts(ts_ids)
     pub_facts = publishers.aggregate_publishers(ts_ids)
     freshness = catalog.freshness_for_location(office, name, use_cache=use_cache)
@@ -694,9 +762,21 @@ def describe_place(
         ],
         "ts_ids": ts_ids,
         "last_data_timestamp": freshness,
+        "data_at": None,
         "source_workaround": project_resp.get("source_workaround"),
         "upstream_status": project_resp.get("upstream_status"),
     }
+    if not ts_ids:
+        if catalog_failure is None:
+            try:
+                response["data_at"] = catalog.data_bearing_siblings(
+                    office, name, use_cache=use_cache, loc_payload=loc_payload
+                )
+            except CwmsToolsError as err:
+                catalog_failure = err.envelope.code.value
+        if catalog_failure is not None:
+            response["partial"] = True
+            response["partial_reasons"].append(f"data_at_lookup_failed: {catalog_failure}")
     if include_locks:
         lock_resp = locks.lookup(office, name, location.get("location-kind"), use_cache=use_cache)
         response.update(lock_resp)
@@ -704,6 +784,55 @@ def describe_place(
             response["partial"] = True
             response["partial_reasons"].append("lock_lookup_failed")
     return response
+
+
+def _get_location_or_not_found(office: str, name: str, *, use_cache: bool) -> dict[str, Any]:
+    """`/locations/{name}`; a 404 on `name` becomes the catalog-built `not_found`
+    with a spelling suggestion, but only when the catalog agrees the name is
+    absent — a stale snapshot listing it would suggest the same name (a retry
+    loop) — and the original error stands when the catalog read fails."""
+    try:
+        return locations.get_one(office, name, use_cache=use_cache)
+    except CwmsToolsError as err:
+        details = err.envelope.details
+        if err.envelope.code is ErrorCode.NOT_FOUND and details and details.field == "name":
+            try:
+                loc_payload = catalog.get_locations_catalog(office, use_cache=use_cache)
+            except CwmsToolsError:
+                raise err from None
+            if catalog.location_catalog_row(office, name, payload=loc_payload) is None:
+                raise catalog.location_not_found_error(
+                    office,
+                    name,
+                    payload=loc_payload,
+                    endpoints_called=list(err.envelope.source.endpoints_called),
+                ) from err
+        raise
+
+
+def _confirm_ghost_in_catalog(
+    office: str, name: str, *, use_cache: bool
+) -> tuple[dict[str, Any] | None, str | None]:
+    """`(locations_catalog, None)` once the ghost's id is confirmed in the catalog.
+
+    Raises `not_found` when the catalog lacks the id (a wrong-case or misspelled
+    name). The check is part of the ghost enrichment (#170): if the catalog read
+    fails, returns `(None, <error code>)` so `data_at` degrades instead of
+    failing the describe; the sibling lookup needs the same catalog, so it is
+    skipped too.
+    """
+    try:
+        loc_payload = catalog.get_locations_catalog(office, use_cache=use_cache)
+    except CwmsToolsError as err:
+        return None, err.envelope.code.value
+    if catalog.location_catalog_row(office, name, payload=loc_payload) is None:
+        raise catalog.location_not_found_error(
+            office,
+            name,
+            payload=loc_payload,
+            endpoints_called=[f"/locations/{name}", "/catalog/TIMESERIES"],
+        )
+    return loc_payload, None
 
 
 def list_parameters(
@@ -720,7 +849,15 @@ def list_parameters(
     parent has no ts ids but a depth-tagged child does. When the location
     is data-bearing, `data_at` is null (no repair needed).
     """
+    office = offices.require_known_office(office)
     ts_ids = catalog.ts_ids_for_location(office, name, use_cache=use_cache)
+    loc_payload: dict[str, Any] | None = None
+    if not ts_ids:
+        loc_payload = catalog.get_locations_catalog(office, use_cache=use_cache)
+        if catalog.location_catalog_row(office, name, payload=loc_payload) is None:
+            raise catalog.location_not_found_error(
+                office, name, payload=loc_payload, endpoints_called=["/catalog/TIMESERIES"]
+            )
     pub_facts = publishers.aggregate_publishers(ts_ids)
     freshness = catalog.freshness_for_location(office, name, use_cache=use_cache)
     return {
@@ -738,32 +875,12 @@ def list_parameters(
         ],
         "all_parameters": sorted(publishers.parameter_counts(ts_ids).keys()),
         "last_data_timestamp": freshness,
-        "data_at": _data_at_for_location(office, name, use_cache=use_cache) if not ts_ids else None,
+        "data_at": catalog.data_bearing_siblings(
+            office, name, use_cache=use_cache, loc_payload=loc_payload
+        )
+        if not ts_ids
+        else None,
     }
-
-
-def _data_at_for_location(
-    office: str,
-    name: str,
-    *,
-    use_cache: bool,
-) -> list[str]:
-    """Find data-bearing co-located siblings for a single named location.
-
-    Used by `list_parameters` when the requested location is barren. Pulls
-    the unfiltered enriched office catalog (cached) and applies the shared
-    `_sibling_data_at` predicate. Returns an empty list when no sibling has
-    data or when the location isn't in the office catalog at all.
-    """
-    enriched = catalog.enrich_locations(office, use_cache=use_cache)
-    target = next((r for r in enriched if r["name"] == name), None)
-    if target is None:
-        return []
-    siblings = target.get("co_located") or []
-    if not siblings:
-        return []
-    by_name = {r["name"]: r for r in enriched}
-    return _sibling_data_at(siblings, by_name)
 
 
 def browse_region(
@@ -806,7 +923,10 @@ def browse_region(
         limit = None  # 0 means "no cap"
 
     norm_kind = _normalize_kind(kind)
-    req = _browse_request_hash(office=office, bbox=bbox, state=state, kind=norm_kind)
+    office = offices.require_known_office(office)
+    # Hash the upper-cased code: a cursor minted while the office directory was
+    # on fallback (`swt` passed through) must still validate after recovery.
+    req = _browse_request_hash(office=office.upper(), bbox=bbox, state=state, kind=norm_kind)
     decoded: dict[str, Any] | None = None
     offset = 0
     if cursor is not None:
@@ -857,7 +977,7 @@ def browse_region(
     def _data_at(row: dict[str, Any]) -> list[str]:
         if row.get("parameter_count", 0) != 0:
             return []
-        return _sibling_data_at(row.get("co_located") or [], by_name)
+        return catalog.sibling_data_at(row.get("co_located") or [], by_name)
 
     # Drop the verbose `raw` field for region browse responses — agents asking
     # for a region overview don't need every per-row DTO. They can fetch

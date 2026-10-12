@@ -348,6 +348,15 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     publishers: list[PublisherFingerprint]
     ts_ids: list[str]
     last_data_timestamp: str | None = None
+    data_at: list[str] | None = Field(
+        default=None,
+        description=(
+            "Only when parameter_count is 0: co-located records (within ~100 m) that "
+            "publish data; describe or read one of these instead. An empty list means "
+            "no co-located record publishes; null when parameter_count > 0 or when the "
+            "sibling lookup failed (see partial_reasons)."
+        ),
+    )
     lock_lookup_status: Literal["ok", "partial", "failed", "not_applicable"] | None = Field(
         default=None,
         description=(
@@ -674,7 +683,8 @@ class PublishersCoverage(CompactDumpMixin, BaseModel):
         default_factory=list,
         description=(
             "Offices skipped by a catalog fetch error (distinct from budget "
-            "skips); retrying may help."
+            "skips); retrying may help. Also lists codes rejected by office "
+            "validation, which do not appear in `offices_requested`."
         ),
     )
     complete: bool = Field(

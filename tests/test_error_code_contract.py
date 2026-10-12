@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 
 import cwms
 import pytest
@@ -121,6 +122,25 @@ PROVOCATIONS[("cwms_get_profile", "usage_error")] = (
     {**GOOD_ARGS["cwms_get_profile"], "window_hours": -1},  # negative look-back window
     None,
 )
+DIRECTORY = [{"office-id": "SWT", "long-name": "Tulsa District", "type": "DIS"}]
+
+
+def _arm_directory(mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}offices", json=DIRECTORY, status=200)
+
+
+# (tool, code) -> callable that registers the exact upstream mocks the provocation needs.
+ARMED: dict[tuple[str, str], Callable[[responses.RequestsMock], None]] = {}
+for tool in (
+    "cwms_search_places",
+    "cwms_describe_place",
+    "cwms_list_parameters",
+    "cwms_browse_region",
+    "cwms_get_value",
+    "cwms_get_profile",
+):
+    PROVOCATIONS[(tool, "invalid_field")] = ({**GOOD_ARGS[tool], "office": "XYZ"}, None)
+    ARMED[(tool, "invalid_field")] = _arm_directory
 PROVOCATIONS[("cwms_get_overview_section", "not_found")] = (
     {"section_id": "no-such-section"},
     None,
@@ -129,6 +149,59 @@ PROVOCATIONS[("cwms_get_overview_section", "usage_error")] = (
     {"chunk_id": "no-such-chunk"},  # chunk_id without section_id
     None,
 )
+
+
+GHOST_LOCATIONS = {
+    "locations": [
+        {"office-id": "SWT", "name": "FOSS", "latitude": 35.55, "longitude": -98.97},
+    ]
+}
+
+
+def _arm_ghost(mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=GHOST_LOCATIONS, status=200)
+
+
+for tool in ("cwms_get_value", "cwms_get_history"):
+    PROVOCATIONS[(tool, "ghost_location")] = (GOOD_ARGS[tool], None)
+    ARMED[(tool, "ghost_location")] = _arm_ghost
+
+
+def _arm_wrong_case_profile_parent(mocked) -> None:
+    """The catalog lists the canonical `GWLW_S1` (and its depth children); the
+    call asks for `gwlw_s1`, so no child matches and the parent is absent."""
+    _arm_directory(mocked)
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json={
+            "entries": [
+                {"office": "SWT", "name": "GWLW_S1"},
+                {"office": "SWT", "name": "GWLW_S1-D3,0ft"},
+            ]
+        },
+        status=200,
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        json={"entries": [{"name": "GWLW_S1-D3,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"}]},
+        status=200,
+    )
+
+
+PROVOCATIONS[("cwms_get_profile", "not_found")] = (
+    {**GOOD_ARGS["cwms_get_profile"], "name": "gwlw_s1"},
+    None,
+)
+ARMED[("cwms_get_profile", "not_found")] = _arm_wrong_case_profile_parent
+# Every explicit office fails validation: raise rather than an ok, empty result.
+PROVOCATIONS[("cwms_publishers_for_parameter", "invalid_field")] = (
+    {"parameter": "Elev", "offices": ["XYZ"]},
+    None,
+)
+ARMED[("cwms_publishers_for_parameter", "invalid_field")] = _arm_directory
 
 
 def test_every_advertised_code_has_a_provocation() -> None:
@@ -147,15 +220,17 @@ def test_advertised_codes_subset_of_enum() -> None:
 
 
 @pytest.mark.parametrize(("tool", "code"), sorted(PROVOCATIONS))
-def test_provocation_returns_advertised_code(configured, tool: str, code: str) -> None:
+def test_provocation_returns_advertised_code(
+    configured, validating_directory, tool: str, code: str
+) -> None:
     args, status = PROVOCATIONS[(tool, code)]
     server = build_server()
-    if status is None:
-        result = _call(server, tool, args)
-    else:
-        with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        if (tool, code) in ARMED:
+            ARMED[(tool, code)](mocked)
+        if status is not None:
             _mock_all(mocked, status, headers={"Retry-After": "0"} if status == 429 else {})
-            result = _call(server, tool, args)
+        result = _call(server, tool, args)
     assert _error_code(result) == code
 
 

@@ -8,6 +8,7 @@ must be intentional.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from enum import StrEnum
@@ -119,6 +120,33 @@ class RepairHint(CompactDumpMixin, BaseModel):
     alternative: str | None = Field(
         default=None,
         description="Free-form fallback action when no single tool call fully recovers.",
+    )
+
+
+@dataclass(frozen=True)
+class RepairIntent:
+    """Internal, surface-agnostic repair: retry the SAME operation with these overrides.
+
+    Core producers know what to change (`{"parameter": "Elev"}`, `{"name":
+    "FOSS"}`) but not which surface call failed or what its other arguments
+    were; the surface boundary (`mcp.tools._safe`, `cli.render.attach_repair_intent`)
+    merges `overrides` into its own wire-format arguments and emits a public
+    `RepairHint`. Never serialized: the envelope's `repair` stays a
+    self-contained generic fallback for callers that cannot resolve intents.
+    """
+
+    next_step: str
+    overrides: dict[str, Any]
+    alternative: str | None = None
+
+
+def resolve_repair_intent(intent: RepairIntent, *, tool: str, args: dict[str, Any]) -> RepairHint:
+    """Public same-tool retry hint: the caller's wire args with the intent's overrides applied."""
+    return RepairHint(
+        next_step=intent.next_step,
+        tool=tool,
+        arguments={**args, **intent.overrides},
+        alternative=intent.alternative,
     )
 
 
@@ -245,9 +273,12 @@ def upstream_error_from_status(
 class CwmsToolsError(Exception):
     """Base exception carrying an `ErrorEnvelope`. Raised by `core/*`; caught at adapters."""
 
-    def __init__(self, envelope: ErrorEnvelope) -> None:
+    def __init__(
+        self, envelope: ErrorEnvelope, *, repair_intent: RepairIntent | None = None
+    ) -> None:
         super().__init__(envelope.message)
         self.envelope = envelope
+        self.repair_intent = repair_intent
 
     @classmethod
     def of(
@@ -259,6 +290,7 @@ class CwmsToolsError(Exception):
         value: Any | None = None,
         reason: str | None = None,
         repair: RepairHint | None = None,
+        repair_intent: RepairIntent | None = None,
         temporary: bool = False,
         retry_after_ms: int | None = None,
         rate_limit_remaining: int | None = None,
@@ -283,7 +315,7 @@ class CwmsToolsError(Exception):
                 workaround=workaround,
             ),
         )
-        return cls(envelope)
+        return cls(envelope, repair_intent=repair_intent)
 
 
 __all__ = [
@@ -292,8 +324,10 @@ __all__ = [
     "ErrorDetails",
     "ErrorEnvelope",
     "RepairHint",
+    "RepairIntent",
     "SourceInfo",
     "exit_code_for",
+    "resolve_repair_intent",
     "surface_field_name",
     "upstream_error_from_status",
 ]

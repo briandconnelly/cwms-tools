@@ -97,6 +97,13 @@ def _arm_describe(mocked, location: dict[str, Any]) -> None:
         status=200 if location["location-kind"] == "PROJECT" else 404,
     )
     mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    # A ghost describe now looks for data-bearing siblings; this location is alone.
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json={"entries": [{"office": "SWT", "name": name, "latitude": 1.0, "longitude": 1.0}]},
+        status=200,
+    )
 
 
 # --------------------------------------------------------------------------

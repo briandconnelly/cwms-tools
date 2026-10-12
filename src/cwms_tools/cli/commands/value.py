@@ -10,9 +10,11 @@ import typer
 from cwms_tools.cli.exit_codes import from_error_code
 from cwms_tools.cli.render import (
     attach_ghost_office_spec_repair,
+    attach_repair_intent,
     emit,
     emit_error,
     emit_model,
+    localize_repair,
     rewrite_error_field,
 )
 from cwms_tools.core import shaping, values
@@ -61,8 +63,10 @@ def get(
         list[str],
         typer.Argument(
             help=(
-                "One or more place/parameter ids, each in OFFICE/NAME/PARAMETER "
-                "form. Examples: `NWDM/FTPK/Elev`, "
+                "One or more ids, each OFFICE/NAME/PARAMETER with the case-sensitive "
+                "catalog id as NAME (from `place search`; SWT/FOSS/Elev, not SWT/Foss/Elev). "
+                "Examples: "
+                "`NWDM/FTPK/Elev`, "
                 "`NWDP/UBLW_S1-D21,0ft/Temp-Water` (depth-tagged sensor with "
                 "comma in the name)."
             )
@@ -144,6 +148,8 @@ def get(
             # `--office` flag on this command — `id_specs` (the declared CLI
             # argument, per `cli/commands/schema.py`) is the retryable arg.
             rewrite_error_field(err, when="office_id", to="id_specs")
+            rewrite_error_field(err, when="name", to="id_specs")
+            rewrite_error_field(err, when="parameter", to="id_specs")
             # #69: repair retries just THIS failed spec (not the whole
             # original id_specs list, which would re-run already-ok items),
             # office rolled up into a fresh OFFICE/NAME/PARAMETER spec.
@@ -163,6 +169,20 @@ def get(
                         "detail": detail.value,
                     },
                 )
+            attach_repair_intent(
+                err,
+                tool="cwms-tools value get",
+                args={
+                    "window_hours": window_hours,
+                    "unit": unit.value,
+                    "with_status": with_status,
+                    "detail": detail.value,
+                },
+                spec_key="id_specs",
+                spec_fields={"office": office, "name": name, "parameter": parameter},
+                spec_as_list=True,
+            )
+            localize_repair(err)
             results.append({"id": spec, "ok": False, "error": err.envelope.model_dump(mode="json")})
             failed_count += 1
             last_exit_code = from_error_code(err.envelope.code)
@@ -184,7 +204,8 @@ def history(
         str,
         typer.Argument(
             help=(
-                "Place/parameter id in OFFICE/NAME/PARAMETER form. Examples: "
+                "OFFICE/NAME/PARAMETER with the case-sensitive catalog id (from `place "
+                "search`) as NAME. Examples: "
                 "`SWT/FOSS/Elev`, `NWDP/UBLW_S1-D21,0ft/Temp-Water` "
                 "(depth-tagged WQ sensor)."
             )
@@ -266,6 +287,8 @@ def history(
         # `id_spec`/`begin`/`end` aren't real `cwms_get_history` MCP args
         # (that tool takes separate office/name/begin_iso/end_iso).
         rewrite_error_field(err, when="office_id", to="id_spec")
+        rewrite_error_field(err, when="name", to="id_spec")
+        rewrite_error_field(err, when="parameter", to="id_spec")
         attach_ghost_office_spec_repair(
             err,
             tool="cwms-tools value history",
@@ -279,7 +302,20 @@ def history(
                 "detail": detail.value,
             },
         )
-        emit_error(err)
+        attach_repair_intent(
+            err,
+            tool="cwms-tools value history",
+            args={
+                "begin": begin,
+                "end": end,
+                "unit": unit.value,
+                "rollup": rollup.value,
+                "detail": detail.value,
+            },
+            spec_key="id_spec",
+            spec_fields={"office": office, "name": name, "parameter": parameter},
+        )
+        emit_error(localize_repair(err))
 
 
 @app.command("profile")
@@ -289,7 +325,9 @@ def profile(
         typer.Argument(
             help=(
                 "Parent string + parameter in OFFICE/NAME/PARAMETER form, where "
-                "NAME is the parent 'string' (e.g. `NWDP/GWLW_S1/Temp-Water`), "
+                "NAME is the case-sensitive catalog id (from `place search`) of the "
+                "parent 'string' "
+                "(e.g. `NWDP/GWLW_S1/Temp-Water`), "
                 "NOT a single depth-tagged sensor."
             )
         ),
@@ -337,6 +375,8 @@ def profile(
         # schema in `cli/commands/schema.py` (#84, found during #68 review).
         # Repair targets the CLI invocation, not the MCP tool (#69 review).
         rewrite_error_field(err, when="office_id", to="id_spec")
+        rewrite_error_field(err, when="name", to="id_spec")
+        rewrite_error_field(err, when="parameter", to="id_spec")
         attach_ghost_office_spec_repair(
             err,
             tool="cwms-tools value profile",
@@ -344,7 +384,14 @@ def profile(
             spec_suffix=f"{name}/{parameter}",
             args={"window_hours": window_hours, "unit": unit.value, "detail": detail.value},
         )
-        emit_error(err)
+        attach_repair_intent(
+            err,
+            tool="cwms-tools value profile",
+            args={"window_hours": window_hours, "unit": unit.value, "detail": detail.value},
+            spec_key="id_spec",
+            spec_fields={"office": office, "name": name, "parameter": parameter},
+        )
+        emit_error(localize_repair(err))
 
 
 def _parse_iso(value: str, *, field: str) -> datetime:

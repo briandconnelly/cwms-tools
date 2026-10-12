@@ -8,6 +8,7 @@ import responses
 
 from cwms_tools.core import offices, session
 from cwms_tools.core.cache import Cache, set_cache
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 
 API_ROOT = "https://example.test/cwms-data/"
 
@@ -310,3 +311,109 @@ def test_discovery_office_candidates_is_a_priority_order() -> None:
     assert len(cands) == len(set(cands))
     # The degraded office-directory fallback keeps a stable sorted shape.
     assert [r["name"] for r in offices._fallback_records()] == sorted(cands)
+
+
+# `_LIVE_SHAPE` holds only HQ/NWDM/NWO; validation tests need SWT and SPK too.
+DIRECTORY = [
+    {"office-id": "SWT", "long-name": "Tulsa District", "type": "DIS", "reports-to": "SWD"},
+    {"office-id": "NWDM", "long-name": "Missouri River Basin", "type": "MSCR", "reports-to": "NWD"},
+    {"office-id": "NWO", "long-name": "Omaha District", "type": "DIS", "reports-to": "NWD"},
+    {"office-id": "SPK", "long-name": "Sacramento District", "type": "DIS", "reports-to": "SPD"},
+]
+
+
+def _arm_directory(mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}offices", json=DIRECTORY, status=200)
+
+
+def test_require_known_office_accepts_and_normalizes_case(configured, validating_directory) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_directory(mocked)
+        assert offices.require_known_office("SWT") == "SWT"
+        assert offices.require_known_office("swt") == "SWT"
+        assert len(mocked.calls) == 1, "second lookup is served from the shared cache key"
+
+
+def test_require_known_office_rejects_unknown_code(configured, validating_directory) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_directory(mocked)
+        with pytest.raises(CwmsToolsError) as ex:
+            offices.require_known_office("XYZ")
+    env = ex.value.envelope
+    assert env.code is ErrorCode.INVALID_FIELD
+    assert (
+        env.details is not None and env.details.field == "office_id" and env.details.value == "XYZ"
+    )
+    assert "cwms://offices" in (env.details.reason or "")
+    assert env.repair is not None and env.repair.tool == "cwms_list_offices"
+
+
+@pytest.mark.parametrize("directory_status", [200, 503])
+def test_require_known_office_keeps_nw_stub_precedence_even_offline(
+    configured, validating_directory, directory_status
+) -> None:
+    """Lowercase stubs are ghost_office whether or not the directory is reachable."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        if directory_status == 200:
+            _arm_directory(mocked)
+        else:
+            mocked.add(responses.GET, f"{API_ROOT}offices", status=503)
+        with pytest.raises(CwmsToolsError) as ex:
+            offices.require_known_office("nwo")
+    assert ex.value.envelope.code is ErrorCode.GHOST_OFFICE
+    assert ex.value.envelope.details is not None
+    assert ex.value.envelope.details.value == "NWO"
+
+
+def test_require_known_office_skips_validation_on_fallback_and_backs_off(
+    configured, validating_directory
+) -> None:
+    """Never block on a degraded directory, and don't re-hit a failing /offices
+    on every producer call. The preflight is unretried: one 503 is one attempt."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", status=503)
+        assert offices.require_known_office("XYZ") == "XYZ"
+        assert len(mocked.calls) == 1
+        assert offices.require_known_office("XYZ") == "XYZ"
+        assert len(mocked.calls) == 1
+        # Cooldown branch: no directory call, input still upper-cased.
+        assert offices.require_known_office("swt") == "SWT"
+        assert len(mocked.calls) == 1
+    # The cooldown is keyed by API root and clears on reset.
+    offices._reset_directory_state()
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_directory(mocked)
+        assert offices.require_known_office("swt") == "SWT"
+
+
+def test_directory_for_validation_is_one_attempt_on_503_and_returns_ids_on_200(
+    configured, validating_directory
+) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", status=503)
+        assert offices.directory_for_validation() == ([], True)
+        assert len(mocked.calls) == 1
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_directory(mocked)
+        ids, fallback = offices.directory_for_validation()
+    assert fallback is False and "SWT" in ids
+
+
+def test_require_known_office_accepts_directory_office_outside_curated_list(
+    configured, validating_directory
+) -> None:
+    """Review focus #5: SPK is a real office that is not in the curated discovery list."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_directory(mocked)
+        assert offices.require_known_office("SPK") == "SPK"
+    assert "SPK" not in offices.discovery_office_candidates()
+
+
+def test_require_known_office_fallback_first_call_uppercases(
+    configured, validating_directory
+) -> None:
+    """The used_fallback branch (first failing lookup) also canonicalizes case."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", status=503)
+        assert offices.require_known_office("swt") == "SWT"
+        assert len(mocked.calls) == 1

@@ -11,7 +11,7 @@ import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from cwms_tools.core import catalog, depth, levels, publishers, timeseries
+from cwms_tools.core import catalog, depth, levels, offices, publishers, timeseries
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Rollup
 
@@ -67,6 +67,7 @@ def get_value(
     `status_budget_seconds` (default 8 s) caps how long the threshold
     lookup may run when classification is requested.
     """
+    office = offices.require_known_office(office)
     tsid = timeseries.require_canonical_ts_id(office, location, parameter)
     parts = publishers.parse_ts_id(tsid)
     series = timeseries.fetch_latest(tsid, office=office, window=window, unit=unit)
@@ -134,6 +135,7 @@ def get_profile(
             value=int(window.total_seconds() // 3600),
             reason="Pass a positive look-back window, e.g. window_hours=24.",
         )
+    office = offices.require_known_office(office)
     # `enrich_locations(like=...)` still fetches the full per-office locations
     # catalog (cached) and filters it client-side, but the `like` scopes the
     # potentially-large timeseries-catalog enrichment to this string's depth
@@ -154,6 +156,8 @@ def get_profile(
             continue
         children.append((loc, parsed))
     children.sort(key=lambda c: depth.depth_sort_key(c[0]))
+    if not children:
+        _require_profile_parent(office, name, use_cache=use_cache)
 
     profile = [
         _profile_entry(office, loc, parameter, parsed, window=window, unit=unit)
@@ -178,6 +182,21 @@ def get_profile(
             "cwms_search_places, or read a single sensor with cwms_get_value."
         )
     return response
+
+
+def _require_profile_parent(office: str, name: str, *, use_cache: bool) -> None:
+    """An empty profile for a parent id the catalog lacks is `not_found`, not an
+    empty success (#163): `gwlw_s1` must not look like a sensor-less string.
+
+    A failed catalog read keeps today's empty success; profile is not describe,
+    and a transient failure must not turn into a `not_found`.
+    """
+    try:
+        payload = catalog.get_locations_catalog(office, use_cache=use_cache)
+    except CwmsToolsError:
+        return
+    if catalog.location_catalog_row(office, name, payload=payload) is None:
+        raise catalog.location_not_found_error(office, name, payload=payload)
 
 
 def _profile_entry(
@@ -240,6 +259,7 @@ def get_history(
             value=rollup,
             reason=f"Use one of: {', '.join(ROLLUP_MODES)}.",
         )
+    office = offices.require_known_office(office)
     tsid = timeseries.require_canonical_ts_id(office, location, parameter)
     parts = publishers.parse_ts_id(tsid)
     series = timeseries.fetch_window(tsid, office=office, begin=begin, end=end, unit=unit)

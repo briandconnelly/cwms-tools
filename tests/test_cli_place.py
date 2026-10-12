@@ -292,6 +292,27 @@ def test_place_parameters_ghost_office_names_spec_not_office() -> None:
     assert repair["arguments"] == {"spec": "NWDM/FTPK"}
 
 
+def test_place_parameters_wrong_case_repair_arguments_are_pinned(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/LOCATIONS",
+            json={"entries": [{"office": "SWT", "name": "FOSS"}]},
+            status=200,
+        )
+        result = runner.invoke(app, ["place", "parameters", "SWT/Foss"])
+    assert result.exit_code == 3
+    error = json.loads(result.stderr)["error"]
+    assert error["code"] == "not_found"
+    assert error["details"]["field"] == "spec"
+    assert error["repair"] == {
+        "next_step": "retry_with_catalog_id",
+        "tool": "cwms-tools place parameters",
+        "arguments": {"spec": "SWT/FOSS"},
+    }
+
+
 def test_place_parameters_lists_grouped_by_publisher(configured) -> None:
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm(mocked)

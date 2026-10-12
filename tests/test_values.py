@@ -678,6 +678,13 @@ def test_get_profile_empty_returns_note(configured, monkeypatch) -> None:
     monkeypatch.setattr(
         catalog_mod, "enrich_locations", lambda office, like=None, use_cache=True: []
     )
+    # The parent exists in the catalog (an empty profile under an absent parent
+    # is not_found, #163); it just has no depth children publishing the parameter.
+    monkeypatch.setattr(
+        catalog_mod,
+        "get_locations_catalog",
+        lambda office, use_cache=True: {"entries": [{"office": "NWDP", "name": "GWLW_S1"}]},
+    )
     payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
     assert payload["sensor_count"] == 0
     assert payload["profile"] == []
@@ -770,3 +777,347 @@ def test_fetch_window_next_begin_none_when_not_truncated(monkeypatch):
     )
     assert out["truncated"] is False
     assert out["next_begin"] is None
+
+
+def test_get_value_normalizes_office_case_and_rejects_unknown_office(
+    configured, validating_directory
+) -> None:
+    directory = [{"office-id": "SWT", "long-name": "Tulsa District", "type": "DIS"}]
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=directory, status=200)
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
+        mocked.add(
+            responses.GET,
+            re.compile(rf"{re.escape(_ts_url())}\?.*"),
+            json=_ts_payload(
+                ts_id="FOSS.Elev.Inst.15Minutes.0.Ccp-Rev",
+                points=[(datetime(2026, 5, 17, 18, tzinfo=UTC), 1648.21)],
+            ),
+            status=200,
+        )
+        payload = values.get_value("swt", "FOSS", "Elev")
+        assert payload["office_id"] == "SWT"
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("XYZ", "FOSS", "Elev")
+    assert ex.value.envelope.code is ErrorCode.INVALID_FIELD
+    # No catalog call was made for the unknown office (cwms-python sends `office=`).
+    assert not [c for c in mocked.calls if "office=XYZ" in (c.request.url or "")]
+
+
+def test_get_history_rejects_unknown_office(configured, validating_directory) -> None:
+    directory = [{"office-id": "SWT", "long-name": "Tulsa District", "type": "DIS"}]
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=directory, status=200)
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_history(
+                "XYZ",
+                "FOSS",
+                "Elev",
+                begin=datetime(2026, 5, 17, tzinfo=UTC),
+                end=datetime(2026, 5, 18, tzinfo=UTC),
+            )
+    assert ex.value.envelope.code is ErrorCode.INVALID_FIELD
+
+
+def _intent(err: CwmsToolsError):
+    assert err.repair_intent is not None
+    return err.repair_intent
+
+
+def _details(err: CwmsToolsError):
+    assert err.envelope.details is not None
+    return err.envelope.details
+
+
+def _repair(err: CwmsToolsError):
+    assert err.envelope.repair is not None
+    return err.envelope.repair
+
+
+GWLW_LOCATIONS = {
+    "locations": [
+        {"office-id": "NWDP", "name": "GWLW_S1", "latitude": 47.65, "longitude": -122.33},
+        {"office-id": "NWDP", "name": "GWLW_S1-D3,0ft", "latitude": 47.6501, "longitude": -122.33},
+        {"office-id": "NWDP", "name": "GWLW_S1-D13,0ft", "latitude": 47.6502, "longitude": -122.33},
+        # A neighbouring string whose children are co-located with GWLW_S1 but are
+        # NOT its children: a ghost GWLW_S2 must not repair to a GWLW_S1-D… child.
+        {"office-id": "NWDP", "name": "GWLW_S2", "latitude": 47.6503, "longitude": -122.33},
+        {"office-id": "NWDP", "name": "LONELY", "latitude": 46.0, "longitude": -120.0},
+    ]
+}
+GWLW_TS = {
+    "entries": [
+        {"name": "GWLW_S1-D3,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"},
+        {"name": "GWLW_S1-D13,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"},
+    ]
+}
+
+
+def _arm_catalog(mocked, *, locations, ts_for_location, ts_full) -> None:
+    # `ts_ids_for_location` scopes its request with a `like` query key; the
+    # office-wide enrichment fetch has no `like` (it does carry
+    # `timeseries-group-like`, so the regex anchors on `[?&]like=` — a bare
+    # `like=` would match both). Register the scoped one first.
+    mocked.add(
+        responses.GET,
+        re.compile(rf"{re.escape(API_ROOT)}catalog/TIMESERIES\?.*[?&]like=.*"),
+        json=ts_for_location,
+        status=200,
+    )
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=ts_full, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=locations, status=200)
+
+
+def test_case_a_not_found_lists_published_parameters_and_suggests_close_match(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json={
+                "entries": [
+                    {"name": "FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"},
+                    {"name": "FOSS.Stor.Inst.1Day.0.Ccp-Rev"},
+                ]
+            },
+            status=200,
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("SWT", "FOSS", "Stro")
+    err = ex.value
+    assert err.envelope.code is ErrorCode.NOT_FOUND
+    assert "Elev, Stor" in (_details(err).reason or "")
+    assert err.envelope.repair is not None and _repair(err).tool == "cwms_list_parameters"
+    assert err.repair_intent is not None
+    assert _intent(err).overrides == {"parameter": "Stor"}
+
+
+def test_case_a_wrong_case_parameter_is_an_exact_suggestion(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("SWT", "FOSS", "elev")
+    assert _intent(ex.value).overrides == {"parameter": "Elev"}
+
+
+def test_case_b_depth_string_ghost_points_at_shallowest_child_and_names_profile(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(
+            mocked, locations=GWLW_LOCATIONS, ts_for_location={"entries": []}, ts_full=GWLW_TS
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("NWDP", "GWLW_S1", "Temp-Water")
+    err = ex.value
+    assert err.envelope.code is ErrorCode.GHOST_LOCATION
+    assert _details(err).field == "name"
+    assert "GWLW_S1-D3,0ft" in (_details(err).reason or "")
+    assert _intent(err).next_step == "read_data_bearing_sibling"
+    assert _intent(err).overrides == {"name": "GWLW_S1-D3,0ft"}
+    assert "cwms_get_profile" in (_intent(err).alternative or "")
+    assert _repair(err).tool == "cwms_search_places"
+
+
+def test_case_b_neighbouring_string_children_are_not_this_strings_children(configured) -> None:
+    """Codex #7: a nearby depth-tagged sibling is not evidence that get_profile on
+    THIS name works. GWLW_S2 is a ghost next to GWLW_S1's children: list them,
+    but no same-tool intent (two flat candidates) and no profile alternative."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(
+            mocked, locations=GWLW_LOCATIONS, ts_for_location={"entries": []}, ts_full=GWLW_TS
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("NWDP", "GWLW_S2", "Temp-Water")
+    err = ex.value
+    assert err.envelope.code is ErrorCode.GHOST_LOCATION
+    assert err.repair_intent is None
+    assert _repair(err).tool == "cwms_search_places"
+    assert "GWLW_S1-D3,0ft" in (_details(err).reason or "")
+
+
+def test_case_b_single_flat_sibling_is_the_intent(configured) -> None:
+    locations = {
+        "locations": [
+            {
+                "office-id": "NWDM",
+                "name": "GARR-Garrison_Dam",
+                "latitude": 47.5,
+                "longitude": -101.4,
+            },
+            {"office-id": "NWDM", "name": "GARR", "latitude": 47.5001, "longitude": -101.4},
+        ]
+    }
+    ts_full = {"entries": [{"name": "GARR.Elev.Inst.1Hour.0.Best-MRBWM"}]}
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(mocked, locations=locations, ts_for_location={"entries": []}, ts_full=ts_full)
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("NWDM", "GARR-Garrison_Dam", "Elev")
+    assert ex.value.envelope.code is ErrorCode.GHOST_LOCATION
+    assert _intent(ex.value).overrides == {"name": "GARR"}
+
+
+def test_case_c_barren_everywhere_is_ghost_with_search_repair(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(
+            mocked,
+            locations=GWLW_LOCATIONS,
+            ts_for_location={"entries": []},
+            ts_full={"entries": []},
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("NWDP", "LONELY", "Elev")
+    err = ex.value
+    assert err.envelope.code is ErrorCode.GHOST_LOCATION
+    assert err.repair_intent is None
+    assert _repair(err).tool == "cwms_search_places"
+    assert _repair(err).arguments == {"query": "LONELY", "office": "NWDP"}
+
+
+def test_missing_name_is_not_found_not_ghost(configured) -> None:
+    """#163: a misspelled/wrong-case name must never be promoted to ghost_location."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(
+            mocked, locations=GWLW_LOCATIONS, ts_for_location={"entries": []}, ts_full=GWLW_TS
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("NWDP", "gwlw_s1", "Temp-Water")
+    err = ex.value
+    assert err.envelope.code is ErrorCode.NOT_FOUND
+    assert _details(err).field == "name"
+    assert _intent(err).overrides == {"name": "GWLW_S1"}
+
+
+def test_get_history_inherits_ghost_location(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(
+            mocked, locations=GWLW_LOCATIONS, ts_for_location={"entries": []}, ts_full=GWLW_TS
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_history(
+                "NWDP",
+                "GWLW_S1",
+                "Temp-Water",
+                begin=datetime(2026, 5, 17, tzinfo=UTC),
+                end=datetime(2026, 5, 18, tzinfo=UTC),
+            )
+    assert ex.value.envelope.code is ErrorCode.GHOST_LOCATION
+
+
+# --------------------------------------------------------------------------
+# One enrichment per ghost path (#96): call counts
+# --------------------------------------------------------------------------
+
+
+def _endpoint(url: str) -> str:
+    """`TIMESERIES(scoped)` vs `TIMESERIES(office-wide)`, `catalog/LOCATIONS`, `offices`."""
+    path = url.split(API_ROOT, 1)[1].split("?", 1)[0]
+    if path == "catalog/TIMESERIES":
+        scoped = "like=" in url.replace("group-like=", "")
+        return "TIMESERIES(scoped)" if scoped else "TIMESERIES(office-wide)"
+    return path
+
+
+def test_case_c_makes_four_upstream_calls_with_cache(configured, validating_directory) -> None:
+    """offices + scoped TIMESERIES + LOCATIONS + office-wide TIMESERIES: the
+    two sibling filters share one enrichment, and the existence check reuses
+    the same locations catalog."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=[{"office-id": "NWDP", "type": "DIV"}])
+        _arm_catalog(
+            mocked,
+            locations=GWLW_LOCATIONS,
+            ts_for_location={"entries": []},
+            ts_full={"entries": []},
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_value("NWDP", "LONELY", "Elev")
+        hits = [_endpoint(str(c.request.url)) for c in mocked.calls]
+    assert ex.value.envelope.code is ErrorCode.GHOST_LOCATION
+    assert sorted(hits) == sorted(
+        ["offices", "TIMESERIES(scoped)", "catalog/LOCATIONS", "TIMESERIES(office-wide)"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "code", "expected"),
+    [
+        (
+            "GWLW_S1",  # case B
+            ErrorCode.GHOST_LOCATION,
+            ["TIMESERIES(scoped)", "catalog/LOCATIONS", "TIMESERIES(office-wide)"],
+        ),
+        (
+            "LONELY",  # case C
+            ErrorCode.GHOST_LOCATION,
+            ["TIMESERIES(scoped)", "catalog/LOCATIONS", "TIMESERIES(office-wide)"],
+        ),
+        (
+            "gwlw_s1",  # wrong case: not_found, no enrichment at all
+            ErrorCode.NOT_FOUND,
+            ["TIMESERIES(scoped)", "catalog/LOCATIONS"],
+        ),
+    ],
+    ids=["case-b", "case-c", "not-found"],
+)
+def test_ghost_paths_fetch_each_endpoint_once_without_cache(
+    configured, name, code, expected
+) -> None:
+    from cwms_tools.core import timeseries
+
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(
+            mocked, locations=GWLW_LOCATIONS, ts_for_location={"entries": []}, ts_full=GWLW_TS
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            timeseries.require_canonical_ts_id("NWDP", name, "Temp-Water", use_cache=False)
+        hits = [_endpoint(str(c.request.url)) for c in mocked.calls]
+    assert ex.value.envelope.code is code
+    assert hits == expected
+
+
+def test_ghost_and_not_found_errors_name_the_endpoints_hit(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(
+            mocked, locations=GWLW_LOCATIONS, ts_for_location={"entries": []}, ts_full=GWLW_TS
+        )
+        with pytest.raises(CwmsToolsError) as ghost:
+            values.get_value("NWDP", "GWLW_S1", "Temp-Water")
+        with pytest.raises(CwmsToolsError) as missing:
+            values.get_value("NWDP", "gwlw_s1", "Temp-Water")
+    trail = ["/catalog/TIMESERIES", "/catalog/LOCATIONS"]
+    assert ghost.value.envelope.source.endpoints_called == trail
+    assert missing.value.envelope.source.endpoints_called == trail
+
+
+# --------------------------------------------------------------------------
+# get_profile: an absent parent is not_found, not an empty success (#163)
+# --------------------------------------------------------------------------
+
+
+def test_get_profile_wrong_case_parent_is_not_found(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_catalog(mocked, locations=GWLW_LOCATIONS, ts_for_location=GWLW_TS, ts_full=GWLW_TS)
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_profile("NWDP", "gwlw_s1", "Temp-Water")
+    err = ex.value
+    assert err.envelope.code is ErrorCode.NOT_FOUND
+    assert _details(err).field == "name"
+    assert _intent(err).next_step == "retry_with_catalog_id"
+    assert _intent(err).overrides == {"name": "GWLW_S1"}
+    assert err.envelope.source.endpoints_called == ["/catalog/LOCATIONS"]
+
+
+def test_get_profile_catalog_failure_keeps_empty_success(configured, monkeypatch) -> None:
+    """A failed existence read is not evidence of absence: profile keeps its
+    empty, noted success rather than turning a transient failure into not_found."""
+    from cwms_tools.core import catalog as catalog_mod
+
+    monkeypatch.setattr(
+        catalog_mod, "enrich_locations", lambda office, like=None, use_cache=True: []
+    )
+
+    def _down(office, use_cache=True):
+        raise CwmsToolsError.of(ErrorCode.UPSTREAM_ERROR, "down", temporary=True)
+
+    monkeypatch.setattr(catalog_mod, "get_locations_catalog", _down)
+    payload = values.get_profile("NWDP", "gwlw_s1", "Temp-Water")
+    assert payload["sensor_count"] == 0
+    assert "note" in payload

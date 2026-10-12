@@ -192,6 +192,7 @@ def _commands() -> list[dict[str, Any]]:
             "error_codes": _errs(
                 "ghost_office",
                 "invalid_cursor",
+                "invalid_field",
                 "rate_limited",
                 "upstream_error",
                 "usage_error",
@@ -209,7 +210,13 @@ def _commands() -> list[dict[str, Any]]:
             "output_class": "record",
             "reads_stdin": False,
             "latency_class": "network",
-            "arguments": [_arg("spec", "string", help="OFFICE/NAME, e.g. NWDM/FTPK.")],
+            "arguments": [
+                _arg(
+                    "spec",
+                    "string",
+                    help="OFFICE/NAME, NAME a case-sensitive catalog id: SWT/FOSS, not SWT/Foss.",
+                )
+            ],
             "options": [
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
                 _opt(
@@ -224,6 +231,7 @@ def _commands() -> list[dict[str, Any]]:
             ],
             "error_codes": _errs(
                 "ghost_office",
+                "invalid_field",
                 "not_found",
                 "rate_limited",
                 "upstream_error",
@@ -236,10 +244,17 @@ def _commands() -> list[dict[str, Any]]:
             "output_class": "record",
             "reads_stdin": False,
             "latency_class": "network",
-            "arguments": [_arg("spec", "string", help="OFFICE/NAME.")],
+            "arguments": [
+                _arg(
+                    "spec",
+                    "string",
+                    help="OFFICE/NAME, NAME a case-sensitive catalog id: SWT/FOSS, not SWT/Foss.",
+                )
+            ],
             "options": [],
             "error_codes": _errs(
                 "ghost_office",
+                "invalid_field",
                 "not_found",
                 "rate_limited",
                 "upstream_error",
@@ -280,6 +295,7 @@ def _commands() -> list[dict[str, Any]]:
             "error_codes": _errs(
                 "ghost_office",
                 "invalid_cursor",
+                "invalid_field",
                 "rate_limited",
                 "upstream_error",
                 "usage_error",
@@ -305,7 +321,7 @@ def _commands() -> list[dict[str, Any]]:
                     "id_specs",
                     "string",
                     variadic=True,
-                    help="One or more OFFICE/NAME/PARAMETER ids.",
+                    help="One or more OFFICE/NAME/PARAMETER ids; NAME is case-sensitive.",
                 )
             ],
             "options": [
@@ -320,7 +336,9 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
             "error_codes": _errs(
+                "ghost_location",
                 "ghost_office",
+                "invalid_field",
                 "not_found",
                 "rate_limited",
                 "upstream_error",
@@ -340,7 +358,13 @@ def _commands() -> list[dict[str, Any]]:
             "output_class": "record",
             "reads_stdin": False,
             "latency_class": "slow",
-            "arguments": [_arg("id_spec", "string", help="OFFICE/NAME/PARAMETER.")],
+            "arguments": [
+                _arg(
+                    "id_spec",
+                    "string",
+                    help="OFFICE/NAME/PARAMETER; NAME is the case-sensitive catalog id.",
+                )
+            ],
             "options": [
                 _opt("--begin", "string", required=True, help="RFC3339 window start."),
                 _opt("--end", "string", required=True, help="RFC3339 window end."),
@@ -359,6 +383,7 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
             "error_codes": _errs(
+                "ghost_location",
                 "ghost_office",
                 "wrapper_bug",
                 "invalid_field",
@@ -377,7 +402,10 @@ def _commands() -> list[dict[str, Any]]:
                 _arg(
                     "id_spec",
                     "string",
-                    help="Parent string + parameter in OFFICE/NAME/PARAMETER form.",
+                    help=(
+                        "Parent string + parameter in OFFICE/NAME/PARAMETER form; "
+                        "NAME is the case-sensitive catalog id."
+                    ),
                 )
             ],
             "options": [
@@ -387,6 +415,7 @@ def _commands() -> list[dict[str, Any]]:
             ],
             "error_codes": _errs(
                 "ghost_office",
+                "invalid_field",
                 "not_found",
                 "rate_limited",
                 "upstream_error",
@@ -415,7 +444,7 @@ def _commands() -> list[dict[str, Any]]:
                 ),
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
-            "error_codes": _errs("rate_limited", "upstream_error", "wrapper_bug"),
+            "error_codes": _errs("invalid_field", "rate_limited", "upstream_error", "wrapper_bug"),
         },
         # MCP server (M7).
         {

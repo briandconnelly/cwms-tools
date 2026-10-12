@@ -7,33 +7,18 @@ detects the silent truncation at the upstream `page_size=300000` cap.
 
 from __future__ import annotations
 
+import difflib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import cwms.timeseries.timeseries as ts_api
 
-from cwms_tools.core import catalog, publishers
-from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
+from cwms_tools.core import catalog, depth, publishers
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint, RepairIntent
 from cwms_tools.core.upstream import require_collection, upstream_call
 
 # Upstream wrapper's default page_size for get_timeseries.
 _UPSTREAM_PAGE_SIZE_CAP = 300_000
-
-
-def canonical_ts_id(
-    office: str,
-    location: str,
-    parameter: str,
-    *,
-    use_cache: bool = True,
-) -> str | None:
-    """Pick the canonical (best-publisher) ts_id for `(location, parameter)`.
-
-    Returns None when no ts_id with the requested parameter exists at the
-    location — in that case the caller raises NOT_FOUND with a repair hint.
-    """
-    ts_ids = catalog.ts_ids_for_location(office, location, use_cache=use_cache)
-    return publishers.pick_canonical(ts_ids, parameter=parameter)
 
 
 def fetch_window(
@@ -125,25 +110,137 @@ def require_canonical_ts_id(
     *,
     use_cache: bool = True,
 ) -> str:
-    """`canonical_ts_id` that raises `NOT_FOUND` with a repair hint when nothing matches."""
-    tsid = canonical_ts_id(office, location, parameter, use_cache=use_cache)
-    if tsid is None:
-        raise CwmsToolsError.of(
-            ErrorCode.NOT_FOUND,
-            f"No published ts_id at {office}/{location} for parameter {parameter!r}.",
-            field="parameter",
-            value=parameter,
+    """The canonical ts_id for `(office, location, parameter)`, or a self-repairing error.
+
+    One catalog fetch, three failure branches (#96/#163):
+    A. the location publishes other parameters -> `not_found` naming them, with
+       a same-tool intent on the closest published code;
+    B/C. the location has no timeseries -> first confirm the catalog row exists
+       (else `not_found{field:name}` with a spelling suggestion), then
+       `ghost_location` pointing at data-bearing co-located siblings (B) or,
+       when none exist, at `cwms_search_places` (C).
+
+    The failure path reads each catalog once: the locations catalog fetched for
+    the existence check feeds the suggestion and the single office-wide
+    enrichment, which both sibling filters (with and without `parameter`) share.
+    """
+    ts_ids = catalog.ts_ids_for_location(office, location, use_cache=use_cache)
+    tsid = publishers.pick_canonical(ts_ids, parameter=parameter)
+    if tsid is not None:
+        return tsid
+    if ts_ids:
+        raise _parameter_not_found(office, location, parameter, ts_ids)
+    loc_payload = catalog.get_locations_catalog(office, use_cache=use_cache)
+    if catalog.location_catalog_row(office, location, payload=loc_payload) is None:
+        raise catalog.location_not_found_error(
+            office, location, payload=loc_payload, endpoints_called=["/catalog/TIMESERIES"]
+        )
+    by_name = catalog.enriched_by_name(office, use_cache=use_cache, loc_payload=loc_payload)
+    raise _ghost_location_error(office, location, parameter, by_name)
+
+
+def _closest_parameter(parameter: str, published: list[str]) -> str | None:
+    """Case-insensitive exact match first (`elev` -> `Elev`), then difflib."""
+    for code in published:
+        if code.casefold() == parameter.casefold():
+            return code
+    close = difflib.get_close_matches(parameter, published, n=1, cutoff=0.6)
+    return close[0] if close else None
+
+
+def _parameter_not_found(
+    office: str, location: str, parameter: str, ts_ids: list[str]
+) -> CwmsToolsError:
+    published = sorted(publishers.parameter_counts(ts_ids))
+    match = _closest_parameter(parameter, published)
+    reason = f"This location publishes: {', '.join(published)}. Retry with one of these."
+    if match is not None:
+        reason += f" Did you mean {match!r}?"
+    return CwmsToolsError.of(
+        ErrorCode.NOT_FOUND,
+        f"No published ts_id at {office}/{location} for parameter {parameter!r}.",
+        field="parameter",
+        value=parameter,
+        reason=reason,
+        repair=RepairHint(
+            next_step="list_available_parameters",
+            tool="cwms_list_parameters",
+            arguments={"office": office, "name": location},
+        ),
+        repair_intent=(
+            RepairIntent("use_published_parameter", {"parameter": match}) if match else None
+        ),
+        endpoints_called=["/catalog/TIMESERIES"],
+    )
+
+
+_GHOST_TRAIL = ["/catalog/TIMESERIES", "/catalog/LOCATIONS"]
+
+
+def _ghost_location_error(
+    office: str, location: str, parameter: str, by_name: dict[str, dict[str, Any]]
+) -> CwmsToolsError:
+    with_param = catalog.siblings_with_data(by_name, location, parameter)
+    any_data = with_param or catalog.siblings_with_data(by_name, location)
+    if not any_data:  # Case C: the genuine dead end
+        return CwmsToolsError.of(
+            ErrorCode.GHOST_LOCATION,
+            f"{office}/{location} publishes no timeseries (ghost record), and no "
+            "co-located record does either.",
+            field="name",
+            value=location,
             reason=(
-                "Use cwms_list_parameters to see what publishes at this location. "
-                "Ghost records (parameter_count=0) carry no timeseries."
+                "The catalog row exists but carries no data, and nothing within "
+                "~100 m publishes. Search for the place by name to find the "
+                "data-bearing record."
             ),
             repair=RepairHint(
-                next_step="list_available_parameters",
-                tool="cwms_list_parameters",
-                arguments={"office": office, "name": location},
+                next_step="search_for_data_bearing_place",
+                tool="cwms_search_places",
+                arguments={"query": location, "office": office},
+            ),
+            endpoints_called=list(_GHOST_TRAIL),
+        )
+    # Case B: siblings carry the data. Prefer the shallowest depth child of THIS
+    # string (so the intent is a child of the requested name, not a neighbour);
+    # else a single flat sibling; several flat candidates -> no same-tool intent,
+    # the search repair lists them all with data_at.
+    prefix = f"{location}-D"
+    depth_children = sorted(
+        (s for s in with_param if s.startswith(prefix) and depth.parse_depth(s) is not None),
+        key=depth.depth_sort_key,
+    )
+    intent: RepairIntent | None = None
+    if depth_children:
+        intent = RepairIntent(
+            "read_data_bearing_sibling",
+            {"name": depth_children[0]},
+            alternative=(
+                f"cwms_get_profile with office={office!r}, name={location!r}, "
+                f"parameter={parameter!r} reads every depth of this string in one call."
             ),
         )
-    return tsid
+    elif len(with_param) == 1:
+        intent = RepairIntent("read_data_bearing_sibling", {"name": with_param[0]})
+    listed = with_param or any_data
+    scope = (
+        f"publish {parameter!r}" if with_param else f"publish data (none publishes {parameter!r})"
+    )
+    return CwmsToolsError.of(
+        ErrorCode.GHOST_LOCATION,
+        f"{office}/{location} publishes no timeseries (ghost record); co-located "
+        "records carry the data.",
+        field="name",
+        value=location,
+        reason=f"Co-located records that {scope}: {', '.join(listed)}.",
+        repair=RepairHint(
+            next_step="search_for_data_bearing_place",
+            tool="cwms_search_places",
+            arguments={"query": location, "office": office, "parameter": parameter},
+        ),
+        repair_intent=intent,
+        endpoints_called=list(_GHOST_TRAIL),
+    )
 
 
 def _next_begin(payload: dict[str, Any]) -> str | None:
@@ -246,7 +343,6 @@ def _coerce_float(value: Any) -> float | None:
 
 
 __all__ = [
-    "canonical_ts_id",
     "fetch_latest",
     "fetch_window",
     "require_canonical_ts_id",
