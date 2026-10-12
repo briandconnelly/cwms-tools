@@ -22,6 +22,7 @@ from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
 from cwms_tools.core import places, session, values
+from cwms_tools.core.offices import REGION_HINTS
 from cwms_tools.core.publishers import parse_ts_id
 from cwms_tools.mcp.server import build_server
 
@@ -96,6 +97,20 @@ def test_list_parameters_live_shape() -> None:
         assert isinstance(group["rank"], int)
         assert isinstance(group["ts_count"], int) and group["ts_count"] > 0
         assert group["parameters"] == sorted(group["parameters"])
+
+
+_REGION_HINT_EXAMPLES = [
+    (hint["office"], example) for hint in REGION_HINTS for example in hint["examples"]
+]
+
+
+@pytest.mark.parametrize(("office", "example"), _REGION_HINT_EXAMPLES)
+def test_region_hints_examples_are_data_bearing_live(office: str, example: str) -> None:
+    """Every `REGION_HINTS` example id publishes data (#171): it is advertised as a
+    catalog id an agent can hand straight to `cwms_get_value`."""
+    payload = places.list_parameters(office, example)
+    assert len(payload["all_parameters"]) > 0, f"{office}/{example}: no parameters"
+    assert payload["ts_count"] > 0, f"{office}/{example}: no timeseries"
 
 
 def test_get_value_live_shape() -> None:

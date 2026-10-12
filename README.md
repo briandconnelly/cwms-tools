@@ -22,7 +22,7 @@ call instead of a brittle chain of raw API lookups.
 - Resolves natural place names to canonical CWMS locations, with ghost-location
   filtering and co-located sensor hints.
 - Describes a place in one call: location record, project metadata when
-  available, published parameters, publishers, and latest data timestamp.
+  available, published parameters, publishers, and a catalog last-data hint.
 - Reads the latest value or bounded history for CWMS time series parameters.
 - Optionally classifies the latest value against CWMS Location Levels when
   callers opt in with `--with-status` or `with_status=true`.
@@ -70,7 +70,7 @@ uv run cwms-tools fingerprint
 uv run cwms-tools place search "Fort Peck" --office NWDM
 
 # Describe one place: location, project metadata, parameters, publishers,
-# freshness, and partial-result flags.
+# a catalog last-data hint (can lag; `value get` is fresh), and partial-result flags.
 uv run cwms-tools place describe NWDM/FTPK
 uv run cwms-tools place describe SWT/WEBB --include-locks
 
@@ -82,7 +82,7 @@ uv run cwms-tools place parameters NWDM/FTPK
 uv run cwms-tools value get NWDM/FTPK/Elev
 
 # Opt in to threshold classification when status context matters.
-uv run cwms-tools value get NWDM/FTPK/Elev --with-status
+uv run cwms-tools value get SWT/FOSS/Elev --with-status
 
 # Read a bounded history window.
 uv run cwms-tools value history NWDM/FTPK/Elev \
@@ -176,7 +176,7 @@ The MCP server exposes task-level tools rather than raw endpoint mirrors:
 | Tool | Purpose |
 | --- | --- |
 | `cwms_search_places` | Resolve an ambiguous place name to ranked locations. |
-| `cwms_describe_place` | Read location, project, parameter, publisher, and freshness data in one call; `include_locks` adds navigation-lock dimensions. |
+| `cwms_describe_place` | Read location, project, parameter, publisher, and catalog last-data (extent) hints in one call; `include_locks` adds navigation-lock dimensions. |
 | `cwms_list_parameters` | List parameters published at a location, grouped by publisher. |
 | `cwms_get_value` | Read the latest observation, optionally with threshold status. |
 | `cwms_get_history` | Read raw observations across a bounded time window. |

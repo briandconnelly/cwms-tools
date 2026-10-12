@@ -159,7 +159,8 @@ def _commands() -> list[dict[str, Any]]:
             "error_codes": _errs("wrapper_bug"),
             "notes": (
                 "Lists the USACE office codes the `--office` option expects, plus "
-                "the NW regional-rollup guidance. Network-backed, cached 7 days; "
+                "the NW regional-rollup guidance and `region_hints` (region -> office "
+                "with example catalog ids). Network-backed, cached 7 days; "
                 "degrades to a documented fallback slice with `partial: true` on "
                 "cold-start upstream failure (never errors on upstream failure)."
             ),
@@ -347,9 +348,10 @@ def _commands() -> list[dict[str, Any]]:
             ),
             "notes": (
                 "Threshold classification against CWMS Location Levels is OFF "
-                "by default (the /levels endpoint is reliably slow). Pass "
-                "--with-status to opt in; the response always carries "
-                "`level_lookup_status` so callers can distinguish "
+                "by default (the lookup adds a /levels listing plus one read per "
+                "level; big offices often hit the 8 s budget, and on timeout the "
+                "value is still returned). Pass --with-status to opt in; the "
+                "response always carries `level_lookup_status` so callers can distinguish "
                 "skipped/computed/timed_out/unavailable."
             ),
         },

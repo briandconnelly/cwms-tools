@@ -133,8 +133,8 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
 #: Per-tool latency class (local | cached | network | slow). `slow` flags paths
 #: that routinely exceed ~1s: the levels-classified value path and the
 #: potentially 300k-point history pull. `cwms_get_value` is `network` for the
-#: default fast path; its slow `--with-status` path is documented in the tool
-#: description and `level_lookup_status`.
+#: default fast path; its `--with-status` path (big offices often hit the
+#: 8 s cap) is documented in the tool description and `level_lookup_status`.
 TOOL_LATENCY: dict[str, str] = {
     "cwms_search_places": "network",
     "cwms_describe_place": "network",
@@ -229,6 +229,37 @@ def capability_contract_payload() -> dict[str, Any]:
             "Decode DSS or XML forecast file attachments.",
             "Pre-warm caches or scan the catalog in the background.",
         ],
+        "first_call": {
+            # `requires` is scoped to the place-specific tools; discovery has
+            # its own, looser prerequisites (#171 review).
+            "applies_to": [
+                "cwms_describe_place",
+                "cwms_list_parameters",
+                "cwms_get_value",
+                "cwms_get_history",
+                "cwms_get_profile",
+            ],
+            "requires": ["office", "name"],
+            "discovery": (
+                "cwms_search_places needs only `query` (a name fragment); `office` "
+                "is optional and it takes no `name`. Use it to get office + catalog id."
+            ),
+            "office": (
+                "USACE office code, case-insensitive (cwms://offices; NW Division uses NWDM/NWDP)."
+            ),
+            "name": (
+                "Case-sensitive catalog id (FOSS, not 'Foss' or 'Foss Lake'); "
+                "from cwms_search_places."
+            ),
+            "parameter": "Case-sensitive code (Elev, Flow-In); from cwms_list_parameters.",
+            "typical_chain": [
+                "cwms_search_places",
+                "cwms_describe_place | cwms_list_parameters",
+                "cwms_get_value | cwms_get_history",
+            ],
+            "one_shot": "cwms_get_value",
+            "not_available": "Forecasts (see does_not).",
+        },
         # Latency class is agent-selection guidance same as description/error
         # codes: a tool moving from cached/local to network/slow changes
         # whether an agent should call it eagerly, so it must move the
@@ -253,6 +284,12 @@ def capability_contract_payload() -> dict[str, Any]:
                 "repair (next_step, tool, arguments, alternative), temporary, "
                 "retry_after_ms, rate_limit_remaining, request_id, protocol_request_id, "
                 "source."
+            ),
+            "timed_out_retry": (
+                "On `level_lookup_status: 'timed_out'` in a long-lived MCP server, "
+                "the levels lookup keeps running in the background and the levels "
+                "listing is cached for about 24 h, so a later `with_status` call "
+                "often classifies. A one-shot CLI process exits and does not keep it."
             ),
             "resources": (
                 "resources/read failures surface as JSON-RPC errors carrying the "
@@ -331,6 +368,7 @@ def capabilities_payload() -> dict[str, Any]:
         "fingerprint_scope": fingerprint.FINGERPRINT_SCOPE,
         "description": contract["description"],
         "does_not": contract["does_not"],
+        "first_call": contract["first_call"],
         "prerequisites": {
             "auth": contract["auth"],
             "api_root": cfg.api_root,
@@ -378,16 +416,7 @@ def offices_payload() -> dict[str, Any]:
     return {
         "count": len(records),
         "offices": records,
-        "guidance": {
-            "nw_regional_rollup": (
-                "In Northwestern Division, query the regional rollups — NWDM "
-                "(Missouri River) or NWDP (Pacific Northwest). The NW district "
-                "offices (NWO, NWK, NWS, NWP, NWW) are catalog stubs that "
-                "publish no operational data in CDA."
-            ),
-            "nw_district_stubs": sorted(NW_ROLLUP_TARGETS),
-            "nw_rollup_targets": dict(NW_ROLLUP_TARGETS),
-        },
+        "guidance": offices.static_guidance(),
         "partial": used_fallback,
     }
 

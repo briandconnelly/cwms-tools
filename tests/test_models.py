@@ -11,9 +11,11 @@ from cwms_tools.core.models import (
     ActiveThreshold,
     BrowseRegionResponse,
     CdaLocation,
+    DescribePlaceResponse,
     Detail,
     HistoryResponse,
     LevelLookupStatus,
+    ListParametersResponse,
     PlaceSummary,
     Rollup,
     SearchPlacesResponse,
@@ -413,3 +415,9 @@ def test_passthrough_dto_fields_keep_kebab_case_keys() -> None:
     ]:
         desc = model.model_fields[field].description or ""
         assert "kebab-case" in desc, (model.__name__, field)
+
+
+@pytest.mark.parametrize("model", [PlaceSummary, DescribePlaceResponse, ListParametersResponse])
+def test_last_data_timestamp_is_described_as_a_lagging_catalog_extent(model) -> None:
+    desc = model.model_fields["last_data_timestamp"].description or ""
+    assert "catalog" in desc and "lag" in desc and "cwms_get_value" in desc

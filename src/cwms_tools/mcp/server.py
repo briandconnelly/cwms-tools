@@ -52,8 +52,18 @@ INSTRUCTIONS = (
     f"{SERVER_TITLE}\n\n"
     "Start with `cwms://capabilities` for the structured server summary "
     "— tools, resources, error codes, fingerprint, and what this server "
-    "deliberately does not do. Valid `office` codes for the tools are "
-    "listed at `cwms://offices` (with the NW regional-rollup guidance). "
+    "deliberately does not do. "
+    "First-call contract: every place-specific tool (`cwms_describe_place`, "
+    "`cwms_list_parameters`, `cwms_get_value`, `cwms_get_history`, `cwms_get_profile`) "
+    "needs an `office` code AND the case-sensitive catalog `name` (FTPK, not "
+    "'Fort Peck'; FOSS, not 'Foss Lake'); `parameter` codes are case-sensitive "
+    "(Elev, Flow-In). Typical chain: `cwms_search_places` (name → office + "
+    "catalog id) → `cwms_describe_place` or `cwms_list_parameters` → "
+    "`cwms_get_value` / `cwms_get_history`. With office, id and parameter already known, "
+    "`cwms_get_value` alone is the one-shot path. No forecasts: this server "
+    "reads observations, thresholds and catalog metadata only. "
+    "Valid `office` codes for the tools are "
+    "listed at `cwms://offices` (with NW rollup guidance and region → office hints). "
     "The bundled CWMS orientation document is "
     "indexed at `cwms://overview`; fetch a section via "
     "`cwms://overview/{section_id}{?detail}` or, if your client does not "
@@ -220,7 +230,8 @@ def build_server() -> FastMCP:
         """USACE office directory for office-code discovery.
 
         Lists every office (name, long name, type, reporting parent) plus the
-        NW regional-rollup guidance. Network-backed (cached 7 days); degrades
+        NW regional-rollup guidance and `region_hints` (region → office with
+        example ids). Network-backed (cached 7 days); degrades
         to a documented fallback slice with `partial: true` when upstream is
         unreachable on a cold start.
         """

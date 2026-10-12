@@ -35,6 +35,9 @@ if TYPE_CHECKING:
 # --------------------------------------------------------------------------
 
 
+_LAST_DATA_DESC = "CDA catalog extent; can lag weeks or be null. Fresh: `cwms_get_value`."
+
+
 class Detail(StrEnum):
     """'summary' (compact, default) or 'full' (verbose fields + quality codes)."""
 
@@ -214,7 +217,7 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
         description="Parameter codes published here (e.g. Temp-Water, Elev). Empty for ghosts.",
     )
     publishers: list[str] = Field(default_factory=list)
-    last_data_timestamp: str | None = None
+    last_data_timestamp: str | None = Field(default=None, description=_LAST_DATA_DESC)
     co_located: list[str] = Field(default_factory=list)
     data_at: list[str] = Field(
         default_factory=list,
@@ -364,7 +367,7 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     parameter_count: int
     publishers: list[PublisherFingerprint]
     ts_ids: list[str]
-    last_data_timestamp: str | None = None
+    last_data_timestamp: str | None = Field(default=None, description=_LAST_DATA_DESC)
     data_at: list[str] | None = Field(
         default=None,
         description=(
@@ -418,7 +421,7 @@ class ListParametersResponse(CompactDumpMixin, BaseModel):
     ts_count: int
     by_publisher: list[PublisherAtPlace]
     all_parameters: list[str]
-    last_data_timestamp: str | None = None
+    last_data_timestamp: str | None = Field(default=None, description=_LAST_DATA_DESC)
     data_at: list[str] | None = Field(
         default=None,
         description=(
@@ -780,12 +783,27 @@ class OfficeRecord(CompactDumpMixin, BaseModel):
     reports_to: str | None = None
 
 
+class RegionHint(CompactDumpMixin, BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    office: str
+    region: str
+    examples: list[str]
+
+
 class OfficesGuidance(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     nw_regional_rollup: str
     nw_district_stubs: list[str]
     nw_rollup_targets: dict[str, str]
+    region_hints: list[RegionHint] = Field(
+        default_factory=list,
+        description=(
+            "Static region → office hints with example catalog ids; a starting "
+            "point, not the full directory."
+        ),
+    )
 
 
 class OfficesResponse(CompactDumpMixin, BaseModel):

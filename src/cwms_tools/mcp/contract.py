@@ -30,7 +30,7 @@ import concurrent.futures
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from cwms_tools.core import fingerprint
+from cwms_tools.core import fingerprint, offices
 from cwms_tools.mcp.resources import RESOURCE_INVENTORY, TOOL_ERROR_CODES
 
 if TYPE_CHECKING:
@@ -179,6 +179,7 @@ def canonical_fingerprint() -> str:
         },
         capability_contract=capability_contract_payload(),
         server_instructions=server_instructions(),
+        office_guidance=offices.static_guidance(),
     )
 
 

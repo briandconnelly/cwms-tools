@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   browse (#170). The sibling lookup needs the office location catalog; if it
   fails the describe still succeeds, with `data_at` null, `partial: true` and a
   `data_at_lookup_failed: <code>` reason.
+- `cwms://offices` and `cwms-tools offices` carry `region_hints` (region ->
+  office, with example catalog ids verified as data-bearing, e.g. FTPK, BON,
+  FOSS); the static office guidance is now a fingerprint input (#171).
 
 ### Fixed
 
@@ -140,6 +143,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fingerprint input (#172).
 - Unifying the success-side `repair_hint` shape with the error `repair` shape is
   deferred to 0.9.0 as a breaking change (#177).
+- Server `instructions` and `cwms://capabilities` (`first_call`) state the
+  first-call contract: office code + case-sensitive catalog name for the
+  place-specific tools (`first_call.applies_to`), the looser discovery
+  prerequisites (`cwms_search_places` needs only `query`), case-sensitive
+  parameter codes, the typical tool chain, the one-shot path, and that there are
+  no forecasts (#171). The README and `place` CLI help no longer call the
+  catalog last-data hint "freshness" (#166).
+- `with_status` / `--with-status` describe the measured cost (one /levels
+  listing plus one read per level; ~1.5 s observed on SWT/FOSS, big offices
+  often hit the cap) and the timeout behavior (8 s budget; the value is still returned with
+  `level_lookup_status: 'timed_out'` and no thresholds) instead of "often times
+  out" (#165). The capabilities `error_handling.timed_out_retry` note says a
+  long-lived MCP server keeps the lookup running and caches the levels listing
+  ~24 h, so a later `with_status` call often classifies; a one-shot CLI does not.
+- `last_data_timestamp` is described as the CDA catalog extent (`latest-time`,
+  else `last-update`), which can lag live data by weeks or be null; `cwms_get_value` is the
+  freshness source. Field name unchanged (#166).
+- Capability fingerprint moves (prose and the new `region_hints` field).
 
 ## [0.8.0] - 2026-10-12
 

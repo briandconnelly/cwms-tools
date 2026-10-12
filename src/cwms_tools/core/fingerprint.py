@@ -22,6 +22,8 @@ A stable SHA-256 over the inputs documented in the plan's §Discovery contract:
     input/output schemas)
 12. The `cwms://overview` index section summaries (agent-visible prose derived
     from the bundled document by `overview.all_sections()`, read at call time)
+13. The static `cwms://offices` guidance (`offices.static_guidance()`: NW rollup
+    prose and `region_hints`) — editing it changes what an agent does next
 
 Exposed as `fingerprint` (hex) and `fingerprint_scope: "schema-contract"` — the
 scope name predates #71 and is kept for backward compatibility, but the hash
@@ -71,6 +73,7 @@ def compute(
     runtime_baseline: dict[str, Any] | None = None,
     capability_contract: dict[str, Any] | None = None,
     server_instructions: str | None = None,
+    office_guidance: dict[str, Any] | None = None,
 ) -> str:
     """Compute the capability fingerprint over the current server surface.
 
@@ -93,6 +96,8 @@ def compute(
             omitted, an empty dict is used.
         server_instructions: The FastMCP server's `instructions` string (#71).
             When omitted, an empty string is used.
+        office_guidance: The static `cwms://offices` guidance block (#171), as
+            returned by `offices.static_guidance()`. When omitted, an empty dict.
     """
     payload = {
         "cwms_tools": _cwms_tools_version(),
@@ -103,6 +108,7 @@ def compute(
         "runtime_baseline": runtime_baseline or {},
         "capability_contract": capability_contract or {},
         "server_instructions": server_instructions or "",
+        "office_guidance": office_guidance or {},
         "error_codes": sorted(c.value for c in ErrorCode),
         "overview_sha256": overview.document_sha256(),
         "overview_summaries": {s.section_id: s.summary for s in overview.all_sections()},

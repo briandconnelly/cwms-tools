@@ -226,8 +226,7 @@ def register_place_tools(mcp: FastMCP) -> None:
         `cwms_describe_place`, `cwms_list_parameters`, or `cwms_get_value`/
         `cwms_get_history` instead.
 
-        Data-bearing records sort first; each carries `data_at` co-located
-        repair hints when it's a ghost.
+        Data-bearing records sort first; ghosts carry `data_at` hints.
         """
         if limit < 0:
             return error_ref(_negative_limit_error(limit))
@@ -377,8 +376,8 @@ def register_place_tools(mcp: FastMCP) -> None:
     ) -> BrowseRegionResponse | ErrorRef:
         """Browse the locations published by one office, optionally filtered.
 
-        Same enriched per-place records as `cwms_search_places` (including
-        `data_at`), with `result_count`/`ghost_count`/`total_count` totals.
+        Same enriched per-place records as `cwms_search_places`, with
+        `result_count`/`ghost_count`/`total_count` totals.
         The bounding-box filter requires all four corners or none.
         """
         bbox: BBox | None = None
@@ -459,19 +458,16 @@ def register_value_tools(mcp: FastMCP) -> None:
         unit: Annotated[Literal["EN", "SI"], _UNIT_HINT] = "EN",
         with_status: Annotated[
             bool,
-            "Classify against CWMS Location Levels. OFF by default (slow, "
-            "often times out on cold cache); `level_lookup_status` reports "
-            "what happened either way.",
+            "Classify vs Location Levels (~1.5 s on SWT/FOSS; big offices often "
+            "hit the 8 s cap: value kept, level_lookup_status 'timed_out').",
         ] = False,
         detail: Detail = Detail.SUMMARY,
     ) -> ValueWithContextResponse | ErrorRef:
         """Latest observation for a parameter at a place.
 
-        Value-only and fast by default; `with_status=true` also classifies
-        against thresholds but is slow and often times out.
-
-        Auto-selects the canonical timeseries id. On successful
-        classification, carries `status_class` and `thresholds_active`.
+        Value-only and fast by default; `with_status=true` adds a
+        threshold lookup (value kept on timeout) and carries `status_class`/
+        `thresholds_active`. Auto-selects the canonical timeseries id.
         """
         raw = await _safe(
             values.get_value,
