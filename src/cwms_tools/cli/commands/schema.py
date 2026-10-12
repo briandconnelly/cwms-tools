@@ -375,9 +375,11 @@ def _commands() -> list[dict[str, Any]]:
                     default="raw",
                     enum=["raw", "hourly", "daily"],
                     help=(
-                        "'raw' returns every point (server-side 5,000-point cap); "
-                        "'hourly'/'daily' return per-bucket min/max/mean/count and "
-                        "are not subject to that cap."
+                        "'raw' returns every point (server-side 5,000-point cap; "
+                        "30 days of 15-minute data is ~2,900 points). For windows "
+                        "longer than about two days use 'hourly'/'daily': per-bucket "
+                        "min/max/mean/count, not subject to that cap. `summary` is "
+                        "always present regardless of rollup."
                     ),
                 ),
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),

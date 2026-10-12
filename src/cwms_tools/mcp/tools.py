@@ -523,9 +523,12 @@ def register_value_tools(mcp: FastMCP) -> None:
         unit: Annotated[Literal["EN", "SI"], _UNIT_HINT] = "EN",
         rollup: Annotated[
             Rollup,
-            "Downsample: 'raw' (default) or 'hourly'/'daily' (per-bucket "
-            "aggregates in `buckets`, exempt from the local raw-point cap — "
-            "but the upstream fetch cap can still apply; see `truncated`).",
+            "Downsample. 'raw' (default) returns every point and is capped at "
+            "5,000 (30 days of 15-minute data is ~2,900 points, ~220 KB); for "
+            "windows longer than about two days use 'hourly' or 'daily' — "
+            "per-bucket min/max/mean/count in `buckets`, exempt from the raw "
+            "cap (the upstream fetch cap can still apply; see `truncated`). "
+            "`summary` is always present whatever the rollup.",
         ] = Rollup.RAW,
         detail: Detail = Detail.SUMMARY,
     ) -> HistoryResponse | ErrorRef:
@@ -534,8 +537,12 @@ def register_value_tools(mcp: FastMCP) -> None:
         For a value series over time; for latest value + status, use
         `cwms_get_value` instead (cheaper).
 
-        Read `summary` for "how has X changed", or `rollup='hourly'`/`'daily'`
-        for compact aggregates. If `truncated`, check `truncation_hint`: a
+        Read `summary` for "how has X changed". For windows longer than about
+        two days use `rollup='hourly'` or `'daily'`: `'raw'` returns every point
+        up to a 5,000-point cap (30 days of 15-minute data is ~2,900 points,
+        ~220 KB), while the rollups return per-bucket aggregates in `buckets`
+        that are exempt from that cap. `summary` is always present whatever the
+        rollup. If `truncated`, check `truncation_hint`: a
         local raw-point cap still covers the full window (rollup gives a
         complete summary), but an upstream fetch cap means `summary`/
         `buckets` cover only the fetched prefix — continue via `next_begin`

@@ -596,8 +596,10 @@ class HistoryResponse(CompactDumpMixin, BaseModel):
     end: str
     rollup: Rollup = Field(
         description=(
-            "Applied downsample: 'raw' (points in `values`, capped — see "
-            "`truncated`) or 'hourly'/'daily' (aggregates in `buckets`)."
+            "The applied rollup; the server never changes it. 'raw' (points in "
+            "`values`, capped at 5,000 — see `truncated`) or 'hourly'/'daily' "
+            "(aggregates in `buckets`; use these for windows longer than about "
+            "two days)."
         ),
     )
     summary: HistorySummary | None = Field(

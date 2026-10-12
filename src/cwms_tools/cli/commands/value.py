@@ -238,11 +238,12 @@ def history(
             "--rollup",
             help=(
                 "'raw' returns every point, up to a server-side cap (currently "
-                "5,000 — see `truncated`); 'hourly'/'daily' return per-bucket "
-                "min/max/mean/count (UTC buckets) for compact trends and are not "
-                "subject to that cap. The `summary` key is always present "
-                "regardless of rollup (null only when the window has no numeric "
-                "observations)."
+                "5,000 — see `truncated`; 30 days of 15-minute data is ~2,900 "
+                "points, ~220 KB). For windows longer than about two days use "
+                "'hourly'/'daily', which return per-bucket min/max/mean/count "
+                "(UTC buckets) and are not subject to that cap. The `summary` "
+                "key is always present regardless of rollup (null only when the "
+                "window has no numeric observations)."
             ),
         ),
     ] = Rollup.RAW,
