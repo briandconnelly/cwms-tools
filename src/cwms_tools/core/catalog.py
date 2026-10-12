@@ -14,6 +14,7 @@ front of both. Live CDA hits go through `core.session` for the User-Agent
 
 from __future__ import annotations
 
+import difflib
 import re
 from typing import Any
 from urllib.parse import quote
@@ -22,6 +23,7 @@ import cwms.catalog.catalog as catalog_api
 
 from cwms_tools.core import publishers
 from cwms_tools.core.cache import build_cache_key, get_cache
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint, RepairIntent
 from cwms_tools.core.geo import GeoPoint, co_located
 from cwms_tools.core.offices import NW_STUBS, ghost_office_error
 from cwms_tools.core.session import current_config
@@ -450,12 +452,158 @@ def _to_geopoint(row: dict[str, Any]) -> GeoPoint | None:
     return GeoPoint(office_id=office, name=name, latitude=float(lat), longitude=float(lon))
 
 
+def sibling_data_at(
+    siblings: list[str],
+    by_name: dict[str, dict[str, Any]],
+    parameter: str | None = None,
+) -> list[str]:
+    """Filter `siblings` to those that publish data (and `parameter`, when set); sorted.
+
+    The one sibling predicate shared by search/browse/describe/list_parameters
+    and the value tools' ghost repair (#96) — moved here from `places` so it
+    cannot fork (#45/#55/#56).
+    """
+    out: list[str] = []
+    for s in siblings:
+        info = by_name.get(s)
+        if not info or info.get("parameter_count", 0) <= 0:
+            continue
+        if parameter is not None and parameter not in (info.get("parameters") or []):
+            continue
+        out.append(s)
+    return sorted(out)
+
+
+def data_bearing_siblings(
+    office_id: str,
+    name: str,
+    *,
+    parameter: str | None = None,
+    use_cache: bool = True,
+) -> list[str]:
+    """Co-located siblings of `name` that publish data (optionally `parameter`).
+
+    `[]` when `name` is not in the office catalog or no sibling publishes —
+    callers that need to tell those apart check `location_catalog_row` first.
+    """
+    enriched = enrich_locations(office_id, use_cache=use_cache)
+    by_name = {r["name"]: r for r in enriched}
+    target = by_name.get(name)
+    if target is None:
+        return []
+    return sibling_data_at(target.get("co_located") or [], by_name, parameter)
+
+
+def location_catalog_row(
+    office_id: str, name: str, *, use_cache: bool = True
+) -> dict[str, Any] | None:
+    """The exact-name (case-sensitive) locations-catalog row, or None if absent."""
+    payload = get_locations_catalog(office_id, use_cache=use_cache)
+    for row in _iter_location_entries(payload):
+        if (row.get("name") or row.get("location-id")) == name:
+            return row
+    return None
+
+
+def suggest_location(
+    office_id: str, name: str, *, use_cache: bool = True
+) -> tuple[str | None, list[str]]:
+    """`(exact_ci_match, fuzzy)`: the catalog id whose id/public/long name equals
+    `name` case-insensitively, else up to three fuzzy candidates (#163).
+
+    Fuzzy = difflib close matches over every label (cutoff 0.6) plus labels
+    whose first word equals the query's first word ("Foss Lake" → FOSS via
+    "Foss Reservoir"). Pure string matching: no regex is built from `name`.
+    """
+    rows = _dedupe_rows_by_name(
+        list(_iter_location_entries(get_locations_catalog(office_id, use_cache=use_cache)))
+    )
+    folded = name.casefold().strip()
+    ids: dict[str, str] = {}  # casefolded catalog id -> catalog id
+    aliases: dict[str, list[str]] = {}  # casefolded public/long name -> catalog ids
+    for row in rows:
+        catalog_id = row.get("name") or row.get("location-id")
+        if not isinstance(catalog_id, str):
+            continue
+        ids.setdefault(catalog_id.casefold(), catalog_id)
+        for label in (row.get("public-name"), row.get("long-name")):
+            if isinstance(label, str) and label:
+                bucket = aliases.setdefault(label.casefold(), [])
+                if catalog_id not in bucket:
+                    bucket.append(catalog_id)
+    # A catalog id beats an alias; an alias is a repairable match only when it
+    # names exactly one record — two "Shared" public names must not become an
+    # arbitrary same-tool retry (Codex review). Ambiguous aliases become fuzzy
+    # candidates for discovery instead.
+    if folded in ids:
+        return ids[folded], []
+    alias_hits = aliases.get(folded, [])
+    if len(alias_hits) == 1:
+        return alias_hits[0], []
+    fuzzy: list[str] = list(alias_hits)
+    labels: dict[str, str] = {**ids, **{k: v[0] for k, v in aliases.items()}}
+    for key in difflib.get_close_matches(folded, list(labels), n=5, cutoff=0.6):
+        if labels[key] not in fuzzy:
+            fuzzy.append(labels[key])
+    first = folded.split(" ", 1)[0]
+    if len(first) >= 3:
+        for key, catalog_id in labels.items():
+            if key.split(" ", 1)[0] == first and catalog_id not in fuzzy:
+                fuzzy.append(catalog_id)
+    return None, fuzzy[:3]
+
+
+def location_not_found_error(
+    office_id: str, name: str, *, use_cache: bool = True
+) -> CwmsToolsError:
+    """`not_found{field:"name"}` for a name absent from the office catalog (#163).
+
+    Distinct from a ghost: the record does not exist at all. Carries a
+    case-insensitive suggestion as a same-tool `RepairIntent` when unique, and
+    always a generic `cwms_search_places` repair.
+    """
+    exact, fuzzy = suggest_location(office_id, name, use_cache=use_cache)
+    search = RepairHint(
+        next_step="resolve_name_with_search",
+        tool="cwms_search_places",
+        arguments={"query": name, "office": office_id},
+    )
+    base = (
+        "Location ids are case-sensitive catalog ids (e.g. FOSS, not 'Foss' or "
+        "'Foss Lake'); resolve them with cwms_search_places."
+    )
+    if exact is not None:
+        return CwmsToolsError.of(
+            ErrorCode.NOT_FOUND,
+            f"No location {name!r} in office {office_id}; did you mean {exact!r}?",
+            field="name",
+            value=name,
+            reason=f"{base} {exact!r} matches case-insensitively; retry with name={exact!r}.",
+            repair=search,
+            repair_intent=RepairIntent("retry_with_catalog_id", {"name": exact}),
+        )
+    hint = f" Similar catalog ids: {', '.join(fuzzy)}." if fuzzy else ""
+    return CwmsToolsError.of(
+        ErrorCode.NOT_FOUND,
+        f"No location {name!r} in office {office_id}.",
+        field="name",
+        value=name,
+        reason=f"{base}{hint}",
+        repair=search,
+    )
+
+
 __all__ = [
+    "data_bearing_siblings",
     "enrich_locations",
     "freshness_for_location",
     "get_locations_catalog",
     "get_timeseries_catalog",
     "location_catalog_cached",
+    "location_catalog_row",
+    "location_not_found_error",
+    "sibling_data_at",
+    "suggest_location",
     "ts_catalog_cached",
     "ts_ids_for_location",
 ]

@@ -597,3 +597,152 @@ def test_location_catalog_cached_flips_after_get_locations_catalog(configured, m
     assert catalog.location_catalog_cached("SWT") is True
     assert catalog.location_catalog_cached("SWT", like="FOSS") is False
     assert catalog.location_catalog_cached("MVS") is False
+
+
+SUGGEST_LOCATIONS = {
+    "locations": [
+        {
+            "office-id": "SWT",
+            "name": "FOSS",
+            "public-name": "Foss Reservoir",
+            "latitude": 35.55,
+            "longitude": -98.97,
+        },
+        {
+            "office-id": "SWT",
+            "name": "ARBU",
+            "public-name": "Arbuckle Lake",
+            "latitude": 34.4,
+            "longitude": -97.0,
+        },
+        {
+            "office-id": "SWT",
+            "name": "UBLW_S1-D21,0ft",
+            "public-name": None,
+            "latitude": 47.6,
+            "longitude": -122.3,
+        },
+    ]
+}
+
+
+def _arm_suggest(mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=SUGGEST_LOCATIONS, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+
+
+def test_location_catalog_row_is_exact_and_case_sensitive(configured, mocked) -> None:
+    _arm_suggest(mocked)
+    row = catalog.location_catalog_row("SWT", "FOSS")
+    assert row is not None and row["public-name"] == "Foss Reservoir"
+    assert catalog.location_catalog_row("SWT", "Foss") is None
+
+
+@pytest.mark.parametrize(
+    ("query", "exact", "fuzzy_contains"),
+    [
+        ("Foss", "FOSS", []),  # case-insensitive id
+        ("foss reservoir", "FOSS", []),  # case-insensitive public name
+        ("Foss Lake", None, ["FOSS"]),  # not a ci match; fuzzy by first word
+        ("Arbuckle", None, ["ARBU"]),
+        ("Zzzz", None, []),
+    ],
+)
+def test_suggest_location(configured, mocked, query, exact, fuzzy_contains) -> None:
+    _arm_suggest(mocked)
+    got_exact, fuzzy = catalog.suggest_location("SWT", query)
+    assert got_exact == exact
+    for name in fuzzy_contains:
+        assert name in fuzzy
+
+
+def test_suggest_location_ambiguous_alias_is_not_an_exact_match(configured, mocked) -> None:
+    rows = {
+        "locations": [
+            {
+                "office-id": "SWT",
+                "name": "A",
+                "public-name": "Shared",
+                "latitude": 1.0,
+                "longitude": 1.0,
+            },
+            {
+                "office-id": "SWT",
+                "name": "B",
+                "public-name": "Shared",
+                "latitude": 2.0,
+                "longitude": 2.0,
+            },
+            {
+                "office-id": "SWT",
+                "name": "SHARED",
+                "public-name": "Other",
+                "latitude": 3.0,
+                "longitude": 3.0,
+            },
+        ]
+    }
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=rows, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    # The catalog id wins over the alias when both match.
+    assert catalog.suggest_location("SWT", "shared") == ("SHARED", [])
+    rows["locations"].pop()  # no id match: the alias is ambiguous → candidates only
+    mocked.replace(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=rows, status=200)
+    assert catalog.suggest_location("SWT", "shared", use_cache=False) == (None, ["A", "B"])
+
+
+def test_suggest_location_handles_comma_and_regex_names(configured, mocked) -> None:
+    """Review focus #1: ids with commas/regex metacharacters flow through the
+    matcher untouched (no regex is built from the query here)."""
+    _arm_suggest(mocked)
+    assert catalog.suggest_location("SWT", "ublw_s1-d21,0ft") == ("UBLW_S1-D21,0ft", [])
+    assert catalog.suggest_location("SWT", "(.*)") == (None, [])
+
+
+def test_location_not_found_error_carries_suggestion_and_intent(configured, mocked) -> None:
+    _arm_suggest(mocked)
+    err = catalog.location_not_found_error("SWT", "Foss")
+    env = err.envelope
+    assert env.code is ErrorCode.NOT_FOUND
+    assert env.details is not None and env.details.field == "name" and env.details.value == "Foss"
+    assert "did you mean 'FOSS'" in env.message
+    assert env.repair is not None and env.repair.tool == "cwms_search_places"
+    assert env.repair.arguments == {"query": "Foss", "office": "SWT"}
+    assert err.repair_intent is not None and err.repair_intent.overrides == {"name": "FOSS"}
+    fuzzy_only = catalog.location_not_found_error("SWT", "Foss Lake")
+    assert fuzzy_only.repair_intent is None
+    assert fuzzy_only.envelope.details is not None
+    assert "FOSS" in (fuzzy_only.envelope.details.reason or "")
+
+
+def test_data_bearing_siblings_filters_by_parameter(configured, mocked) -> None:
+    rows = {
+        "locations": [
+            {"office-id": "NWDP", "name": "GWLW", "latitude": 47.65, "longitude": -122.33},
+            {
+                "office-id": "NWDP",
+                "name": "GWLW_S1-D3,0ft",
+                "latitude": 47.6501,
+                "longitude": -122.33,
+            },
+            {
+                "office-id": "NWDP",
+                "name": "GWLW_S1-D13,0ft",
+                "latitude": 47.6502,
+                "longitude": -122.33,
+            },
+        ]
+    }
+    ts = {
+        "entries": [
+            {"name": "GWLW_S1-D3,0ft.Temp-Water.Inst.1Hour.0.IRIDIUM-REV"},
+            {"name": "GWLW_S1-D13,0ft.Conc-DissolvedOxygen.Inst.1Hour.0.IRIDIUM-REV"},
+        ]
+    }
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=rows, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=ts, status=200)
+    assert catalog.data_bearing_siblings("NWDP", "GWLW") == ["GWLW_S1-D13,0ft", "GWLW_S1-D3,0ft"]
+    assert catalog.data_bearing_siblings("NWDP", "GWLW", parameter="Temp-Water") == [
+        "GWLW_S1-D3,0ft"
+    ]
+    assert catalog.data_bearing_siblings("NWDP", "NOPE") == []

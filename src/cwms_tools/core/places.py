@@ -541,12 +541,12 @@ def _apply_parameter_filter(
         office_id = row["office_id"]
         in_office_by_name = by_office[office_id]
         siblings = row.get("co_located") or []
-        data_at = _sibling_data_at(siblings, in_office_by_name, parameter)
+        data_at = catalog.sibling_data_at(siblings, in_office_by_name, parameter)
         if not data_at and row.get("parameter_count", 0) == 0:
             broader_by_name = broader(office_id)
             target = broader_by_name.get(row["name"])
             broader_siblings = (target or {}).get("co_located") or siblings
-            data_at = _sibling_data_at(broader_siblings, broader_by_name, parameter)
+            data_at = catalog.sibling_data_at(broader_siblings, broader_by_name, parameter)
         row["data_at"] = data_at if row.get("parameter_count", 0) == 0 else []
 
     kept: list[dict[str, Any]] = []
@@ -623,27 +623,6 @@ def _append_unique_promotions(
             continue
         kept.append(sibling)
         kept_keys.add(key)
-
-
-def _sibling_data_at(
-    siblings: list[str],
-    by_name: dict[str, dict[str, Any]],
-    parameter: str | None = None,
-) -> list[str]:
-    """Shared predicate: filter siblings to those that publish data.
-
-    When `parameter` is set, further filter to siblings that publish that
-    specific parameter. Stable ordering so snapshot tests don't churn.
-    """
-    out: list[str] = []
-    for s in siblings:
-        info = by_name.get(s)
-        if not info or info.get("parameter_count", 0) <= 0:
-            continue
-        if parameter is not None and parameter not in (info.get("parameters") or []):
-            continue
-        out.append(s)
-    return sorted(out)
 
 
 def describe_place(
@@ -738,32 +717,10 @@ def list_parameters(
         ],
         "all_parameters": sorted(publishers.parameter_counts(ts_ids).keys()),
         "last_data_timestamp": freshness,
-        "data_at": _data_at_for_location(office, name, use_cache=use_cache) if not ts_ids else None,
+        "data_at": catalog.data_bearing_siblings(office, name, use_cache=use_cache)
+        if not ts_ids
+        else None,
     }
-
-
-def _data_at_for_location(
-    office: str,
-    name: str,
-    *,
-    use_cache: bool,
-) -> list[str]:
-    """Find data-bearing co-located siblings for a single named location.
-
-    Used by `list_parameters` when the requested location is barren. Pulls
-    the unfiltered enriched office catalog (cached) and applies the shared
-    `_sibling_data_at` predicate. Returns an empty list when no sibling has
-    data or when the location isn't in the office catalog at all.
-    """
-    enriched = catalog.enrich_locations(office, use_cache=use_cache)
-    target = next((r for r in enriched if r["name"] == name), None)
-    if target is None:
-        return []
-    siblings = target.get("co_located") or []
-    if not siblings:
-        return []
-    by_name = {r["name"]: r for r in enriched}
-    return _sibling_data_at(siblings, by_name)
 
 
 def browse_region(
@@ -857,7 +814,7 @@ def browse_region(
     def _data_at(row: dict[str, Any]) -> list[str]:
         if row.get("parameter_count", 0) != 0:
             return []
-        return _sibling_data_at(row.get("co_located") or [], by_name)
+        return catalog.sibling_data_at(row.get("co_located") or [], by_name)
 
     # Drop the verbose `raw` field for region browse responses — agents asking
     # for a region overview don't need every per-row DTO. They can fetch
