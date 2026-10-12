@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `cwms_browse_region` cursor minted while the office directory was
   unavailable (`swt` passed through) now validates once the directory recovers
   and the office arrives as `SWT`.
-- `cwms_search_places`, `cwms_browse_region`, `cwms_describe_place`,
+- `cwms_search_places`, `cwms_browse_region`,
   `cwms_list_parameters`, `cwms_get_profile` (and the CLI twins) no longer spend
   minutes on large offices: co-located siblings are now found with a one-pass
   spatial index instead of a pairwise O(N²) scan. Measured on NWDM (10,527

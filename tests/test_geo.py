@@ -153,3 +153,26 @@ def test_co_located_index_zero_radius_matches_brute_force() -> None:
     idx = geo.co_located_index(pts, radius_m=0.0)
     assert idx == _brute(pts, 0.0)
     assert idx[("X", "A")] == [pts[1]]
+
+
+def test_co_located_index_nan_radius_matches_pairwise() -> None:
+    # 10 m apart; NaN compares false everywhere, so nothing is a sibling.
+    pts = [
+        geo.GeoPoint("X", "A", 39.633, -105.293),
+        geo.GeoPoint("X", "B", 39.633, -105.293 + 0.000117),
+    ]
+    idx = geo.co_located_index(pts, radius_m=float("nan"))
+    assert idx == _brute(pts, float("nan"))
+    assert all(v == [] for v in idx.values())
+    assert set(idx) == {("X", "A"), ("X", "B")}
+
+
+def test_co_located_index_infinite_radius_matches_pairwise() -> None:
+    pts = [
+        geo.GeoPoint("X", "A", 39.633, -105.293),
+        geo.GeoPoint("X", "B", 39.633, -105.293 + 0.000117),
+        geo.GeoPoint("Y", "C", -33.0, 151.0),
+    ]
+    idx = geo.co_located_index(pts, radius_m=float("inf"))
+    assert idx == _brute(pts, float("inf"))
+    assert idx[("X", "A")] == [pts[1], pts[2]]

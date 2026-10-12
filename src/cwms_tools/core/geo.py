@@ -118,13 +118,17 @@ def co_located_index(
 
     Points are hashed into a cubic grid over ECEF coordinates with cell size
     `radius_m` (floored at 1e-9 m so a zero radius still buckets and the exact
-    haversine test decides). The chord between two points is never longer than their
+    haversine test decides; a NaN radius matches nothing, so every entry is
+    empty, as in the pairwise form). The chord between two points is never longer than their
     great-circle distance, so any pair within `radius_m` along the surface is
     within `radius_m` on every axis and lands in the same or an adjacent cell.
     Only those 27 cells are compared, then the exact haversine test runs as
     before. A degree grid was rejected because its longitude cells shrink
     with latitude; this hash has no latitude, antimeridian, or pole cases.
     """
+    if math.isnan(radius_m):
+        # Every comparison with NaN is false, so no pair matches (as in `co_located`).
+        return {(p.office_id, p.name): [] for p in points}
     cell = max(float(radius_m), 1e-9)
     keys: list[tuple[int, int, int]] = []
     buckets: dict[tuple[int, int, int], list[int]] = {}
