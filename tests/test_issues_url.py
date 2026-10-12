@@ -9,6 +9,7 @@ drift, and check the guidance tells an agent what is *not* a cwms-tools defect.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tomllib
 from pathlib import Path
@@ -17,8 +18,10 @@ from typer.testing import CliRunner
 
 from cwms_tools import ISSUES_URL
 from cwms_tools.cli.app import app
+from cwms_tools.cli.commands.schema import cli_contract_payload
 from cwms_tools.mcp.contract import server_instructions
 from cwms_tools.mcp.resources import capabilities_payload, capability_contract_payload
+from cwms_tools.mcp.server import build_server
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -66,3 +69,29 @@ def test_cli_schema_carries_issues_url() -> None:
     result = CliRunner().invoke(app, ["schema"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["issues_url"] == ISSUES_URL
+
+
+def test_cli_contract_fingerprints_issues_url() -> None:
+    """Copilot review of #156: the CLI field must sit inside the fingerprinted
+    CLI contract subset, so dropping or renaming it moves the fingerprint like
+    any other agent-visible surface change."""
+    assert cli_contract_payload()["issues_url"] == ISSUES_URL
+
+
+def test_capabilities_resource_read_carries_issues_url() -> None:
+    """What an MCP client sees on `resources/read cwms://capabilities`, through
+    the live FastMCP server rather than the payload function."""
+
+    async def go() -> dict:
+        result = await build_server().read_resource("cwms://capabilities")
+        (item,) = result.contents
+        return json.loads(item.content)
+
+    payload = asyncio.run(go())
+    assert payload["issues_url"] == ISSUES_URL
+    assert "upstream_error" in payload["issue_reporting"]
+
+
+def test_built_server_instructions_carry_issues_url() -> None:
+    """What an MCP client sees in the `initialize` result's `instructions`."""
+    assert ISSUES_URL in (build_server().instructions or "")

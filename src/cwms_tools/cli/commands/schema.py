@@ -405,6 +405,9 @@ def cli_contract_payload() -> dict[str, Any]:
         "commands": _commands(),
         "exit_codes": _exit_codes(),
         "machine_profile": _machine_profile(),
+        # Agent-visible like the exit map: dropping or renaming it must move
+        # the fingerprint (Copilot review of #156).
+        "issues_url": ISSUES_URL,
     }
 
 
@@ -421,7 +424,7 @@ def _schema_payload() -> dict[str, Any]:
         "mcp_tools": TOOL_INVENTORY,
         "mcp_resources": RESOURCE_INVENTORY,
         "machine_profile": contract["machine_profile"],
-        "issues_url": ISSUES_URL,
+        "issues_url": contract["issues_url"],
     }
 
 
