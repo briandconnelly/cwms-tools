@@ -84,6 +84,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented namespace TTLs (e.g. 6 h for the location catalog) were enforced
   only after a restart. In-memory entries now carry the same expiry as the
   on-disk cache.
+- CLI tool output now matches its MCP counterpart field for field (#143).
+  `region browse`, `place search`, `place describe`, `place parameters`,
+  `value get`, `value history`, `value profile`, and `publisher
+  for-parameter` printed `null` for unset fields, such as `bbox`, `state`,
+  and `next_cursor`, and per-row `public_name`, `depth`, and
+  `last_data_timestamp`, where the MCP tools omit them. They also left out
+  fields that MCP fills with a default, such as an empty `data_at` list. The
+  CLI now serializes through the same response models as MCP, so it drops
+  the same fields, fills the same defaults, and prints numbers with the same
+  declared types (e.g. a float-typed `20` prints as `20.0`). Nulls that carry meaning are
+  kept on both surfaces, such as a missing reading's `value`/`timestamp` and
+  history's `summary`. So are nulls inside upstream records passed through
+  verbatim (`location`, `project`, `raw`).
 
 ## [0.7.0] - 2026-09-15
 
