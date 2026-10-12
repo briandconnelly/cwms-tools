@@ -184,6 +184,7 @@ def test_list_levels_failure_is_bounded(configured, monkeypatch, exc) -> None:
         levels.list_levels("SWT", level_id_mask="FOSS.Elev.*", use_cache=False)
     env = info.value.envelope
     assert env.code is ErrorCode.UPSTREAM_ERROR
+    assert env.temporary is True
     assert env.source.endpoints_called == ["/levels"]
     assert "FOSS.Elev.*" in env.message
     assert info.value.__cause__ is exc
@@ -199,7 +200,8 @@ def test_fetch_level_value_failure_is_bounded(configured, monkeypatch) -> None:
         )
     env = info.value.envelope
     assert env.code is ErrorCode.UPSTREAM_ERROR
-    assert "HTTP 500" in env.message
+    assert env.temporary is True
+    assert "500" in env.message
     assert info.value.__cause__ is exc
     _assert_no_leak(env.message)
 
@@ -216,9 +218,10 @@ def test_seasonal_workaround_failure_is_bounded(configured, monkeypatch) -> None
             level_payload={},
         )
     env = info.value.envelope
-    assert env.code is ErrorCode.WRAPPER_BUG
+    assert env.code is ErrorCode.UPSTREAM_ERROR
+    assert env.temporary is True
     assert env.source.workaround == "issue-286"
-    assert "HTTP 502" in env.message
+    assert "502" in env.message
     assert info.value.__cause__ is exc
     _assert_no_leak(env.message)
     _assert_no_leak(json.dumps(env.model_dump(mode="json")))

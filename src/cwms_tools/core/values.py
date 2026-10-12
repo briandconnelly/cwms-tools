@@ -553,7 +553,7 @@ def _resolve_thresholds(
     now = datetime.now(tz=UTC)
     try:
         rows = levels.list_levels(office, location=location, parameter=parameter)
-    except Exception:
+    except CwmsToolsError:
         return [], "unknown"
 
     candidates: list[dict[str, Any]] = []
@@ -568,7 +568,7 @@ def _resolve_thresholds(
             level_value = levels.fetch_level_value(
                 level_id, office=office, effective_date=eff_dt, unit=unit
             )
-        except Exception:
+        except CwmsToolsError:
             continue
         value = level_value.get("value")
         if not isinstance(value, (int, float)):

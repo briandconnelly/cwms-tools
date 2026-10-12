@@ -273,6 +273,7 @@ def test_seasonal_workaround_empty_body_raises(configured, mocked, status) -> No
     _assert_empty_collection(
         ex_info, endpoint=f"/levels/{LEVEL_ID}/timeseries", field="level_id", value=LEVEL_ID
     )
+    assert ex_info.value.envelope.source.workaround == "issue-286"
 
     # Control: a real empty window is still a value-less seasonal result.
     result = levels.fetch_level_value(LEVEL_ID, office="SWT", effective_date=at)
