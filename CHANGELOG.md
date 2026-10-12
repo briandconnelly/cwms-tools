@@ -83,8 +83,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `watch` for a pool inside its conservation zone. The class is now the most
   severe recognized zone among crossed levels (flood > action > watch >
   nominal; floor-type levels such as Top of Inactive or Streambed count as
-  nominal; conservation ceilings as watch), never the alphabetically-last
-  name. Each `thresholds_active` row carries its `zone`. With no levels
+  nominal; conservation ceilings and flood-pool bases such as Base of Flood
+  Control as watch; `unknown` when an unrecognized level above the highest
+  crossed floor is also crossed), never the alphabetically-last
+  name. Each `thresholds_active` row carries its `zone` (omitted for an
+  unrecognized name). With no levels
   defined the class is `unknown` with `level_lookup_status: unavailable`
   (was `nominal`). Duplicate rows are gone: one applicable revision per
   level id (CDA lists every historical revision). Seasonal levels are now

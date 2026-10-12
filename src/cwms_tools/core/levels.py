@@ -14,7 +14,8 @@ either null or > window start.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import re
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -115,6 +116,8 @@ def applicable_revisions(rows: list[dict[str, Any]], *, at: datetime) -> list[di
     a 1900 and a 1961 row for most ids). Keep, per id, the latest `level-date`
     <= `at` whose `expiration-date` is null or > `at`. Undated rows are
     skipped; equal dates keep listing order; output keeps first-seen id order.
+    If the newest revision has expired, an older unexpired revision is kept
+    (CWMS may have superseded it); known limitation.
     """
     best: dict[str, tuple[datetime, dict[str, Any]]] = {}
     order: list[str] = []
@@ -212,10 +215,13 @@ def fetch_level_value(
     }
 
 
-# Vocabulary -> zone. Order matters: a "Bottom of Flood" is the conservation
-# ceiling (watch), not a floor; floors are checked before "flood" so "Bottom
-# of Flood Control" never reads as a flood crossing. Everything else is an
-# unrecognized name (zone None) -- it never downgrades a recognized crossing.
+# Vocabulary -> zone. Terms match as whole words. Rules run in this order: a
+# name with "flood" plus a base/bottom/start word, or an explicit conservation
+# ceiling, is `watch` (the pool has entered the flood-control zone); floors
+# next, so a floor name never reads as a flood crossing; then `flood`, then
+# `action` and `watch` last. Anything else is an unrecognized name (zone None)
+# and never downgrades a recognized crossing.
+_FLOOD_FLOOR_WORDS = ("bottom", "base", "begin", "begins", "start")
 _CEILING_TERMS = (
     "top of conservation",
     "top of constant conservation",
@@ -233,18 +239,30 @@ _WATCH_TERMS = ("watch", "monitor")
 _SEVERITY = {"nominal": 0, "watch": 1, "action": 2, "flood": 3}
 
 
+def _word_pattern(terms: tuple[str, ...]) -> re.Pattern[str]:
+    return re.compile(rf"\b(?:{'|'.join(re.escape(t) for t in terms)})\b")
+
+
+_FLOOD_FLOOR_RE = _word_pattern(_FLOOD_FLOOR_WORDS)
+_CEILING_RE = _word_pattern(_CEILING_TERMS)
+_FLOOR_RE = _word_pattern(_FLOOR_TERMS)
+_FLOOD_RE = _word_pattern(_FLOOD_TERMS)
+_ACTION_RE = _word_pattern(_ACTION_TERMS)
+_WATCH_RE = _word_pattern(_WATCH_TERMS)
+
+
 def level_zone(specified_level_id: str) -> str | None:
     """The zone a crossed level implies, from its name; None when unrecognized."""
     name = specified_level_id.casefold()
-    if any(term in name for term in _CEILING_TERMS):
+    if _CEILING_RE.search(name) or (_FLOOD_RE.search(name) and _FLOOD_FLOOR_RE.search(name)):
         return "watch"
-    if any(term in name for term in _FLOOR_TERMS):
+    if _FLOOR_RE.search(name):
         return "nominal"
-    if any(term in name for term in _FLOOD_TERMS):
+    if _FLOOD_RE.search(name):
         return "flood"
-    if any(term in name for term in _ACTION_TERMS):
+    if _ACTION_RE.search(name):
         return "action"
-    if any(term in name for term in _WATCH_TERMS):
+    if _WATCH_RE.search(name):
         return "watch"
     return None
 
@@ -260,8 +278,10 @@ def classify(
     `status_class` is the most severe zone among crossed (at/above) recognized
     levels -- flood > action > watch > nominal -- so a crossed floor or an
     unrecognized level can never mask a crossed flood stage. `unknown` when
-    there is no observation, no thresholds, or only unrecognized levels were
-    crossed; `nominal` when thresholds exist and none is crossed. Annotated
+    there is no observation, no thresholds, only unrecognized levels were
+    crossed, or the worst recognized crossing is a floor and a crossed
+    unrecognized level lies above it (a floor cannot vouch for what is above
+    it); `nominal` when thresholds exist and none is crossed. Annotated
     thresholds are sorted by value descending, then name, for determinism.
     """
     if observation is None:
@@ -286,10 +306,15 @@ def classify(
     crossed = [t for t in annotated if t["relation"] in {"above", "at"}]
     if not crossed:
         return "nominal", annotated
-    recognized = [t["zone"] for t in crossed if t["zone"] is not None]
+    recognized = [t for t in crossed if t["zone"] is not None]
     if not recognized:
         return "unknown", annotated
-    return max(recognized, key=lambda z: _SEVERITY[z]), annotated
+    worst = max((t["zone"] for t in recognized), key=lambda z: _SEVERITY[z])
+    if worst == "nominal":
+        top_recognized = max(t["value"] for t in recognized)
+        if any(t["zone"] is None and t["value"] > top_recognized for t in crossed):
+            return "unknown", annotated
+    return worst, annotated
 
 
 # --------------------------------------------------------------------------
@@ -333,9 +358,10 @@ def _coerce_dt(raw: Any) -> datetime | None:
         return raw
     if isinstance(raw, str):
         try:
-            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
             return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     return None
 
 

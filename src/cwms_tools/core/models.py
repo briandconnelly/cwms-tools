@@ -467,11 +467,14 @@ class StatusClass(StrEnum):
     The most severe zone among the thresholds the observation is at or above:
     flood (name contains 'flood'), action ('action', 'warning', 'surveillance'),
     watch ('watch', 'monitor', or a conservation ceiling such as Top of
-    Conservation / Top of Normal / Rule Curve / Bottom of Flood). Floor-type
-    levels (inactive, bottom, streambed, dead, minimum) count as nominal.
-    'unknown' when no levels exist, the lookup was skipped or failed, or only
-    unrecognized level names were crossed. Read `thresholds_active` (each with
-    its `zone`) for the specific band.
+    Conservation / Top of Normal / Rule Curve, or a flood-pool base such as
+    Base of Flood Control). Floor-type levels (inactive, bottom, streambed,
+    dead, minimum) count as nominal: `nominal` means no level above a floor is
+    crossed; the classifier is flood-side only and does not represent low-pool
+    or drought conditions. 'unknown' when no levels exist, the lookup was
+    skipped or failed, only unrecognized level names were crossed, or an
+    unrecognized level above the highest crossed floor is also crossed. Read
+    `thresholds_active` (each with its `zone`) for the specific band.
     """
 
     NOMINAL = "nominal"
@@ -501,12 +504,9 @@ class ActiveThreshold(CompactDumpMixin, BaseModel):
     unit: str
     relation: Literal["above", "at", "below"]
     delta: float | None = None
-    zone: str | None = Field(
+    zone: Literal["flood", "action", "watch", "nominal"] | None = Field(
         default=None,
-        description=(
-            "Zone this level implies when crossed: flood|action|watch|nominal; "
-            "null for an unrecognized name."
-        ),
+        description="Zone this level implies when crossed; absent for an unrecognized name.",
     )
     source_workaround: str | None = None
 

@@ -100,13 +100,15 @@ def test_value_get_with_status_runs_classification(configured) -> None:
     ts = datetime(2026, 5, 17, 18, tzinfo=UTC)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_value(mocked, value=1648.21, ts=ts)
+        mocked.add(responses.GET, f"{API_ROOT}levels", json={"levels": []}, status=200)
         result = runner.invoke(app, ["value", "get", "SWT/FOSS/Elev", "--with-status"])
         levels_calls = [c for c in mocked.calls if "/levels" in (c.request.url or "")]
         assert levels_calls, "--with-status must hit the levels endpoint"
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     item = payload["results"][0]
-    assert item["data"]["level_lookup_status"] in {"computed", "unavailable"}
+    assert item["data"]["level_lookup_status"] == "unavailable"
+    assert item["data"]["status_class"] == "unknown"
 
 
 def test_value_get_partial_failure_exits_nonzero(configured) -> None:

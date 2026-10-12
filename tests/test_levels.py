@@ -181,6 +181,14 @@ FOSS_FT = [  # SWT/FOSS Elev vocabulary observed live 2026-10-12 (metres -> ft, 
         ("Pool of Record", None),
         ("Spillway Crest", None),
         ("Top of Dam", None),
+        ("Fish Attraction Flow", None),
+        ("Drought Watch", "watch"),
+        ("Base of Flood Control", "watch"),
+        ("Base of Exclusive Flood Control", "watch"),
+        ("Bottom of Exclusive Flood Control", "watch"),
+        ("Flood Pool Bottom", "watch"),
+        ("Top of Exclusive Flood Control", "flood"),
+        ("Deadpool", None),
     ],
 )
 def test_level_zone_vocabulary(name, zone) -> None:
@@ -215,6 +223,17 @@ def test_classify_unrecognized_level_cannot_downgrade_a_recognized_crossing() ->
 
 def test_classify_only_unrecognized_crossed_is_unknown() -> None:
     assert levels.classify(25.0, [_t("Mystery", 20.0), _t("Flood Stage", 30.0)])[0] == "unknown"
+
+
+def test_classify_floor_cannot_vouch_for_unrecognized_level_below_observation() -> None:
+    ladder = [_t("Top of Inactive", 2160.0), _t("Top of Carryover Multiple Use", 2234.0)]
+    assert levels.classify(2240.0, ladder)[0] == "unknown"
+    assert levels.classify(2200.0, ladder)[0] == "nominal"
+
+
+def test_applicable_revisions_treats_naive_level_date_as_utc() -> None:
+    rows = [_row("A.Elev.Inst.0.X", "2000-01-01T00:00:00")]
+    assert levels.applicable_revisions(rows, at=AT) == rows
 
 
 def test_classify_no_thresholds_is_unknown_not_nominal() -> None:

@@ -1135,7 +1135,10 @@ def test_get_value_dedupes_level_revisions_and_classifies_nominal_inside_conserv
         "Top of Inactive": 1597.2,
     }
 
+    level_urls: list[str] = []
+
     def level_value(request):
+        level_urls.append(request.url.replace("%20", " ").replace("%3A", ":"))
         name = next(k for k in values_by_id if k in request.url.replace("%20", " "))
         body = json.dumps({"constant-value": values_by_id[name], "level-units-id": "ft"})
         return (200, {"Content-Type": "application/json"}, body)
@@ -1162,6 +1165,8 @@ def test_get_value_dedupes_level_revisions_and_classifies_nominal_inside_conserv
     ids = [t["level_id"] for t in payload["thresholds_active"]]
     assert len(ids) == len(set(ids)) == 3
     assert len(level_reads) == 3, "one value read per level id, at the newest revision"
+    flood_read = next(u for u in level_urls if "Top of Flood" in u)
+    assert "effective-date=1961-02-13" in flood_read
     inactive = next(
         t for t in payload["thresholds_active"] if t["specified_level_id"] == "Top of Inactive"
     )
