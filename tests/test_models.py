@@ -400,3 +400,16 @@ def test_compact_models_round_trip() -> None:
         source=SourceMeta(fingerprint="f" * 64),
     )
     assert DescribePlaceResponse.model_validate(resp.model_dump(mode="json"))
+
+
+def test_passthrough_dto_fields_say_they_are_verbatim_kebab_case() -> None:
+    from cwms_tools.core.models import DescribePlaceResponse
+
+    for model, field in [
+        (DescribePlaceResponse, "location"),
+        (DescribePlaceResponse, "project"),
+        (DescribePlaceResponse, "locks"),
+        (PlaceSummary, "raw"),
+    ]:
+        desc = model.model_fields[field].description or ""
+        assert "kebab-case" in desc, (model.__name__, field)

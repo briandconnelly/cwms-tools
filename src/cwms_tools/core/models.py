@@ -225,7 +225,10 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
     )
     raw: dict[str, Any] | None = Field(
         default=None,
-        description="Unfiltered upstream location DTO; detail=full only (search, not browse).",
+        description=(
+            "Verbatim upstream Location DTO with kebab-case keys; "
+            "unfiltered, detail=full only (search, not browse)."
+        ),
     )
 
 
@@ -323,11 +326,18 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     ok: Literal[True] = True
     office_id: str
     name: str
-    location: dict[str, Any]
+    location: dict[str, Any] = Field(
+        description=(
+            "Upstream Location DTO; keys keep CDA's kebab-case spelling "
+            "(`office-id`, `public-name`), not the envelope's snake_case. "
+            "detail=summary keeps the triage subset; full is verbatim."
+        ),
+    )
     project: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Upstream Project DTO; null if not a project or the project lookup "
+            "Upstream Project DTO with kebab-case keys (not normalized to snake_case). "
+            "Null if not a project or the project lookup "
             "failed (see partial_reasons). detail=summary keeps only "
             "project-owner and authorizing-law ({} when neither is set); detail=full "
             "is verbatim, and its nested location's 0.0 lat/lon are placeholders "
@@ -368,7 +378,9 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     locks: list[dict[str, Any]] | None = Field(
         default=None,
         description=(
-            "Failed lock: {name, error}. Sentinel dimensions are null, named in invalid_fields."
+            "Lock records normalized from the upstream DTO: kebab-case keys preserved, "
+            "sentinel (-9999) dimensions nulled and named in `invalid_fields`, a failed "
+            "lookup is `{name, error}`; detail=summary keeps the dimension subset."
         ),
     )
     lock_upstream_status: int | None = Field(
