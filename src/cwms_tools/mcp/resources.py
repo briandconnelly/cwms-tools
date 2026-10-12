@@ -230,7 +230,20 @@ def capability_contract_payload() -> dict[str, Any]:
             "Pre-warm caches or scan the catalog in the background.",
         ],
         "first_call": {
+            # `requires` is scoped to the place-specific tools; discovery has
+            # its own, looser prerequisites (#171 review).
+            "applies_to": [
+                "cwms_describe_place",
+                "cwms_list_parameters",
+                "cwms_get_value",
+                "cwms_get_history",
+                "cwms_get_profile",
+            ],
             "requires": ["office", "name"],
+            "discovery": (
+                "cwms_search_places needs only `query` (a name fragment); `office` "
+                "is optional and it takes no `name`. Use it to get office + catalog id."
+            ),
             "office": (
                 "USACE office code, case-insensitive (cwms://offices; NW Division uses NWDM/NWDP)."
             ),

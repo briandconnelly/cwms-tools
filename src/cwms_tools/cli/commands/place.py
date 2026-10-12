@@ -34,7 +34,7 @@ app = typer.Typer(
     name="place",
     help=(
         "Resolve and describe CWMS locations: name search, full place "
-        "description (location + project + publishers + freshness), and "
+        "description (location + project + publishers + catalog last-data hint), and "
         "per-location parameter listing."
     ),
     no_args_is_help=True,

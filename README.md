@@ -70,7 +70,7 @@ uv run cwms-tools fingerprint
 uv run cwms-tools place search "Fort Peck" --office NWDM
 
 # Describe one place: location, project metadata, parameters, publishers,
-# freshness, and partial-result flags.
+# a catalog last-data hint (can lag; `value get` is fresh), and partial-result flags.
 uv run cwms-tools place describe NWDM/FTPK
 uv run cwms-tools place describe SWT/WEBB --include-locks
 
@@ -176,7 +176,7 @@ The MCP server exposes task-level tools rather than raw endpoint mirrors:
 | Tool | Purpose |
 | --- | --- |
 | `cwms_search_places` | Resolve an ambiguous place name to ranked locations. |
-| `cwms_describe_place` | Read location, project, parameter, publisher, and freshness data in one call; `include_locks` adds navigation-lock dimensions. |
+| `cwms_describe_place` | Read location, project, parameter, publisher, and catalog last-data (extent) hints in one call; `include_locks` adds navigation-lock dimensions. |
 | `cwms_list_parameters` | List parameters published at a location, grouped by publisher. |
 | `cwms_get_value` | Read the latest observation, optionally with threshold status. |
 | `cwms_get_history` | Read raw observations across a bounded time window. |

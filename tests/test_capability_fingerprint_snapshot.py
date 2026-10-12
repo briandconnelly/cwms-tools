@@ -462,6 +462,10 @@ def test_instructions_and_capabilities_state_the_first_call_contract() -> None:
         assert needle in text, needle
     first_call = capability_contract_payload()["first_call"]
     assert first_call["requires"] == ["office", "name"]
+    # `requires` is scoped to the place tools, never to discovery (#171 review).
+    assert "cwms_search_places" not in first_call["applies_to"]
+    assert {"cwms_describe_place", "cwms_get_value"} <= set(first_call["applies_to"])
+    assert "query" in first_call["discovery"] and "optional" in first_call["discovery"]
     assert "case-sensitive" in first_call["name"].casefold()
     assert first_call["typical_chain"][0] == "cwms_search_places"
     assert first_call["one_shot"] == "cwms_get_value"

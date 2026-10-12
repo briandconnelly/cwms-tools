@@ -144,9 +144,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unifying the success-side `repair_hint` shape with the error `repair` shape is
   deferred to 0.9.0 as a breaking change (#177).
 - Server `instructions` and `cwms://capabilities` (`first_call`) state the
-  first-call contract: office code + case-sensitive catalog name, case-sensitive
+  first-call contract: office code + case-sensitive catalog name for the
+  place-specific tools (`first_call.applies_to`), the looser discovery
+  prerequisites (`cwms_search_places` needs only `query`), case-sensitive
   parameter codes, the typical tool chain, the one-shot path, and that there are
-  no forecasts (#171).
+  no forecasts (#171). The README and `place` CLI help no longer call the
+  catalog last-data hint "freshness" (#166).
 - `with_status` / `--with-status` describe the measured cost (one /levels
   listing plus one read per level; ~1.5 s observed on SWT/FOSS, big offices
   often hit the cap) and the timeout behavior (8 s budget; the value is still returned with
