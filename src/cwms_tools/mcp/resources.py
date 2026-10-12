@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from cwms_tools import ISSUES_URL
 from cwms_tools import __version__ as PKG_VERSION
 from cwms_tools.core import fingerprint, offices, overview
 from cwms_tools.core._workarounds import active_workarounds
@@ -143,6 +144,20 @@ RESOURCE_INVENTORY: list[dict[str, Any]] = [
 NW_ROLLUP_TARGETS = offices.NW_ROLLUP_TARGETS
 
 
+ISSUE_REPORTING = (
+    "A defect in cwms-tools itself is a malformed envelope, a repair hint that "
+    "cannot be followed, a response that contradicts its outputSchema, or a "
+    "tool that raises instead of returning the {ok: false} envelope. Not a "
+    "defect: a ghost record or NW district stub (expected CDA shape, answered "
+    "by the repair hint), a CDA outage or 5xx correctly reported as "
+    "upstream_error, a rate_limited reply, or a cwms-python bug already listed "
+    "in active_workarounds. Offer issues_url to the user with the symbolic "
+    "error code (a tool failure's error.code, a resource-read failure's "
+    "error.data.machine_code), request_id, fingerprint, and version rather "
+    "than filing unasked. The tracker is public."
+)
+
+
 def capability_contract_payload() -> dict[str, Any]:
     """Static, non-circular agent-facing capability prose (#71).
 
@@ -240,6 +255,11 @@ def capability_contract_payload() -> dict[str, Any]:
             "`cwms://overview/{section_id}` or `cwms_get_overview_section` "
             "for a specific section. Both honor `detail=summary|full`."
         ),
+        # Where a defect in cwms-tools itself goes, and how to tell one from an
+        # upstream condition. Agent-facing guidance like `error_handling`, so it
+        # is fingerprinted (#155).
+        "issues_url": ISSUES_URL,
+        "issue_reporting": ISSUE_REPORTING,
     }
 
 
@@ -294,6 +314,8 @@ def capabilities_payload() -> dict[str, Any]:
             "fallbacks": list(FALLBACKS.keys()),
         },
         "discovery_hint": contract["discovery_hint"],
+        "issues_url": contract["issues_url"],
+        "issue_reporting": contract["issue_reporting"],
     }
 
 

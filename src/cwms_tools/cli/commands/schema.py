@@ -11,6 +11,7 @@ from typing import Any
 
 import typer
 
+from cwms_tools import ISSUES_URL
 from cwms_tools import __version__ as PKG_VERSION
 from cwms_tools.cli.commands.env import READ_VARS, SECRET_VARS
 from cwms_tools.cli.render import emit
@@ -420,6 +421,7 @@ def _schema_payload() -> dict[str, Any]:
         "mcp_tools": TOOL_INVENTORY,
         "mcp_resources": RESOURCE_INVENTORY,
         "machine_profile": contract["machine_profile"],
+        "issues_url": ISSUES_URL,
     }
 
 

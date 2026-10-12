@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 if TYPE_CHECKING:
     from mcp.types import ReadResourceRequestParams
 
+from cwms_tools import ISSUES_URL
 from cwms_tools import __version__ as PKG_VERSION
 from cwms_tools.core import overview
 from cwms_tools.core._compact import CompactDumpMixin
@@ -57,7 +58,12 @@ INSTRUCTIONS = (
     "indexed at `cwms://overview`; fetch a section via "
     "`cwms://overview/{section_id}{?detail}` or, if your client does not "
     "browse MCP resources, the `cwms_get_overview_section` tool returns "
-    "the same content."
+    "the same content. Defects in cwms-tools itself — not ghost records, NW "
+    "stubs, or a CDA failure correctly reported as `upstream_error` — go to "
+    f"{ISSUES_URL} (`issues_url` on `cwms://capabilities`, with the full "
+    "guidance under `issue_reporting`): offer it to the user with the "
+    "symbolic error code, `request_id`, `fingerprint`, and `version` rather "
+    "than filing unasked; the tracker is public."
 )
 
 

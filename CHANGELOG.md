@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cwms://capabilities` carries `issues_url`, where a defect in cwms-tools
+  itself is reported, and `issue_reporting`, which says what counts as one (a
+  malformed envelope, a repair hint that cannot be followed, a response that
+  contradicts its outputSchema) and what does not (ghost records, NW stubs, a
+  CDA failure correctly reported as `upstream_error`, a cwms-python bug already
+  in `active_workarounds`). The guidance asks an agent to offer the link to the
+  user with the symbolic error code, `request_id`, `fingerprint`, and
+  `version` rather than filing unasked, and notes the tracker is public. The
+  server `instructions` close with the same pointer, and `cwms-tools schema`
+  emits `issues_url` for CLI parity. Until now the tracker was named only in
+  `pyproject.toml`, `manifest.json`, and the README, which no agent reads
+  mid-failure. The new contract prose changes the capability fingerprint
+  (#155).
 - `cwms_browse_region` and `cwms-tools region browse` accept an optional
   location `kind` filter (`--kind` on the CLI), e.g. `PROJECT`, `LOCK`,
   `SITE`, or `STREAM`, matched case-insensitively against each catalog row's
