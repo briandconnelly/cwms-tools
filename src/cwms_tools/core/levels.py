@@ -14,7 +14,8 @@ either null or > window start.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import re
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -99,19 +100,44 @@ def resolve_applicable_level(
     null OR > `at`. Returns None when no row matches.
     """
     rows = list_levels(office, location=location, parameter=parameter)
-    candidates: list[tuple[datetime, dict[str, Any]]] = []
+    survivors = applicable_revisions(rows, at=at)
+    if not survivors:
+        return None
+    return max(
+        survivors,
+        key=lambda r: _coerce_dt(r.get("level-date") or r.get("levelDate")) or at,
+    )
+
+
+def applicable_revisions(rows: list[dict[str, Any]], *, at: datetime) -> list[dict[str, Any]]:
+    """One row per `level_id`: the revision in force at `at`.
+
+    CDA's `/levels` listing returns every revision of a level (#162: FOSS had
+    a 1900 and a 1961 row for most ids). Keep, per id, the latest `level-date`
+    <= `at` whose `expiration-date` is null or > `at`. Undated rows are
+    skipped; equal dates keep listing order; output keeps first-seen id order.
+    If the newest revision has expired, an older unexpired revision is kept
+    (CWMS may have superseded it); known limitation.
+    """
+    best: dict[str, tuple[datetime, dict[str, Any]]] = {}
+    order: list[str] = []
     for row in rows:
+        level_id = level_id_of(row)
+        if level_id is None:
+            continue
         level_date = _coerce_dt(row.get("level-date") or row.get("levelDate"))
         if level_date is None or level_date > at:
             continue
         exp = _coerce_dt(row.get("expiration-date") or row.get("expirationDate"))
         if exp is not None and exp <= at:
             continue
-        candidates.append((level_date, row))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda kv: kv[0])
-    return candidates[-1][1]
+        current = best.get(level_id)
+        if current is None:
+            order.append(level_id)
+            best[level_id] = (level_date, row)
+        elif level_date > current[0]:
+            best[level_id] = (level_date, row)
+    return [best[level_id][1] for level_id in order]
 
 
 def fetch_level_value(
@@ -120,15 +146,22 @@ def fetch_level_value(
     office: str,
     effective_date: datetime,
     unit: str = "EN",
+    at: datetime | None = None,
 ) -> dict[str, Any]:
-    """Read a single level value at the given effective_date.
+    """Read a single level value.
+
+    `effective_date` selects the level revision (the `effective-date` query
+    param). `at` is the instant the threshold is evaluated (the observation
+    timestamp); it defaults to `effective_date`. Only the seasonal bypass
+    uses `at`, as its query window.
 
     For constant levels this returns the scalar directly. For seasonal levels
     we bypass `get_level_as_timeseries` (cwms-python issue #286 — see
     cwms-overview.md §8) and hit `/levels/{id}/timeseries` directly via
     `cwms.api.get`. The response carries `source_workaround: "issue-286"`
-    when the bypass is taken.
+    when the bypass is taken. Every return carries `evaluated_at`.
     """
+    at = at or effective_date
     with upstream_call(f"/levels/{level_id}", operation=f"level lookup for {office}/{level_id}"):
         data = ll_api.get_location_level(
             level_id=level_id,
@@ -154,6 +187,7 @@ def fetch_level_value(
             "value": constant,
             "unit": payload.get("level-units-id") or payload.get("levelUnitsId") or unit,
             "source_workaround": None,
+            "evaluated_at": at.isoformat(),
         }
 
     if _is_seasonal(payload):
@@ -163,6 +197,7 @@ def fetch_level_value(
             effective_date=effective_date,
             unit=unit,
             level_payload=payload,
+            at=at,
         )
 
     # TimeSeries / Virtual / unknown varieties — return the bare payload as a
@@ -176,18 +211,78 @@ def fetch_level_value(
         "unit": payload.get("level-units-id") or unit,
         "source_workaround": None,
         "raw": payload,
+        "evaluated_at": at.isoformat(),
     }
+
+
+# Vocabulary -> zone. Terms match as whole words. Rules run in this order: a
+# name with "flood" plus a base/bottom/start word, or an explicit conservation
+# ceiling, is `watch` (the pool has entered the flood-control zone); floors
+# next, so a floor name never reads as a flood crossing; then `flood`, then
+# `action` and `watch` last. Anything else is an unrecognized name (zone None)
+# and never downgrades a recognized crossing.
+_FLOOD_FLOOR_WORDS = ("bottom", "base", "begin", "begins", "beginning", "start", "starts")
+_CEILING_TERMS = (
+    "top of conservation",
+    "top of constant conservation",
+    "top of multipurpose",
+    "top of normal",
+    "top of joint",
+    "rule curve",
+    "guide curve",
+    "bottom of flood",
+)
+_FLOOR_TERMS = ("inactive", "bottom", "streambed", "dead", "invert", "minimum")
+_FLOOD_TERMS = ("flood",)
+_ACTION_TERMS = ("action", "warning", "surveillance")
+_WATCH_TERMS = ("watch", "monitor")
+_SEVERITY = {"nominal": 0, "watch": 1, "action": 2, "flood": 3}
+
+
+def _word_pattern(terms: tuple[str, ...]) -> re.Pattern[str]:
+    return re.compile(rf"\b(?:{'|'.join(re.escape(t) for t in terms)})\b")
+
+
+_FLOOD_FLOOR_RE = _word_pattern(_FLOOD_FLOOR_WORDS)
+_CEILING_RE = _word_pattern(_CEILING_TERMS)
+_FLOOR_RE = _word_pattern(_FLOOR_TERMS)
+_FLOOD_RE = _word_pattern(_FLOOD_TERMS)
+_ACTION_RE = _word_pattern(_ACTION_TERMS)
+_WATCH_RE = _word_pattern(_WATCH_TERMS)
+
+
+def level_zone(specified_level_id: str) -> str | None:
+    """The zone a crossed level implies, from its name; None when unrecognized."""
+    name = specified_level_id.casefold()
+    if _CEILING_RE.search(name) or (_FLOOD_RE.search(name) and _FLOOD_FLOOR_RE.search(name)):
+        return "watch"
+    if _FLOOR_RE.search(name):
+        return "nominal"
+    if _FLOOD_RE.search(name):
+        return "flood"
+    if _ACTION_RE.search(name):
+        return "action"
+    if _WATCH_RE.search(name):
+        return "watch"
+    return None
 
 
 def classify(
     observation: float | None,
     thresholds: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Classify an observation against the active thresholds.
+    """Classify an observation against the active thresholds (#162).
 
-    Returns `(status_class, sorted_thresholds)`. `status_class` is one of
-    `nominal | watch | action | flood | unknown`, derived from the highest
-    threshold the observation has crossed.
+    Returns `(status_class, annotated_thresholds)`. Each threshold is annotated
+    with `relation` (above/at/below), `delta`, and `zone` (`level_zone`).
+    `status_class` is the most severe zone among crossed (at/above) recognized
+    levels -- flood > action > watch > nominal -- so a crossed floor or an
+    unrecognized level can never mask a crossed flood stage. `unknown` when
+    there is no observation, no thresholds, only unrecognized levels were
+    crossed, or the worst recognized crossing is a floor and a crossed
+    unrecognized level lies above it (a floor cannot vouch for what is above
+    it); `nominal` when thresholds exist and none is crossed. Annotated
+    thresholds are sorted by value descending, then name, for determinism.
     """
     if observation is None:
         return "unknown", thresholds
@@ -196,32 +291,30 @@ def classify(
         value = t.get("value")
         if not isinstance(value, (int, float)):
             continue
-        if observation > value:
-            relation = "above"
-        elif observation < value:
-            relation = "below"
-        else:
-            relation = "at"
+        relation = "above" if observation > value else "below" if observation < value else "at"
         annotated.append(
             {
                 **t,
                 "relation": relation,
                 "delta": observation - value,
+                "zone": level_zone(str(t.get("specified_level_id", ""))),
             }
         )
-    above = [t for t in annotated if t["relation"] in {"above", "at"}]
-    annotated.sort(key=lambda t: -t["value"])
-    if not above:
+    annotated.sort(key=lambda t: (-t["value"], str(t.get("specified_level_id", ""))))
+    if not annotated:
+        return "unknown", annotated
+    crossed = [t for t in annotated if t["relation"] in {"above", "at"}]
+    if not crossed:
         return "nominal", annotated
-    highest = max((t["specified_level_id"] for t in above), key=str.casefold, default="")
-    name = highest.lower()
-    if "flood" in name:
-        return "flood", annotated
-    if "action" in name or "warning" in name:
-        return "action", annotated
-    if "watch" in name or "monitor" in name:
-        return "watch", annotated
-    return "watch", annotated
+    recognized = [t for t in crossed if t["zone"] is not None]
+    if not recognized:
+        return "unknown", annotated
+    worst = max((t["zone"] for t in recognized), key=lambda z: _SEVERITY[z])
+    if worst == "nominal":
+        top_recognized = max(t["value"] for t in recognized)
+        if any(t["zone"] is None and t["value"] > top_recognized for t in crossed):
+            return "unknown", annotated
+    return worst, annotated
 
 
 # --------------------------------------------------------------------------
@@ -265,9 +358,10 @@ def _coerce_dt(raw: Any) -> datetime | None:
         return raw
     if isinstance(raw, str):
         try:
-            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
             return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     return None
 
 
@@ -290,22 +384,25 @@ def _seasonal_workaround(
     effective_date: datetime,
     unit: str,
     level_payload: dict[str, Any],
+    at: datetime | None = None,
 ) -> dict[str, Any]:
     """Direct-CDA hit on `/levels/{id}/timeseries` to work around issue #286.
 
     The wrapper's `get_level_as_timeseries` returns wrong values for seasonal
     levels (cwms-python issue #286 — see cwms-overview.md §8). The fix is to
-    bypass it and hit the underlying endpoint with both the resolved
-    `effective-date` (which level revision to use) and a sensible 1-hour
-    query window starting at `effective_date`.
+    bypass it and hit the underlying endpoint with the resolved
+    `effective-date` (which level revision to use, from `effective_date`) and
+    a 1-hour query window starting at `at` (when the threshold is evaluated;
+    defaults to `effective_date`).
     """
 
-    window_end = effective_date + timedelta(hours=1)
+    at = at or effective_date
+    window_end = at + timedelta(hours=1)
     quoted = quote(level_id, safe="")
     params = {
         "office": office,
         "effective-date": effective_date.isoformat(),
-        "begin": effective_date.isoformat(),
+        "begin": at.isoformat(),
         "end": window_end.isoformat(),
         "interval": "1Hour",
         "unit": unit,
@@ -342,6 +439,7 @@ def _seasonal_workaround(
         "unit": payload.get("units") or payload.get("unit") or unit,
         "source_workaround": "issue-286",
         "level_config": level_payload,
+        "evaluated_at": at.isoformat(),
     }
 
 
@@ -359,8 +457,10 @@ def _first_value_from(payload: dict[str, Any]) -> float | None:
 
 
 __all__ = [
+    "applicable_revisions",
     "classify",
     "fetch_level_value",
+    "level_zone",
     "list_levels",
     "resolve_applicable_level",
 ]

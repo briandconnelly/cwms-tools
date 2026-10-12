@@ -64,6 +64,11 @@ def get_value(
     - `"unavailable"`: the lookup returned but no thresholds matched
       (could be "no levels defined" or a transient upstream failure).
 
+    Thresholds are the level revisions in force at the observation
+    timestamp and are evaluated there (seasonal levels at that instant);
+    `status_class` semantics follow `StatusClass`. With no usable levels
+    the class is `unknown`.
+
     `status_budget_seconds` (default 8 s) caps how long the threshold
     lookup may run when classification is requested.
     """
@@ -75,6 +80,7 @@ def get_value(
     observation = latest.get("value") if isinstance(latest, dict) else None
     timestamp = latest.get("timestamp") if isinstance(latest, dict) else None
 
+    observed_at = _coerce_dt(timestamp) or datetime.now(tz=UTC)
     thresholds_active: list[dict[str, Any]] = []
     status_class = "unknown"
     level_lookup_status = "skipped"
@@ -89,6 +95,7 @@ def get_value(
             parameter=parameter,
             observation=observation,
             unit=series.get("unit", unit),
+            at=observed_at,
         )
 
     return {
@@ -511,6 +518,7 @@ def _resolve_thresholds_with_timeout(
     parameter: str,
     observation: float,
     unit: str,
+    at: datetime,
 ) -> tuple[list[dict[str, Any]], str, str]:
     """Run the threshold lookup with a wall-clock budget.
 
@@ -535,6 +543,7 @@ def _resolve_thresholds_with_timeout(
                 parameter=parameter,
                 observation=observation,
                 unit=unit,
+                at=at,
             )
         except Exception as exc:
             box["error"] = exc
@@ -553,10 +562,10 @@ def _resolve_thresholds_with_timeout(
         return [], "unknown", "unavailable"
     thresholds, status = box["result"]
     if not thresholds and status == "unknown":
-        # `_resolve_thresholds` returns ([], "unknown") both when the upstream
-        # lookup fails and when no levels are defined. We can't distinguish
-        # without inspecting further, so report `unavailable` and let the
-        # caller decide whether to retry.
+        # `_resolve_thresholds` returns ([], "unknown") when the upstream
+        # lookup fails, when no levels are defined, and when none yielded a
+        # usable value. Report `unavailable` and let the caller decide
+        # whether to retry.
         return thresholds, status, "unavailable"
     return thresholds, status, "computed"
 
@@ -568,11 +577,17 @@ def _resolve_thresholds(
     parameter: str,
     observation: float,
     unit: str,
+    at: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
-    """Find every level matching `<location>.<parameter>.*` and classify."""
-    now = datetime.now(tz=UTC)
+    """Find every level matching `<location>.<parameter>.*` and classify.
+
+    One applicable revision per level id is evaluated at `at` (default now).
+    """
+    at = at or datetime.now(tz=UTC)
     try:
-        rows = levels.list_levels(office, location=location, parameter=parameter)
+        rows = levels.applicable_revisions(
+            levels.list_levels(office, location=location, parameter=parameter), at=at
+        )
     except CwmsToolsError:
         return [], "unknown"
 
@@ -582,11 +597,10 @@ def _resolve_thresholds(
         specified = row.get("specified-level-id") or row.get("specifiedLevelId")
         if not isinstance(level_id, str) or not isinstance(specified, str):
             continue
-        eff = row.get("level-date") or row.get("levelDate")
-        eff_dt = _coerce_dt(eff) or now
+        revision = _coerce_dt(row.get("level-date") or row.get("levelDate")) or at
         try:
             level_value = levels.fetch_level_value(
-                level_id, office=office, effective_date=eff_dt, unit=unit
+                level_id, office=office, effective_date=revision, at=at, unit=unit
             )
         except CwmsToolsError:
             continue

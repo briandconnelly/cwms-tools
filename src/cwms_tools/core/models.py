@@ -462,7 +462,23 @@ class BrowseRegionResponse(CompactDumpMixin, BaseModel):
 
 
 class StatusClass(StrEnum):
-    """Inline status classification on `cwms_get_value` responses."""
+    """Heuristic status on `cwms_get_value` with `with_status`.
+
+    The most severe zone among the thresholds the observation is at or above:
+    flood (name contains the word 'flood'), action (whose name contains the
+    word 'action', 'warning', or 'surveillance'), watch (whose name contains the
+    word 'watch' or 'monitor', or a conservation ceiling such as Top of
+    Conservation / Top of Normal / Rule Curve, or a flood-pool base such as
+    Base of Flood Control). Terms match as whole words (so 'Flooding Stage' is
+    unrecognized); names such as 'Base/Bottom/Beginning of ... Flood ...' are the
+    conservation ceiling (watch), not flood. Floor-type levels (inactive, bottom,
+    streambed, dead, minimum) count as nominal: `nominal` means no level above a floor is
+    crossed; the classifier is flood-side only and does not represent low-pool
+    or drought conditions. 'unknown' when no levels exist, the lookup was
+    skipped or failed, only unrecognized level names were crossed, or an
+    unrecognized level above the highest crossed floor is also crossed. Read
+    `thresholds_active` (each with its `zone`) for the specific band.
+    """
 
     NOMINAL = "nominal"
     WATCH = "watch"
@@ -491,6 +507,10 @@ class ActiveThreshold(CompactDumpMixin, BaseModel):
     unit: str
     relation: Literal["above", "at", "below"]
     delta: float | None = None
+    zone: Literal["flood", "action", "watch", "nominal"] | None = Field(
+        default=None,
+        description="Zone this level implies when crossed; absent for an unrecognized name.",
+    )
     source_workaround: str | None = None
 
 

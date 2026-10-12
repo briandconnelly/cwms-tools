@@ -112,3 +112,40 @@ def test_constant_level_does_not_trigger_workaround(configured) -> None:
     assert result["variety"] == "constant"
     assert result["value"] == 1675.0
     assert result["source_workaround"] is None
+
+
+def test_seasonal_bypass_queries_the_evaluation_time_not_the_revision_date(configured) -> None:
+    """#162 (Codex): a 1961 revision of an annual rule curve was being read at
+    its 1961 date (February's value) regardless of today's date."""
+    seasonal_config = {
+        "location-level-id": "FOSS.Elev.Inst.0.Rule Curve",
+        "office-id": "SWT",
+        "specified-level-id": "Rule Curve",
+        "level-date": "1961-02-13T06:00:00Z",
+        "seasonal-values": [{"value": 1648.0, "offset-months": 0}],
+        "interval-months": 12,
+    }
+    at = datetime(2026, 10, 12, 14, tzinfo=UTC)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET, re.compile(rf"{API_ROOT}levels/.*"), json=seasonal_config, status=200
+        )
+        mocked.add(
+            responses.GET,
+            re.compile(rf"{API_ROOT}levels/.*/timeseries.*"),
+            json={"units": "ft", "values": [[int(at.timestamp() * 1000), 1640.0, 0]]},
+            status=200,
+        )
+        result = levels.fetch_level_value(
+            "FOSS.Elev.Inst.0.Rule Curve",
+            office="SWT",
+            effective_date=datetime(1961, 2, 13, 6, tzinfo=UTC),
+            at=at,
+            unit="EN",
+        )
+        ts_call = next(c for c in mocked.calls if "/timeseries" in (c.request.url or ""))
+        url = ts_call.request.url or ""
+    assert "effective-date=1961-02-13" in url
+    assert "begin=2026-10-12T14" in url
+    assert "end=2026-10-12T15" in url
+    assert result["evaluated_at"] == at.isoformat()

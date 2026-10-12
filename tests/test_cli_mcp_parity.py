@@ -165,14 +165,25 @@ VALUE = {
         "status_class": "nominal",
         "thresholds_active": [
             {
-                "specified_level_id": "Top",
+                "specified_level_id": "Flood Stage",
                 "value": 1.0,
                 "unit": "ft",
                 "relation": "above",
                 "level_id": "LID",
                 "source_workaround": "wa",
                 "delta": None,
-            }
+                "zone": "flood",
+            },
+            {
+                "specified_level_id": "Top of Inactive",
+                "value": 0.5,
+                "unit": "ft",
+                "relation": "above",
+                "level_id": "LID2",
+                "source_workaround": "wa",
+                "delta": None,
+                "zone": "nominal",
+            },
         ],
         "level_lookup_status": "computed",
         "publisher": None,
