@@ -363,7 +363,7 @@ def _resolve_scope(
     Returns `(decoded_cursor, offset, offices_searched, offices_skipped,
     partial_reasons, asked_single, office_echo)`; `office_echo` is the canonical
     requested scope (single code for a string, deduplicated list for a list,
-    `None` when omitted, the raw argument on the cursor path); `asked_single` is
+    `None` when omitted; on the cursor path, the cursor's locked offices); `asked_single` is
     true when the caller asked for exactly one (canonical) office, so a failure there re-raises
     instead of degrading to a partial (#163). On the cursor path the office set is bounded to the
     cursor's locked list — a forged cursor cannot WIDEN the fan-out beyond
@@ -443,8 +443,20 @@ def _resolve_scope(
         offices_skipped,
         partial_reasons,
         len(offices_searched) == 1,
-        office,
+        _cursor_office_echo(office, locked_offices),
     )
+
+
+def _cursor_office_echo(
+    office: str | list[str] | None, locked_offices: list[str]
+) -> str | list[str] | None:
+    """Canonical scope echo on the cursor path: the cursor's locked (validated)
+    offices, never the raw argument's spelling; same shape as the fresh path."""
+    if office is None:
+        return None
+    if isinstance(office, str) and len(locked_offices) == 1:
+        return locked_offices[0]
+    return list(locked_offices)
 
 
 def _validate_offices(requested: list[str]) -> tuple[list[str], list[str]]:

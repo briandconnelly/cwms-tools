@@ -1006,6 +1006,31 @@ def test_search_places_paginates_with_cursor(monkeypatch):
     assert fanout_calls == 3
 
 
+def test_search_places_cursor_continuation_echoes_canonical_office(monkeypatch):
+    rows = [
+        {
+            "office_id": "SWT",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": ["Elev"],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(3)
+    ]
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kw: (list(req), [], []))
+    monkeypatch.setattr(
+        places,
+        "_gather_enriched",
+        lambda offices, q, use_cache, reraise_single: (list(rows), [], []),
+    )
+    page1 = places.search_places("L", office="swt", limit=2)
+    assert page1["office"] == "SWT"
+    page2 = places.search_places("L", office="swt", limit=2, cursor=page1["next_cursor"])
+    assert page2["office"] == "SWT"
+    assert page2["offices_searched"] == ["SWT"]
+
+
 def test_search_places_cursor_rejects_catalog_shift(monkeypatch):
     five = [
         {
