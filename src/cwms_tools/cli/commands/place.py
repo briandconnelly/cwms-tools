@@ -69,13 +69,12 @@ def search(
             help=(
                 "USACE office code (list valid codes with `cwms-tools "
                 "offices`). Repeat to fan out across multiple offices "
-                "(e.g. `-o NWDP -o NWDM`). Omit to use offices already "
-                "cached this session; unbounded discovery is intentionally "
-                "avoided. Overflow beyond the per-call budget lands in "
-                "`offices_skipped_for_budget`. When an omitted `--office` "
-                "resolves to an empty scope, the response carries a "
-                "top-level `repair_hint` naming a concrete data-bearing "
-                "office list to retry with."
+                "(e.g. `-o NWDP -o NWDM`). If unknown, omit it: on a fresh "
+                "cache the first call returns no rows and a `repair_hint`; "
+                "keep following `repair_hint` until "
+                "`offices_skipped_for_budget` is empty. If you know the "
+                "region, pass the office directly (NWDM Missouri mainstem, "
+                "NWDP Columbia/Snake, SWT Oklahoma, MVS St. Louis)."
             ),
         ),
     ] = None,

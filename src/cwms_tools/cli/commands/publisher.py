@@ -34,9 +34,10 @@ def for_parameter(
             "-o",
             help=(
                 "Office code (e.g. NWDM, SWT; list valid codes with "
-                "`cwms-tools offices`). Repeat to query several. If omitted, "
-                "only offices already in cache are scanned; the index does "
-                "not implicitly fan out to every office."
+                "`cwms-tools offices`). Repeat to index several. Omit to "
+                "answer from already-cached offices only; on a cold start "
+                "that is nothing (`coverage.complete:false`), so follow "
+                "`repair` to index the curated data-bearing offices."
             ),
         ),
     ] = None,

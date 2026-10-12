@@ -270,8 +270,9 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     repair_hint: SearchRepairHint | None = Field(
         default=None,
         description=(
-            "Set when the call couldn't be served (e.g. no office in scope); "
-            "names a concrete retry — pass `args.office` back to widen."
+            "Set when nothing was in scope (`reason: no_offices_in_scope`) or "
+            "offices were budget-skipped (`reason: offices_skipped_for_budget`); "
+            "pass `args` back verbatim to continue."
         ),
     )
     results: list[PlaceSummary]
