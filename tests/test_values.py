@@ -1219,6 +1219,14 @@ def test_parse_rfc3339_hints_are_followable(value: str) -> None:
     assert values.parse_rfc3339(match.group(1), field="x") == datetime(2026, 10, 5, tzinfo=UTC)
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["2026-10-05 00:00:00+00:00", "2026-10-05T00:00Z", "2026-10-05T00:00:00+0000"],
+)
+def test_parse_rfc3339_accepts_unambiguous_iso_8601_spellings(value: str) -> None:
+    assert values.parse_rfc3339(value, field="x") == datetime(2026, 10, 5, tzinfo=UTC)
+
+
 @pytest.mark.parametrize("value", ["2026-10-05t00:00:00z", "2026-10-05T00:00:00z"])
 def test_parse_rfc3339_accepts_lowercase_t_and_z(value: str) -> None:
     assert values.parse_rfc3339(value, field="x") == datetime(2026, 10, 5, tzinfo=UTC)

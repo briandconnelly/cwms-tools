@@ -216,8 +216,10 @@ def history(
         typer.Option(
             "--begin",
             help=(
-                "Window start: RFC3339 date-time with timezone (Z or ±HH:MM), "
-                "e.g. 2026-05-17T00:00:00Z; a date alone is rejected."
+                "Window start: RFC 3339 date-time with timezone (Z or ±HH:MM), "
+                "e.g. 2026-05-17T00:00:00Z. "
+                "Other unambiguous ISO 8601 spellings with an offset are accepted too; "
+                "a date alone, or a time without an offset, is rejected."
             ),
         ),
     ],
@@ -226,8 +228,10 @@ def history(
         typer.Option(
             "--end",
             help=(
-                "Window end: RFC3339 date-time with timezone (Z or ±HH:MM), "
-                "e.g. 2026-05-18T00:00:00Z; a date alone is rejected."
+                "Window end: RFC 3339 date-time with timezone (Z or ±HH:MM), "
+                "e.g. 2026-05-18T00:00:00Z. "
+                "Other unambiguous ISO 8601 spellings with an offset are accepted too; "
+                "a date alone, or a time without an offset, is rejected."
             ),
         ),
     ],
