@@ -50,7 +50,9 @@ class OverviewSection:
     body: str
     size_bytes: int
     sha256: str
-    summary: str  # first 1-3 sentences of the section body
+    # first 1-3 prose sentences, or "Reference section: <title>." when a
+    # section has no prose paragraph
+    summary: str
 
     def chunk_count(self) -> int:
         return max(1, -(-len(self.body.encode("utf-8")) // CHUNK_SIZE))
@@ -103,7 +105,8 @@ def _first_summary(body: str, *, title: str) -> str:
         if first.startswith("|") or _RULE.match(first) or _LIST_ITEM.match(first):
             continue
         sentences = re.split(r"(?<=[.!?])\s+", " ".join(lines))
-        return " ".join(sentences[:3]).strip()
+        text = " ".join(sentences[:3]).strip().rstrip(":").rstrip()
+        return text if text.endswith((".", "!", "?")) else text + "."
     return f"Reference section: {title}."
 
 

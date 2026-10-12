@@ -80,4 +80,5 @@ def test_summaries_are_prose_not_rules_or_link_lists() -> None:
     assert by_id["sources"].startswith("Reference section:")
     for section_id, summary in by_id.items():
         assert summary and summary != "---", section_id
-        assert not summary.startswith(("-", "|", "#")), section_id
+        assert not summary.startswith(("-", "|", "#", "`", ">", "<")), section_id
+        assert not summary.endswith(":"), section_id

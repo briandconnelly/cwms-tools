@@ -226,8 +226,9 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
     raw: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Verbatim upstream Location DTO with kebab-case keys; "
-            "unfiltered, detail=full only (search, not browse)."
+            "Verbatim upstream location-catalog entry (`/catalog/LOCATIONS`) with "
+            "kebab-case keys — not the same key set as `cwms_describe_place`'s "
+            "`location`; unfiltered, detail=full only (search, not browse)."
         ),
     )
 
@@ -379,7 +380,8 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
         default=None,
         description=(
             "Lock records normalized from the upstream DTO: kebab-case keys preserved, "
-            "sentinel (-9999) dimensions nulled and named in `invalid_fields`, a failed "
+            "negative dimensions (the -9999 m sentinel, usually unit-converted, e.g. "
+            "-32805.118 ft) nulled and named in `invalid_fields`, a failed "
             "lookup is `{name, error}`; detail=summary keeps the dimension subset."
         ),
     )
