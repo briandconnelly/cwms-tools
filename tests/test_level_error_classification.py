@@ -110,6 +110,7 @@ def test_5xx_is_temporary_upstream_error(configured, mocked, path) -> None:
     env = err.envelope
     assert env.code is ErrorCode.UPSTREAM_ERROR
     assert env.temporary is True
+    assert env.source.endpoints_called == [PATHS[path][2]]
     assert env.source.workaround == _workaround_for(path)
 
 
@@ -121,6 +122,7 @@ def test_connection_error_is_temporary_upstream_error(configured, mocked, path) 
     assert env.code is ErrorCode.UPSTREAM_ERROR
     assert env.temporary is True
     assert "ConnectionError" in env.message
+    assert env.source.endpoints_called == [PATHS[path][2]]
     assert env.source.workaround == _workaround_for(path)
 
 
@@ -177,11 +179,14 @@ def test_429_is_rate_limited_with_retry_after(configured, monkeypatch, target, c
 
 def test_seasonal_429_is_rate_limited(configured, mocked, monkeypatch) -> None:
     mocked.add(responses.GET, LEVEL_CONFIG_URL, json=SEASONAL_CONFIG)
-    monkeypatch.setattr(levels.cwms_api, "get", _seasonal_raiser(_api_error(429)))
+    monkeypatch.setattr(
+        levels.cwms_api, "get", _seasonal_raiser(_api_error(429, {"Retry-After": "7"}))
+    )
     with pytest.raises(CwmsToolsError) as info:
         _fetch()
     env = info.value.envelope
     assert env.code is ErrorCode.RATE_LIMITED
+    assert env.retry_after_ms == 7000
     assert env.source.workaround == "issue-286"
 
 

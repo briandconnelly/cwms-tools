@@ -70,7 +70,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer reported as an upstream failure. Failures on the seasonal bypass
   carry `source.workaround: "issue-286"`, and `wrapper_bug` has no emission
   path (it was already listed as reserved). `value get` with thresholds
-  still reports a failed level lookup as `level_lookup_status: unavailable`.
+  degrades as before: a failed levels listing is still
+  `level_lookup_status: unavailable`, and a level whose value cannot be read
+  is still left out of the classification.
 
 - A location or project lookup that comes back with an empty body is now
   reported instead of passed off as a record (#137). cwms-python 1.1.2+ turns
