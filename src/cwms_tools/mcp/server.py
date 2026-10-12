@@ -59,7 +59,7 @@ INSTRUCTIONS = (
     "'Fort Peck'; FOSS, not 'Foss Lake'); `parameter` codes are case-sensitive "
     "(Elev, Flow-In). Typical chain: `cwms_search_places` (name → office + "
     "catalog id) → `cwms_describe_place` or `cwms_list_parameters` → "
-    "`cwms_get_value` / `cwms_get_history`. With office and id already known, "
+    "`cwms_get_value` / `cwms_get_history`. With office, id and parameter already known, "
     "`cwms_get_value` alone is the one-shot path. No forecasts: this server "
     "reads observations and thresholds only. "
     "Valid `office` codes for the tools are "
