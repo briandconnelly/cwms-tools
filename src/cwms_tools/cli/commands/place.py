@@ -210,7 +210,9 @@ def search(
 def describe(
     spec: Annotated[
         str,
-        typer.Argument(help="Place id in OFFICE/NAME form, e.g. NWDM/FTPK or SWT/FOSS."),
+        typer.Argument(
+            help="OFFICE/NAME with the case-sensitive catalog id, e.g. SWT/FOSS (not SWT/Foss)."
+        ),
     ],
     detail: Annotated[
         Detail,
@@ -288,7 +290,9 @@ def describe(
 def parameters(
     spec: Annotated[
         str,
-        typer.Argument(help="Place id in OFFICE/NAME form, e.g. SWT/FOSS."),
+        typer.Argument(
+            help="OFFICE/NAME with the case-sensitive catalog id, e.g. SWT/FOSS (not SWT/Foss)."
+        ),
     ],
 ) -> None:
     """List the parameters published at a place, grouped by publisher.

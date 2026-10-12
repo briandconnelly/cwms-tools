@@ -57,7 +57,11 @@ if TYPE_CHECKING:
 
 #: Shared param prose (#67): defined once so every tool's copy stays in sync
 #: and short, instead of each repeating a full paragraph in its own schema.
-_OFFICE_HINT = "USACE office code. Discover valid codes at `cwms://offices`."
+_OFFICE_HINT = "USACE office code, case-insensitive (e.g. SWT). Valid codes: `cwms://offices`."
+_NAME_HINT = (
+    "Case-sensitive catalog id (FOSS, not 'Foss'), from `cwms_search_places`; "
+    "keep commas (UBLW_S1-D21,0ft)."
+)
 _CURSOR_HINT = (
     "Opaque cursor from a prior `next_cursor`; omit for page one. A stale "
     "cursor returns `invalid_cursor` — retry without it."
@@ -264,7 +268,7 @@ def register_place_tools(mcp: FastMCP) -> None:
     @iserror_aware
     async def cwms_describe_place(
         office: Annotated[str, _OFFICE_HINT],
-        name: Annotated[str, "Location id within the office (e.g. FTPK, FOSS)."],
+        name: Annotated[str, _NAME_HINT],
         include_locks: Annotated[
             bool,
             "Add navigation-lock dimensions for a PROJECT (1 list call + 1 per "
@@ -318,7 +322,7 @@ def register_place_tools(mcp: FastMCP) -> None:
     @iserror_aware
     async def cwms_list_parameters(
         office: Annotated[str, _OFFICE_HINT],
-        name: Annotated[str, "Location id within the office."],
+        name: Annotated[str, _NAME_HINT],
         detail: Detail = Detail.SUMMARY,
     ) -> ListParametersResponse | ErrorRef:
         """List the parameters published at a location, grouped by publisher.
@@ -446,11 +450,7 @@ def register_value_tools(mcp: FastMCP) -> None:
     @iserror_aware
     async def cwms_get_value(
         office: Annotated[str, _OFFICE_HINT],
-        name: Annotated[
-            str,
-            "CWMS location name/id within the office (e.g. FTPK, FOSS, "
-            "or a depth-tagged sensor like UBLW_S1-D21,0ft).",
-        ],
+        name: Annotated[str, _NAME_HINT],
         parameter: Annotated[str, _PARAMETER_HINT],
         window_hours: Annotated[
             int,
@@ -511,7 +511,7 @@ def register_value_tools(mcp: FastMCP) -> None:
     @iserror_aware
     async def cwms_get_history(
         office: Annotated[str, _OFFICE_HINT],
-        name: Annotated[str, "CWMS location name/id within the office (e.g. FTPK, FOSS)."],
+        name: Annotated[str, _NAME_HINT],
         parameter: Annotated[str, _PARAMETER_HINT],
         begin_iso: Annotated[
             str, "Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z)."
@@ -607,7 +607,7 @@ def register_value_tools(mcp: FastMCP) -> None:
         office: Annotated[str, _OFFICE_HINT],
         name: Annotated[
             str,
-            "Parent 'string' location id (e.g. GWLW_S1) — NOT a single "
+            "Parent 'string' case-sensitive catalog id (e.g. GWLW_S1) — NOT a single "
             "depth-tagged sensor; finds the sensors hanging off this string.",
         ],
         parameter: Annotated[

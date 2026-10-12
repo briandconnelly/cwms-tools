@@ -62,8 +62,9 @@ def get(
         list[str],
         typer.Argument(
             help=(
-                "One or more place/parameter ids, each in OFFICE/NAME/PARAMETER "
-                "form. Examples: `NWDM/FTPK/Elev`, "
+                "One or more ids, each OFFICE/NAME/PARAMETER with the case-sensitive "
+                "catalog id as NAME (SWT/FOSS/Elev, not SWT/Foss/Elev). Examples: "
+                "`NWDM/FTPK/Elev`, "
                 "`NWDP/UBLW_S1-D21,0ft/Temp-Water` (depth-tagged sensor with "
                 "comma in the name)."
             )
@@ -200,7 +201,7 @@ def history(
         str,
         typer.Argument(
             help=(
-                "Place/parameter id in OFFICE/NAME/PARAMETER form. Examples: "
+                "OFFICE/NAME/PARAMETER with the case-sensitive catalog id as NAME. Examples: "
                 "`SWT/FOSS/Elev`, `NWDP/UBLW_S1-D21,0ft/Temp-Water` "
                 "(depth-tagged WQ sensor)."
             )
@@ -320,7 +321,8 @@ def profile(
         typer.Argument(
             help=(
                 "Parent string + parameter in OFFICE/NAME/PARAMETER form, where "
-                "NAME is the parent 'string' (e.g. `NWDP/GWLW_S1/Temp-Water`), "
+                "NAME is the case-sensitive catalog id of the parent 'string' "
+                "(e.g. `NWDP/GWLW_S1/Temp-Water`), "
                 "NOT a single depth-tagged sensor."
             )
         ),
