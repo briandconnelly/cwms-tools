@@ -15,12 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `args.office` is exactly the skipped list; the curated office list is now a
   priority order (NWDM, NWDP, SWT, MVS, ...) so the first follow-up reaches the
   data-rich offices. The `no_offices_in_scope` reason no longer tells the
-  caller to omit a field they omitted (#161).
+  caller to omit a field they omitted. A partly-warm cache (some curated offices
+  cached, no match) now also carries a continuation hint, and offices that failed
+  with a temporary upstream error are retried once by the next hop (#161).
 - `cwms_publishers_for_parameter` / `publisher for-parameter`:
   `coverage.complete` is false when no office was indexed, and a cold cache with
   `offices` omitted returns a `repair` naming the curated offices. A latent
   cache-key mismatch meant previously indexed offices were never recognised as
-  cached; fixed (#164).
+  cached; fixed. With `offices` omitted, `coverage.complete` is true only when
+  every curated office was indexed (#164).
 
 ### Changed
 

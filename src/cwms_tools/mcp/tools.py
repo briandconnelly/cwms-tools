@@ -655,15 +655,17 @@ def register_publisher_tools(mcp: FastMCP) -> None:
         offices: Annotated[
             list[str] | None,
             "Office codes to index. Omit to answer from already-cached offices only "
-            "— on a cold start that is nothing (`coverage.complete:false`); follow "
-            "`repair` to index the curated data-bearing offices.",
+            "— `coverage.complete` is false until every curated office is indexed; "
+            "follow `repair` to index the rest.",
         ] = None,
         detail: Detail = Detail.SUMMARY,
     ) -> PublishersForParameterResponse | ErrorRef:
         """List the publishers reporting a parameter, with explicit coverage.
 
         Indexes `offices`, or only already-cached offices when omitted —
-        never fans out to every office. Budget overflow lands in
+        never fans out to every office. With `offices` omitted,
+        `coverage.complete` is false until every curated office is indexed, and
+        `repair` names the ones not yet indexed. Budget overflow lands in
         `coverage.offices_skipped_for_budget` with a `repair` hint back here.
         """
         raw = await _safe(

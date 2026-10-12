@@ -964,7 +964,11 @@ def test_search_places_paginates_with_cursor(monkeypatch):
         return (["NWDM"], [], [])
 
     monkeypatch.setattr(places, "_run_fanout", _counting_fanout)
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
+    monkeypatch.setattr(
+        places,
+        "_gather_enriched",
+        lambda offices, q, use_cache, reraise_single: (list(rows), [], []),
+    )
 
     page1 = places.search_places("L", office="NWDM", limit=2)
     assert len(page1["results"]) == 2
@@ -1017,9 +1021,9 @@ def test_search_places_cursor_rejects_catalog_shift(monkeypatch):
     monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
     calls = {"n": 0}
 
-    def _shifting_gather(offices, q, use_cache):
+    def _shifting_gather(offices, q, use_cache, reraise_single):
         calls["n"] += 1
-        return (list(five if calls["n"] == 1 else six), [])  # catalog grows between calls
+        return (list(five if calls["n"] == 1 else six), [], [])  # catalog grows between calls
 
     monkeypatch.setattr(places, "_gather_enriched", _shifting_gather)
     page1 = places.search_places("L", office="NWDM", limit=2)
@@ -1041,7 +1045,11 @@ def test_search_places_rejects_mismatched_cursor(monkeypatch):
         for i in range(5)
     ]
     monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
+    monkeypatch.setattr(
+        places,
+        "_gather_enriched",
+        lambda offices, q, use_cache, reraise_single: (list(rows), [], []),
+    )
     page1 = places.search_places("L", office="NWDM", limit=2)
     with pytest.raises(CwmsToolsError) as exc:
         places.search_places("DIFFERENT", office="NWDM", limit=2, cursor=page1["next_cursor"])
@@ -1052,7 +1060,9 @@ def test_search_places_rejects_cursor_with_unlimited_limit(monkeypatch):
     # A cursor combined with an unlimited limit (0 -> None) is contradictory and
     # must be rejected before any fan-out, not silently return a tail subset.
     monkeypatch.setattr(places, "_run_fanout", lambda req: (["NWDM"], [], []))
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: ([], []))
+    monkeypatch.setattr(
+        places, "_gather_enriched", lambda offices, q, use_cache, reraise_single: ([], [], [])
+    )
     with pytest.raises(CwmsToolsError) as exc:
         places.search_places("L", office="NWDM", limit=0, cursor="anytoken")
     assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
@@ -1119,7 +1129,11 @@ def test_search_places_cursor_rejects_when_cache_expires_between_pages(
     cached_offices = {"NWDM", "NWDP"}
     monkeypatch.setattr(places, "_fanout_budget", lambda: 0)  # no new fetches allowed at all
     monkeypatch.setattr(places, "_location_catalog_cached", lambda office: office in cached_offices)
-    monkeypatch.setattr(places, "_gather_enriched", lambda offices, q, use_cache: (list(rows), []))
+    monkeypatch.setattr(
+        places,
+        "_gather_enriched",
+        lambda offices, q, use_cache, reraise_single: (list(rows), [], []),
+    )
 
     page1 = places.search_places("L", office=["NWDM", "NWDP"], limit=2)
     assert page1["offices_searched"] == ["NWDM", "NWDP"]
@@ -1383,3 +1397,107 @@ def test_search_places_no_offices_in_scope_reason_does_not_tell_caller_to_omit_o
     reason = next(r for r in payload["partial_reasons"] if r.startswith("no_offices_in_scope"))
     assert "omit" not in reason
     assert "repair_hint" in reason
+
+
+# --- partly-warm cache + temporary-error carry-forward (#161, #164) ----------
+
+
+def _warm_swt_empty(mocked) -> None:
+    """Index SWT's locations catalog through the real producer (empty catalog)."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    places.search_places("zzz-warmup", office="SWT")
+
+
+def test_search_places_partly_warm_cache_without_match_carries_a_continuation(
+    configured, mocked
+) -> None:
+    """#161: with only SWT cached the implicit scope is ["SWT"]; an empty result
+    there must not read as 'absent' — it names the curated offices never searched."""
+    _warm_swt_empty(mocked)
+    payload = places.search_places("Barkley")
+    assert payload["offices_searched"] == ["SWT"]
+    assert payload["results"] == []
+    assert payload["partial"] is True
+    assert any(r.startswith("cached_scope_incomplete:") for r in payload["partial_reasons"])
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "cached_scope_incomplete"
+    assert hint["tool"] == "cwms_search_places"
+    assert hint["args"] == {
+        "query": "Barkley",
+        "office": [o for o in offices.discovery_office_candidates() if o != "SWT"],
+    }
+
+
+def test_search_places_partly_warm_cache_with_a_match_has_no_hint(configured, mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=LOCATIONS_PAYLOAD, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TIMESERIES_PAYLOAD, status=200)
+    places.search_places("zzz-warmup", office="SWT")  # warms SWT with matching rows
+    payload = places.search_places("FOSS")
+    assert payload["offices_searched"] == ["SWT"]
+    assert payload["results"]
+    assert "repair_hint" not in payload
+    assert "partial" not in payload
+
+
+def _flaky_locations(mocked, *, failing_office: str, fail_first_only: bool):
+    """Locations-catalog callback: `failing_office` answers 500 (once, or always)."""
+    import json as _json
+    from urllib.parse import parse_qs, urlparse
+
+    calls = {"n": 0}
+
+    def cb(request):
+        office = parse_qs(urlparse(request.url).query).get("office", [""])[0]
+        if office == failing_office:
+            calls["n"] += 1
+            if not fail_first_only or calls["n"] == 1:
+                return (500, {}, _json.dumps({"message": "boom"}))
+        return (200, {}, _json.dumps({"locations": []}))
+
+    mocked.add_callback(
+        responses.GET, f"{API_ROOT}catalog/LOCATIONS", callback=cb, content_type="application/json"
+    )
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+
+
+def test_search_places_temporary_error_is_carried_into_the_next_hop_once(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 2)
+    _flaky_locations(mocked, failing_office="SWT", fail_first_only=True)
+    first = places.search_places("Barkley", office=["NWDM", "SWT", "MVS"])
+    assert "SWT: upstream_error" in first["partial_reasons"]
+    assert first["offices_skipped_for_budget"] == ["MVS"]
+    hint = first["repair_hint"]
+    assert hint["reason"] == "offices_skipped_for_budget"
+    assert hint["args"]["office"] == ["MVS", "SWT"]
+    assert "retry" in hint["message"]
+    second = places.search_places(**hint["args"])
+    assert second["offices_searched"] == ["MVS", "SWT"]
+    assert "repair_hint" not in second
+    assert "partial" not in second
+
+
+def test_search_places_temporary_error_on_the_final_hop_is_reported_not_hinted(
+    configured, mocked
+) -> None:
+    _flaky_locations(mocked, failing_office="SWT", fail_first_only=False)
+    payload = places.search_places("Barkley", office=["NWDM", "SWT"])
+    assert "repair_hint" not in payload
+    assert payload["partial"] is True
+    assert any(
+        r.startswith("temporary_errors_not_retried: SWT ") for r in payload["partial_reasons"]
+    )
+
+
+def test_search_places_single_resolved_office_error_does_not_swallow_a_continuation(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Budget 1 + two requested offices resolves a single office; its upstream
+    error must degrade to partial so the NWDP continuation survives."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    _flaky_locations(mocked, failing_office="NWDM", fail_first_only=False)
+    payload = places.search_places("x", office=["NWDM", "NWDP"])
+    assert "NWDM: upstream_error" in payload["partial_reasons"]
+    assert payload["repair_hint"]["args"]["office"] == ["NWDP", "NWDM"]

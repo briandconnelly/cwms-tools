@@ -254,7 +254,13 @@ def test_publishers_for_parameter_discovers_offices_indexed_through_the_producer
         assert len(mocked.calls) == 1, "cached office must not be refetched"
     assert payload["coverage"]["offices_requested"] == ["SWT"]
     assert payload["coverage"]["offices_indexed"] == ["SWT"]
-    assert payload["coverage"]["complete"] is True
+    # A cached slice is not the curated set: not complete, and `repair` names the rest.
+    assert payload["coverage"]["complete"] is False
+    assert payload["repair"]["next_step"] == "index_curated_offices"
+    assert payload["repair"]["arguments"] == {
+        "parameter": "Elev",
+        "offices": [o for o in offices.discovery_office_candidates() if o != "SWT"],
+    }
 
 
 def test_publishers_for_parameter_cold_cache_is_not_complete_and_names_curated_offices(

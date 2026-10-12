@@ -676,8 +676,8 @@ class PublishersCoverage(CompactDumpMixin, BaseModel):
     complete: bool = Field(
         description=(
             "True only when at least one office was indexed and none were skipped "
-            "(budget or error). False on a cold cache with `offices` omitted — "
-            "follow `repair`."
+            "(budget or error). With `offices` omitted, true only when every curated "
+            "office was indexed; otherwise follow `repair`."
         ),
     )
 

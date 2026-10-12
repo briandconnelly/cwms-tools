@@ -408,8 +408,8 @@ def _commands() -> list[dict[str, Any]]:
                     repeatable=True,
                     help=(
                         "Office code; repeat. Omit to answer from already-cached offices only "
-                        "(nothing on a cold start, `coverage.complete:false`); follow `repair` "
-                        "to index the curated offices. List codes with `cwms-tools offices`."
+                        "(`coverage.complete` is false until every curated office is indexed); "
+                        "follow `repair` to index the rest. List codes with `cwms-tools offices`."
                     ),
                 ),
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
