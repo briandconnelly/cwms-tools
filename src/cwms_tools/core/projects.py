@@ -24,6 +24,7 @@ from cwms_tools.core import locations
 from cwms_tools.core.cache import build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.session import current_config
+from cwms_tools.core.upstream import failure_summary
 
 
 def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, Any]:
@@ -55,16 +56,16 @@ def get_one(office_id: str, name: str, *, use_cache: bool = True) -> dict[str, A
         if fallback is None:
             raise CwmsToolsError.of(
                 ErrorCode.UPSTREAM_ERROR,
-                f"upstream get_project failed for {office_id}/{name}: {exc}",
+                f"upstream get_project failed for {office_id}/{name} ({failure_summary(exc)}).",
                 endpoints_called=[endpoint],
                 temporary=True,
             ) from exc
         cache.set(key, fallback, ttl=cache.ttl_for("location_catalog"))
         return fallback
-    except Exception as exc:  # pragma: no cover - defensive for non-ApiError surprises
+    except Exception as exc:  # defensive for non-ApiError surprises (transport errors)
         raise CwmsToolsError.of(
             ErrorCode.UPSTREAM_ERROR,
-            f"upstream get_project failed for {office_id}/{name}: {exc}",
+            f"upstream get_project failed for {office_id}/{name} ({failure_summary(exc)}).",
             endpoints_called=[endpoint],
             temporary=True,
         ) from exc
