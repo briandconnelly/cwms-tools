@@ -103,6 +103,7 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
         "not_found",
         "rate_limited",
         "upstream_error",
+        "usage_error",
     ],
     # Per-sensor read failures degrade into the profile rows' `error` field
     # rather than failing the call, so only catalog-level failures (plus the

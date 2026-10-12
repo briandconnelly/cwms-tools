@@ -93,6 +93,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   level id (CDA lists every historical revision). Seasonal levels are now
   evaluated at the observation timestamp instead of at their revision date
   (#162). Fingerprint moves (schema descriptions, new `zone` field).
+- `cwms_get_history` and `cwms-tools value history` now reject a timezone-less
+  `begin`/`end` (for example a date-only `2026-10-05`) with `invalid_field`, and an
+  empty or inverted window (`end <= begin`, compared as instants) with
+  `usage_error`, before any upstream call. Previously an inverted window returned an
+  empty `ok: true`. Parsing and validation live in `core.values.parse_rfc3339` and
+  `require_window`; `cwms_get_history` now advertises `usage_error` (#167).
 
 ### Changed
 

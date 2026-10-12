@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import functools
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastmcp.tools.base import ToolResult
@@ -542,29 +542,11 @@ def register_value_tools(mcp: FastMCP) -> None:
         until `truncated` is false.
         """
         try:
-            begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
-        except ValueError as exc:
-            return error_ref(
-                CwmsToolsError.of(
-                    ErrorCode.INVALID_FIELD,
-                    f"Could not parse begin_iso as RFC3339: {exc}",
-                    field="begin_iso",
-                    value=begin_iso,
-                    reason="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
-                )
-            )
-        try:
-            end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
-        except ValueError as exc:
-            return error_ref(
-                CwmsToolsError.of(
-                    ErrorCode.INVALID_FIELD,
-                    f"Could not parse end_iso as RFC3339: {exc}",
-                    field="end_iso",
-                    value=end_iso,
-                    reason="RFC3339 with timezone, e.g. 2026-05-18T00:00:00Z",
-                )
-            )
+            begin = values.parse_rfc3339(begin_iso, field="begin_iso")
+            end = values.parse_rfc3339(end_iso, field="end_iso")
+            values.require_window(begin, end, begin_field="begin_iso", end_field="end_iso")
+        except CwmsToolsError as err:
+            return error_ref(err)
         raw = await _safe(
             values.get_history,
             office,

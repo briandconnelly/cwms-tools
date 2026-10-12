@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Annotated
 
 import typer
@@ -267,9 +267,10 @@ def history(
     compact per-bucket summary of the full window in one call.
     """
     office, name, parameter = _parse_id(id_spec)
-    begin_dt = _parse_iso(begin, field="begin")
-    end_dt = _parse_iso(end, field="end")
     try:
+        begin_dt = values.parse_rfc3339(begin, field="begin")
+        end_dt = values.parse_rfc3339(end, field="end")
+        values.require_window(begin_dt, end_dt, begin_field="begin", end_field="end")
         payload = values.get_history(
             office,
             name,
@@ -392,19 +393,3 @@ def profile(
             spec_fields={"office": office, "name": name, "parameter": parameter},
         )
         emit_error(localize_repair(err))
-
-
-def _parse_iso(value: str, *, field: str) -> datetime:
-    """Parse an RFC3339 timestamp or emit a precise INVALID_FIELD error to stderr."""
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        emit_error(
-            CwmsToolsError.of(
-                ErrorCode.INVALID_FIELD,
-                f"Could not parse --{field} as RFC3339: {exc}",
-                field=field,
-                value=value,
-                reason="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
-            )
-        )
