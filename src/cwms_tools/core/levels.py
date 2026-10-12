@@ -143,15 +143,22 @@ def fetch_level_value(
     office: str,
     effective_date: datetime,
     unit: str = "EN",
+    at: datetime | None = None,
 ) -> dict[str, Any]:
-    """Read a single level value at the given effective_date.
+    """Read a single level value.
+
+    `effective_date` selects the level revision (the `effective-date` query
+    param). `at` is the instant the threshold is evaluated (the observation
+    timestamp); it defaults to `effective_date`. Only the seasonal bypass
+    uses `at`, as its query window.
 
     For constant levels this returns the scalar directly. For seasonal levels
     we bypass `get_level_as_timeseries` (cwms-python issue #286 — see
     cwms-overview.md §8) and hit `/levels/{id}/timeseries` directly via
     `cwms.api.get`. The response carries `source_workaround: "issue-286"`
-    when the bypass is taken.
+    when the bypass is taken. Every return carries `evaluated_at`.
     """
+    at = at or effective_date
     with upstream_call(f"/levels/{level_id}", operation=f"level lookup for {office}/{level_id}"):
         data = ll_api.get_location_level(
             level_id=level_id,
@@ -177,6 +184,7 @@ def fetch_level_value(
             "value": constant,
             "unit": payload.get("level-units-id") or payload.get("levelUnitsId") or unit,
             "source_workaround": None,
+            "evaluated_at": at.isoformat(),
         }
 
     if _is_seasonal(payload):
@@ -186,6 +194,7 @@ def fetch_level_value(
             effective_date=effective_date,
             unit=unit,
             level_payload=payload,
+            at=at,
         )
 
     # TimeSeries / Virtual / unknown varieties — return the bare payload as a
@@ -199,6 +208,7 @@ def fetch_level_value(
         "unit": payload.get("level-units-id") or unit,
         "source_workaround": None,
         "raw": payload,
+        "evaluated_at": at.isoformat(),
     }
 
 
@@ -313,22 +323,25 @@ def _seasonal_workaround(
     effective_date: datetime,
     unit: str,
     level_payload: dict[str, Any],
+    at: datetime | None = None,
 ) -> dict[str, Any]:
     """Direct-CDA hit on `/levels/{id}/timeseries` to work around issue #286.
 
     The wrapper's `get_level_as_timeseries` returns wrong values for seasonal
     levels (cwms-python issue #286 — see cwms-overview.md §8). The fix is to
-    bypass it and hit the underlying endpoint with both the resolved
-    `effective-date` (which level revision to use) and a sensible 1-hour
-    query window starting at `effective_date`.
+    bypass it and hit the underlying endpoint with the resolved
+    `effective-date` (which level revision to use, from `effective_date`) and
+    a 1-hour query window starting at `at` (when the threshold is evaluated;
+    defaults to `effective_date`).
     """
 
-    window_end = effective_date + timedelta(hours=1)
+    at = at or effective_date
+    window_end = at + timedelta(hours=1)
     quoted = quote(level_id, safe="")
     params = {
         "office": office,
         "effective-date": effective_date.isoformat(),
-        "begin": effective_date.isoformat(),
+        "begin": at.isoformat(),
         "end": window_end.isoformat(),
         "interval": "1Hour",
         "unit": unit,
@@ -365,6 +378,7 @@ def _seasonal_workaround(
         "unit": payload.get("units") or payload.get("unit") or unit,
         "source_workaround": "issue-286",
         "level_config": level_payload,
+        "evaluated_at": at.isoformat(),
     }
 
 
