@@ -251,7 +251,9 @@ uv run ty check
 ```
 
 The test suite uses unit tests and mocked CDA responses. Live CDA integration
-tests are marked `integration` and are skipped unless explicitly selected.
+tests are marked `integration` and are skipped unless you opt in with
+`uv run pytest --run-integration -m integration` (or set
+`CWMS_TOOLS_RUN_INTEGRATION=1`); `-m integration` alone only selects them.
 
 Before opening a substantial PR, please open an issue to discuss the intended
 change. The package is published on PyPI but still pre-1.0, so the CLI/MCP

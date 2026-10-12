@@ -25,6 +25,8 @@ hydrologic data API.
 ## Tests & coverage
 
 - Run tests with `uv run pytest`.
+- Live-CDA smoke tests (`integration` marker) are skipped by default; run them with
+  `uv run pytest --run-integration -m integration`, e.g. after upgrading `cwms-python`.
 - Aim for 95%+ coverage.
 
 ## CLI ↔ MCP parity

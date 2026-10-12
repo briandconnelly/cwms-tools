@@ -2,7 +2,8 @@
 
 The fixture matrix described in the plan lands as placeholders here so
 M3-M6 milestones can fill in real recorded responses alongside each tool.
-Live-CDA tests are marked `integration` and skipped by default.
+Live-CDA tests are marked `integration` and skipped unless `--run-integration`
+(or `CWMS_TOOLS_RUN_INTEGRATION=1`) is given.
 """
 
 from __future__ import annotations
@@ -18,6 +19,35 @@ from cwms_tools.cli import render
 from cwms_tools.core.cache import Cache, set_cache
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+#: Env-var alternative to `--run-integration`, for runners that can't pass flags.
+RUN_INTEGRATION_ENV = "CWMS_TOOLS_RUN_INTEGRATION"
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--run-integration",
+        action="store_true",
+        default=False,
+        help=f"Run `integration`-marked live-CDA tests (or set {RUN_INTEGRATION_ENV}=1).",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip `integration`-marked tests unless explicitly opted in (#138).
+
+    They hit the live CDA, so they are slow, network-dependent, and must never
+    gate an ordinary `uv run pytest`. `-m integration` alone only *selects*
+    them; it does not opt in.
+    """
+    if config.getoption("--run-integration") or os.environ.get(RUN_INTEGRATION_ENV) == "1":
+        return
+    skip = pytest.mark.skip(
+        reason=f"live-CDA test; pass --run-integration or set {RUN_INTEGRATION_ENV}=1"
+    )
+    for item in items:
+        if "integration" in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True)
