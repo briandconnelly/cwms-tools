@@ -379,10 +379,11 @@ def test_cli_mcp_parity(case: dict, detail: str, configured, monkeypatch) -> Non
     # 1. Exact field-for-field parity between the two surfaces — including
     #    semantic-null (`_keep_null`) fields. No normalization, so the guard
     #    cannot mask a divergence where one surface omits a field the other
-    #    emits (e.g. `history.summary: null`). This holds because the producer
-    #    payload is built via the response model's own `model_dump` (which
-    #    null-strips non-semantic Nones and keeps semantic ones), so it equals
-    #    exactly what MCP re-emits, and the CLI emits it verbatim.
+    #    emits (e.g. `history.summary: null`). The producer payload is raw
+    #    (Nones included, not pre-cleaned through a model), and each surface
+    #    serializes it independently through the tool's response model — MCP
+    #    via its handler, the CLI via `core._compact.surface_payload` (#143) —
+    #    so any null-strip or default drift between them fails here.
     assert cli_data == mcp_data
 
     # 2. The summary shaper actually fired on BOTH surfaces (the #55-class guard):
