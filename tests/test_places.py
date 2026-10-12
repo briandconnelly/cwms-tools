@@ -1442,16 +1442,17 @@ def test_search_places_partly_warm_cache_with_a_match_has_no_hint(configured, mo
     assert "partial" not in payload
 
 
-def _flaky_locations(mocked, *, failing_office: str, fail_first_only: bool):
-    """Locations-catalog callback: `failing_office` answers 500 (once, or always)."""
+def _flaky_locations(mocked, *, failing_office: str | set[str], fail_first_only: bool):
+    """Locations-catalog callback: `failing_office`(es) answer 500 (once, or always)."""
     import json as _json
     from urllib.parse import parse_qs, urlparse
 
     calls = {"n": 0}
+    failing = {failing_office} if isinstance(failing_office, str) else failing_office
 
     def cb(request):
         office = parse_qs(urlparse(request.url).query).get("office", [""])[0]
-        if office == failing_office:
+        if office in failing:
             calls["n"] += 1
             if not fail_first_only or calls["n"] == 1:
                 return (500, {}, _json.dumps({"message": "boom"}))
@@ -1463,22 +1464,42 @@ def _flaky_locations(mocked, *, failing_office: str, fail_first_only: bool):
     mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
 
 
-def test_search_places_temporary_error_is_carried_into_the_next_hop_once(
+def test_search_places_temporary_error_is_reported_not_carried_into_the_hint(
     configured, mocked, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(places, "_fanout_budget", lambda: 2)
     _flaky_locations(mocked, failing_office="SWT", fail_first_only=True)
     first = places.search_places("Barkley", office=["NWDM", "SWT", "MVS"])
-    assert "SWT: upstream_error" in first["partial_reasons"]
     assert first["offices_skipped_for_budget"] == ["MVS"]
+    assert "SWT: upstream_error" in first["partial_reasons"]
+    assert any(r.startswith("temporary_errors_not_retried: SWT ") for r in first["partial_reasons"])
     hint = first["repair_hint"]
     assert hint["reason"] == "offices_skipped_for_budget"
-    assert hint["args"]["office"] == ["MVS", "SWT"]
-    assert "retry" in hint["message"]
+    assert hint["args"]["office"] == ["MVS"]
+    assert "temporary" not in hint["message"]
     second = places.search_places(**hint["args"])
-    assert second["offices_searched"] == ["MVS", "SWT"]
+    assert second["offices_searched"] == ["MVS"]
     assert "repair_hint" not in second
-    assert "partial" not in second
+
+
+def test_search_places_persistent_temporary_errors_do_not_chain_forever(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Budget 1, two offices that both always fail: following the hint must end."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    _flaky_locations(mocked, failing_office={"NWDM", "NWDP"}, fail_first_only=False)
+    first = places.search_places("x", office=["NWDM", "NWDP"])
+    assert first["offices_skipped_for_budget"] == ["NWDP"]
+    hint = first["repair_hint"]
+    assert hint["args"]["office"] == ["NWDP"]  # NWDM is reported, not re-carried
+    assert any(
+        r.startswith("temporary_errors_not_retried: NWDM ") for r in first["partial_reasons"]
+    )
+    # Hop 2 is a single office with nothing skipped: its failure surfaces as the
+    # structured error, so the chain ends here instead of ping-ponging.
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places(**hint["args"])
+    assert exc.value.envelope.code is ErrorCode.UPSTREAM_ERROR
 
 
 def test_search_places_temporary_error_on_the_final_hop_is_reported_not_hinted(
@@ -1502,7 +1523,7 @@ def test_search_places_single_resolved_office_error_does_not_swallow_a_continuat
     _flaky_locations(mocked, failing_office="NWDM", fail_first_only=False)
     payload = places.search_places("x", office=["NWDM", "NWDP"])
     assert "NWDM: upstream_error" in payload["partial_reasons"]
-    assert payload["repair_hint"]["args"]["office"] == ["NWDP", "NWDM"]
+    assert payload["repair_hint"]["args"]["office"] == ["NWDP"]
 
 
 def test_search_places_explicit_empty_office_reason_says_so(configured, mocked) -> None:
@@ -1526,3 +1547,22 @@ def test_search_places_use_cache_false_spends_budget_on_cached_offices(
     forced = places.search_places("x", office=["SWT", "MVS"], use_cache=False)
     assert forced["offices_searched"] == ["SWT"]
     assert forced["offices_skipped_for_budget"] == ["MVS"]
+
+
+def test_search_places_implicit_scope_budget_hint_keeps_the_curated_rest(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forced refresh over a partly-warm implicit scope can budget-skip a cached
+    office; the hint must still name the curated offices never cached."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    places.search_places("warm", office=["SWT", "MVS"])
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    payload = places.search_places("zzz", use_cache=False)
+    assert payload["offices_searched"] == ["MVS"]
+    assert payload["offices_skipped_for_budget"] == ["SWT"]
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "offices_skipped_for_budget"
+    expected = list(dict.fromkeys(["SWT", *(o for o in offices.discovery_office_candidates())]))
+    expected.remove("MVS")
+    assert hint["args"]["office"] == expected

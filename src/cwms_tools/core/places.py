@@ -240,8 +240,10 @@ def _continuation(
     fresh search; an explicit empty list is a deliberate "search nothing" and is
     never widened. Precedence: empty scope (#24) > budget continuation (#161) >
     partly-warm cache. The budget hint restarts a fresh search (no cursor: a
-    cursor locks the office set it was minted for) over the skipped offices plus
-    any temporarily-errored ones, once.
+    cursor locks the office set it was minted for) over the skipped offices; on an
+    implicit scope the curated offices never searched ride along after them.
+    Temporarily-errored offices are only reported (every hop), never re-carried:
+    carrying them would let two persistently failing offices chain forever.
     """
     reasons: list[str] = []
     uncached = (
@@ -249,9 +251,7 @@ def _continuation(
         if implicit_scope and offices_searched and total_count == 0
         else []
     )
-    if temporary_errored and not offices_skipped:
-        # Final hop: no hint is attached, so the chain ends here and the retry is
-        # the caller's call. (With offices skipped, the budget hint carries them.)
+    if temporary_errored:
         reasons.append(
             f"temporary_errors_not_retried: {', '.join(temporary_errored)} failed with a "
             "temporary upstream error and were not searched; retry them with `office`"
@@ -264,38 +264,30 @@ def _continuation(
     if implicit_scope and not offices_searched:
         return reasons, _empty_scope_repair_hint(query, parameter)
     if offices_skipped:  # always empty on the cursor path, which rejects skips outright
-        return reasons, _skipped_scope_repair_hint(
-            query, parameter, offices_skipped, temporary_errored
-        )
+        return reasons, _skipped_scope_repair_hint(query, parameter, offices_skipped, uncached)
     if uncached:
         return reasons, _cached_scope_repair_hint(query, parameter, uncached)
     return reasons, None
 
 
 def _skipped_scope_repair_hint(
-    query: str, parameter: str | None, skipped: list[str], retry: list[str]
+    query: str, parameter: str | None, skipped: list[str], also: list[str]
 ) -> dict[str, Any]:
     """Build the `repair_hint` for a search that skipped offices for budget.
 
-    `retry` lists offices that failed with a temporary upstream error this
-    hop; they are appended (deduplicated) so the next hop retries them once.
+    `also` lists further offices to search after the skipped ones (deduplicated).
     """
-    offices_next = list(dict.fromkeys([*skipped, *retry]))
+    offices_next = list(dict.fromkeys([*skipped, *also]))
     args: dict[str, Any] = {"query": query, "office": offices_next}
     if parameter is not None:
         args["parameter"] = parameter
-    message = (
-        f"{len(skipped)} office(s) were not searched because of the per-call fan-out "
-        "budget. Retry with `office` set to exactly this list to continue; repeat "
-        "until `offices_skipped_for_budget` is empty."
-    )
-    if retry:
-        message += (
-            " Offices that failed with a temporary upstream error are included once for a retry."
-        )
     return {
         "reason": "offices_skipped_for_budget",
-        "message": message,
+        "message": (
+            f"{len(skipped)} office(s) were not searched because of the per-call fan-out "
+            "budget. Retry with `office` set to exactly this list to continue; repeat "
+            "until `offices_skipped_for_budget` is empty."
+        ),
         "tool": "cwms_search_places",
         "args": args,
     }
@@ -470,7 +462,7 @@ def _gather_enriched(
     (<ExcType>)`` for unexpected exceptions — ``internal_error`` is
     deliberately *not* an ErrorCode value. `temporary_errored` lists the
     offices whose structured error was marked `temporary` (5xx, connection
-    errors), which a continuation hint may retry once.
+    errors); the response reports them but never re-carries them.
 
     When `reraise_single` is true and the resolved office set has exactly one
     entry, a structured CwmsToolsError re-raises so the full envelope —

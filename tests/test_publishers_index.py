@@ -309,3 +309,25 @@ def test_publishers_for_parameter_use_cache_false_spends_budget_on_cached_office
         assert len(mocked.calls) == 4, "exactly one fetch attempted under budget 1"
     assert payload["coverage"]["offices_indexed"] == ["SWT"]
     assert payload["coverage"]["offices_skipped_for_budget"] == ["MVS", "NWDM"]
+
+
+def test_publishers_for_parameter_implicit_scope_skip_repair_keeps_the_curated_rest(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json=_ts_catalog("FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"),
+            status=200,
+        )
+        publishers_index.publishers_for_parameter("Elev", offices=["SWT", "MVS"])
+        monkeypatch.setattr(publishers_index, "_budget", lambda: 1)
+        payload = publishers_index.publishers_for_parameter("Elev", use_cache=False)
+    assert payload["coverage"]["offices_indexed"] == ["MVS"]
+    assert payload["coverage"]["offices_skipped_for_budget"] == ["SWT"]
+    repair = payload["repair"]
+    assert repair["next_step"] == "retry_skipped_offices"
+    expected = list(dict.fromkeys(["SWT", *offices.discovery_office_candidates()]))
+    expected.remove("MVS")
+    assert repair["arguments"]["offices"] == expected

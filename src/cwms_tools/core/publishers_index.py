@@ -156,7 +156,11 @@ def _repair_hint(
         hint = RepairHint(
             next_step="retry_skipped_offices",
             tool="cwms_publishers_for_parameter",
-            arguments={"parameter": parameter, "offices": skipped},
+            arguments={
+                "parameter": parameter,
+                # Implicit scope: the curated offices never indexed ride along.
+                "offices": list(dict.fromkeys([*skipped, *([] if explicit else curated_uncached)])),
+            },
         )
     elif not explicit and curated_uncached:
         hint = RepairHint(
