@@ -72,6 +72,33 @@ def test_first_summary_falls_back_when_only_a_list() -> None:
     assert overview._first_summary(_SOURCES_LIST, title="Sources") == "Reference section: Sources."
 
 
+_PIPELESS_TABLE = """\
+Name | Value
+--- | ---
+a | 1
+b | 2
+"""
+
+
+def test_first_summary_skips_pipeless_table() -> None:
+    body = _PIPELESS_TABLE + "\nThe real prose follows.\n"
+    assert overview._first_summary(body, title="T") == "The real prose follows."
+
+
+def test_first_summary_skips_paren_numbered_list() -> None:
+    body = "1) first item\n2) second item\n\nThe real prose follows.\n"
+    assert overview._first_summary(body, title="T") == "The real prose follows."
+
+
+def test_first_summary_falls_back_when_only_pipeless_table() -> None:
+    assert overview._first_summary(_PIPELESS_TABLE, title="T") == "Reference section: T."
+
+
+def test_first_summary_keeps_prose_containing_a_pipe() -> None:
+    body = "Use a | b to pick one. Then go on.\n"
+    assert overview._first_summary(body, title="T") == "Use a | b to pick one. Then go on."
+
+
 def test_summaries_are_prose_not_rules_or_link_lists() -> None:
     by_id = {s.section_id: s.summary for s in overview.all_sections()}
     assert by_id["reference-where-to-look-for-specific-things"] == (

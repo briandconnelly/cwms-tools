@@ -20,7 +20,7 @@ A stable SHA-256 over the inputs documented in the plan's §Discovery contract:
 11. The FastMCP server `instructions` string (#71 — a prose rewrite to either
     of these that changes agent behavior must move the fingerprint, not just
     input/output schemas)
-13. The `cwms://overview` index section summaries (agent-visible prose derived
+12. The `cwms://overview` index section summaries (agent-visible prose derived
     from the bundled document by `overview.all_sections()`, read at call time)
 
 Exposed as `fingerprint` (hex) and `fingerprint_scope: "schema-contract"` — the

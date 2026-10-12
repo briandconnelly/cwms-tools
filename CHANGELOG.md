@@ -128,7 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moves.
 - Passthrough upstream DTOs (`location`, `project`, `locks`, `raw`) are
   documented as keeping upstream kebab-case keys (`location`/`project`/`raw`
-  verbatim at detail=full; `locks` normalized; summary detail prunes); envelope
+  retain all upstream fields and kebab-case keys at detail=full (wire float
+  normalization still applies); `locks` normalized; summary detail prunes); envelope
   fields stay snake_case
   (#172).
 - `cwms://offices` resource description no longer mentions internal executor

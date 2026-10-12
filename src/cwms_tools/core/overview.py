@@ -82,7 +82,8 @@ class OverviewSection:
         return None
 
 
-_LIST_ITEM = re.compile(r"^(?:[-*+]|\d+\.)\s")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+_TABLE_DELIM = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
 _FENCE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
 _RULE = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
 
@@ -102,7 +103,10 @@ def _first_summary(body: str, *, title: str) -> str:
         if not lines:
             continue
         first = lines[0]
-        if first.startswith("|") or _RULE.match(first) or _LIST_ITEM.match(first):
+        is_table = first.startswith("|") or (
+            "|" in first and len(lines) > 1 and bool(_TABLE_DELIM.match(lines[1]))
+        )
+        if is_table or _RULE.match(first) or _LIST_ITEM.match(first):
             continue
         sentences = re.split(r"(?<=[.!?])\s+", " ".join(lines))
         text = " ".join(sentences[:3]).strip().rstrip(":").rstrip()

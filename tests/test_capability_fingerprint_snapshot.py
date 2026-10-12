@@ -430,7 +430,11 @@ def test_overview_summaries_are_a_fingerprint_input(monkeypatch) -> None:
     from cwms_tools.core import overview as ov
 
     base = fingerprint.compute(tools={}, resources=[])
-    first = ov.all_sections()[0]
-    changed = dataclasses.replace(first, summary="changed")
-    monkeypatch.setattr(ov, "all_sections", lambda: [changed])
+    sections = ov.all_sections()
+    # Positive control: patching with the unchanged list must not move the hash.
+    monkeypatch.setattr(ov, "all_sections", lambda: sections)
+    assert fingerprint.compute(tools={}, resources=[]) == base
+    # Isolated change: every section kept, only the first summary differs.
+    patched = [dataclasses.replace(sections[0], summary="changed"), *sections[1:]]
+    monkeypatch.setattr(ov, "all_sections", lambda: patched)
     assert fingerprint.compute(tools={}, resources=[]) != base

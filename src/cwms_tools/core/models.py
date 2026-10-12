@@ -226,9 +226,11 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
     raw: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Verbatim upstream location-catalog entry (`/catalog/LOCATIONS`) with "
-            "kebab-case keys — not the same key set as `cwms_describe_place`'s "
-            "`location`; unfiltered, detail=full only (search, not browse)."
+            "Upstream location-catalog entry (`/catalog/LOCATIONS`); all upstream "
+            "fields and kebab-case keys are retained (floats are normalized to "
+            "six significant figures on the wire, like every response value). "
+            "Not the same key set as `cwms_describe_place`'s `location`; "
+            "unfiltered, detail=full only (search, not browse)."
         ),
     )
 
@@ -331,7 +333,9 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
         description=(
             "Upstream Location DTO; keys keep CDA's kebab-case spelling "
             "(`office-id`, `public-name`), not the envelope's snake_case. "
-            "detail=summary keeps the triage subset; full is verbatim."
+            "detail=summary keeps the triage subset; detail=full retains all upstream "
+            "fields and kebab-case keys (floats are normalized to six significant "
+            "figures on the wire, like every response value)."
         ),
     )
     project: dict[str, Any] | None = Field(
@@ -341,7 +345,9 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
             "Null if not a project or the project lookup "
             "failed (see partial_reasons). detail=summary keeps only "
             "project-owner and authorizing-law ({} when neither is set); detail=full "
-            "is verbatim, and its nested location's 0.0 lat/lon are placeholders "
+            "retains all upstream fields and kebab-case keys (floats are normalized "
+            "to six significant figures on the wire, like every response value), "
+            "and its nested location's 0.0 lat/lon are placeholders "
             "(use the top-level location)."
         ),
     )

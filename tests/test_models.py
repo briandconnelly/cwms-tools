@@ -402,7 +402,7 @@ def test_compact_models_round_trip() -> None:
     assert DescribePlaceResponse.model_validate(resp.model_dump(mode="json"))
 
 
-def test_passthrough_dto_fields_say_they_are_verbatim_kebab_case() -> None:
+def test_passthrough_dto_fields_keep_kebab_case_keys() -> None:
     from cwms_tools.core.models import DescribePlaceResponse
 
     for model, field in [
