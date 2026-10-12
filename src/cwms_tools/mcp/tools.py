@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import functools
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastmcp.tools.base import ToolResult
@@ -514,18 +514,29 @@ def register_value_tools(mcp: FastMCP) -> None:
         name: Annotated[str, _NAME_HINT],
         parameter: Annotated[str, _PARAMETER_HINT],
         begin_iso: Annotated[
-            str, "Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z)."
+            str,
+            "Window start: "
+            "RFC 3339 date-time with timezone (Z or ±HH:MM), e.g. 2026-05-17T00:00:00Z. "
+            "Other unambiguous ISO 8601 spellings with an offset are accepted too; "
+            "a date alone, or a time without an offset, is rejected.",
         ],
         end_iso: Annotated[
             str,
-            "Window end as an RFC3339 timestamp (e.g. 2026-05-18T00:00:00Z).",
+            "Window end: "
+            "RFC 3339 date-time with timezone (Z or ±HH:MM), e.g. 2026-05-18T00:00:00Z. "
+            "Other unambiguous ISO 8601 spellings with an offset are accepted too; "
+            "a date alone, or a time without an offset, is rejected.",
         ],
         unit: Annotated[Literal["EN", "SI"], _UNIT_HINT] = "EN",
         rollup: Annotated[
             Rollup,
-            "Downsample: 'raw' (default) or 'hourly'/'daily' (per-bucket "
-            "aggregates in `buckets`, exempt from the local raw-point cap — "
-            "but the upstream fetch cap can still apply; see `truncated`).",
+            "Downsample. 'raw' (default) returns every point and is capped at "
+            "5,000 (30 days of 15-minute data is ~2,900 points, ~220 KB); for "
+            "windows longer than about two days use 'hourly' or 'daily' — "
+            "per-bucket min/max/mean/count in `buckets`, exempt from the raw "
+            "cap (the upstream fetch cap can still apply; see `truncated`). "
+            "`summary` is always present (null only when the window has no numeric "
+            "observations).",
         ] = Rollup.RAW,
         detail: Detail = Detail.SUMMARY,
     ) -> HistoryResponse | ErrorRef:
@@ -534,37 +545,23 @@ def register_value_tools(mcp: FastMCP) -> None:
         For a value series over time; for latest value + status, use
         `cwms_get_value` instead (cheaper).
 
-        Read `summary` for "how has X changed", or `rollup='hourly'`/`'daily'`
-        for compact aggregates. If `truncated`, check `truncation_hint`: a
+        Read `summary` for "how has X changed". For windows longer than about
+        two days use `rollup='hourly'` or `'daily'`: `'raw'` returns every point
+        up to a 5,000-point cap (30 days of 15-minute data is ~2,900 points,
+        ~220 KB), while the rollups return per-bucket aggregates in `buckets`
+        that are exempt from that cap. `summary` is always present (null only when
+        the window has no numeric observations). If `truncated`, check `truncation_hint`: a
         local raw-point cap still covers the full window (rollup gives a
         complete summary), but an upstream fetch cap means `summary`/
         `buckets` cover only the fetched prefix — continue via `next_begin`
         until `truncated` is false.
         """
         try:
-            begin = datetime.fromisoformat(begin_iso.replace("Z", "+00:00"))
-        except ValueError as exc:
-            return error_ref(
-                CwmsToolsError.of(
-                    ErrorCode.INVALID_FIELD,
-                    f"Could not parse begin_iso as RFC3339: {exc}",
-                    field="begin_iso",
-                    value=begin_iso,
-                    reason="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
-                )
-            )
-        try:
-            end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
-        except ValueError as exc:
-            return error_ref(
-                CwmsToolsError.of(
-                    ErrorCode.INVALID_FIELD,
-                    f"Could not parse end_iso as RFC3339: {exc}",
-                    field="end_iso",
-                    value=end_iso,
-                    reason="RFC3339 with timezone, e.g. 2026-05-18T00:00:00Z",
-                )
-            )
+            begin = values.parse_rfc3339(begin_iso, field="begin_iso")
+            end = values.parse_rfc3339(end_iso, field="end_iso")
+            values.require_window(begin, end, begin_field="begin_iso", end_field="end_iso")
+        except CwmsToolsError as err:
+            return error_ref(err)
         raw = await _safe(
             values.get_history,
             office,

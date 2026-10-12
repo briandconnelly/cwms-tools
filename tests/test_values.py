@@ -1190,3 +1190,80 @@ def test_get_value_with_no_levels_is_unknown_and_unavailable(configured) -> None
     assert payload["status_class"] == "unknown"
     assert payload["level_lookup_status"] == "unavailable"
     assert payload["thresholds_active"] == []
+
+
+def _details(err: CwmsToolsError):
+    assert err.envelope.details is not None
+    return err.envelope.details
+
+
+def test_parse_rfc3339_rejects_naive_and_garbage() -> None:
+    with pytest.raises(CwmsToolsError) as ex:
+        values.parse_rfc3339("2026-10-05", field="begin_iso")
+    assert ex.value.envelope.code is ErrorCode.INVALID_FIELD
+    assert _details(ex.value).field == "begin_iso"
+    assert "T00:00:00Z" in (_details(ex.value).reason or "")
+    with pytest.raises(CwmsToolsError):
+        values.parse_rfc3339("not-a-date", field="end_iso")
+    assert values.parse_rfc3339("2026-10-05T00:00:00Z", field="x") == datetime(
+        2026, 10, 5, tzinfo=UTC
+    )
+
+
+@pytest.mark.parametrize("value", ["2026-10-05", "2026-10-05T00:00:00"])
+def test_parse_rfc3339_hints_are_followable(value: str) -> None:
+    with pytest.raises(CwmsToolsError) as ex:
+        values.parse_rfc3339(value, field="x")
+    match = re.search(r"e\.g\. (\S+?)\.?$", _details(ex.value).reason or "")
+    assert match
+    assert values.parse_rfc3339(match.group(1), field="x") == datetime(2026, 10, 5, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2026-10-05 00:00:00+00:00", "2026-10-05T00:00Z", "2026-10-05T00:00:00+0000"],
+)
+def test_parse_rfc3339_accepts_unambiguous_iso_8601_spellings(value: str) -> None:
+    assert values.parse_rfc3339(value, field="x") == datetime(2026, 10, 5, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("value", ["2026-10-05t00:00:00z", "2026-10-05T00:00:00z"])
+def test_parse_rfc3339_accepts_lowercase_t_and_z(value: str) -> None:
+    assert values.parse_rfc3339(value, field="x") == datetime(2026, 10, 5, tzinfo=UTC)
+
+
+def test_history_rejects_inverted_window_before_any_upstream_call(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_history(
+                "SWT",
+                "FOSS",
+                "Elev",
+                begin=datetime(2026, 5, 18, tzinfo=UTC),
+                end=datetime(2026, 5, 17, tzinfo=UTC),
+            )
+        assert len(mocked.calls) == 0
+    assert ex.value.envelope.code is ErrorCode.USAGE_ERROR
+    assert _details(ex.value).field == "end"
+    assert "2026-05-18" in (_details(ex.value).reason or "")
+    assert "2026-05-17" in (_details(ex.value).reason or "")
+
+
+def test_history_rejects_equal_instants_across_offsets() -> None:
+    """+05:30 and Z spellings of the same instant are an empty window."""
+    with pytest.raises(CwmsToolsError) as ex:
+        values.require_window(
+            datetime.fromisoformat("2026-05-17T05:30:00+05:30"),
+            datetime.fromisoformat("2026-05-17T00:00:00+00:00"),
+            begin_field="begin_iso",
+            end_field="end_iso",
+        )
+    assert ex.value.envelope.code is ErrorCode.USAGE_ERROR
+    assert _details(ex.value).field == "end_iso"
+
+
+def test_require_window_rejects_naive_datetime() -> None:
+    with pytest.raises(CwmsToolsError) as ex:
+        values.require_window(datetime(2026, 5, 17), datetime(2026, 5, 18, tzinfo=UTC))
+    assert ex.value.envelope.code is ErrorCode.INVALID_FIELD
+    assert _details(ex.value).field == "begin"

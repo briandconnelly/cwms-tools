@@ -93,6 +93,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   level id (CDA lists every historical revision). Seasonal levels are now
   evaluated at the observation timestamp instead of at their revision date
   (#162). Fingerprint moves (schema descriptions, new `zone` field).
+- `cwms_get_history` / `value history`: an inverted or empty window
+  (`end <= begin`) is now `usage_error` naming both fields instead of an empty
+  `ok: true`; a timezone-less timestamp (previously accepted as a naive local time) is
+  rejected as `invalid_field` with the
+  fix spelled out, matching the error text (#167). `usage_error` is advertised
+  on `cwms_get_history`.
 
 ### Changed
 
@@ -117,6 +123,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `retry_with_catalog_id` repair on a mismatch.
 - Capability fingerprint moves (error codes, argument descriptions, the
   `data_at` field on describe).
+- `rollup` descriptions steer windows longer than about two days to
+  `hourly`/`daily` and state the raw cap and typical size (#168). Fingerprint
+  moves.
 
 ## [0.8.0] - 2026-10-12
 

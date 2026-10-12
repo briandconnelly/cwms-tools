@@ -848,3 +848,34 @@ def test_get_history_resolves_repair_intent_to_same_tool_with_window_preserved(
     monkeypatch.setattr(values, "get_history", record)
     _call(server, "cwms_get_history", repair["arguments"])
     assert seen["parameter"] == "Elev" and seen["unit"] == "SI" and seen["rollup"] == "daily"
+
+
+@pytest.mark.parametrize(
+    ("args", "code", "field"),
+    [
+        (
+            {"begin_iso": "2026-10-05", "end_iso": "2026-10-06T00:00:00Z"},
+            "invalid_field",
+            "begin_iso",
+        ),
+        (
+            {"begin_iso": "2026-10-06T00:00:00Z", "end_iso": "2026-10-05T00:00:00Z"},
+            "usage_error",
+            "end_iso",
+        ),
+        (
+            {"begin_iso": "2026-10-05T00:00:00Z", "end_iso": "2026-10-05T00:00:00Z"},
+            "usage_error",
+            "end_iso",
+        ),
+    ],
+)
+def test_get_history_window_validation(configured, args, code, field) -> None:
+    server = build_server()
+    call_args = {"office": "SWT", "name": "FOSS", "parameter": "Elev", **args}
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        result = _call(server, "cwms_get_history", call_args)
+        assert len(mocked.calls) == 0
+    err = _branch(result.structured_content)["error"]
+    assert err["code"] == code
+    assert err["details"]["field"] == field

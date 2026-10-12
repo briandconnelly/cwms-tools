@@ -7,6 +7,7 @@ resolves in one tool call rather than four.
 
 from __future__ import annotations
 
+import re
 import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -238,6 +239,72 @@ def _profile_entry(
     return entry
 
 
+_TZ_HINT = "RFC3339 with timezone; append Z for UTC, e.g. 2026-10-05T00:00:00Z"
+
+
+_DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def parse_rfc3339(value: str, *, field: str) -> datetime:
+    """Parse a surface timestamp argument; reject garbage and timezone-less input (#167)."""
+    text = value.strip()
+    if text[-1:] in ("z", "Z"):  # RFC3339 s5.6 allows lowercase t/z
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text.replace("t", "T", 1))
+    except ValueError as exc:
+        raise CwmsToolsError.of(
+            ErrorCode.INVALID_FIELD,
+            f"Could not parse {field} as RFC3339: {exc}",
+            field=field,
+            value=value,
+            reason=_TZ_HINT,
+        ) from exc
+    if parsed.tzinfo is None:
+        if _DATE_ONLY.fullmatch(text):
+            fix = f"A full date-time with timezone is required, e.g. {text}T00:00:00Z."
+        else:
+            fix = (
+                "No timezone was given, so the instant is ambiguous; "
+                f"append Z for UTC, e.g. {text}Z."
+            )
+        raise CwmsToolsError.of(
+            ErrorCode.INVALID_FIELD,
+            f"{field} has no timezone: {value!r}.",
+            field=field,
+            value=value,
+            reason=fix,
+        )
+    return parsed
+
+
+def require_window(
+    begin: datetime, end: datetime, *, begin_field: str = "begin", end_field: str = "end"
+) -> None:
+    """Reject naive datetimes and empty/inverted windows before any upstream call (#167)."""
+    for name, dt in ((begin_field, begin), (end_field, end)):
+        if dt.tzinfo is None:
+            raise CwmsToolsError.of(
+                ErrorCode.INVALID_FIELD,
+                f"{name} has no timezone.",
+                field=name,
+                value=dt.isoformat(),
+                reason=_TZ_HINT,
+            )
+    if end <= begin:
+        raise CwmsToolsError.of(
+            ErrorCode.USAGE_ERROR,
+            f"{end_field} must be after {begin_field}.",
+            field=end_field,
+            value=end.isoformat(),
+            reason=(
+                f"Got {begin_field}={begin.isoformat()} and {end_field}={end.isoformat()}; "
+                f"set {end_field} later than {begin_field} "
+                "(an empty or inverted window has no data)."
+            ),
+        )
+
+
 def get_history(
     office: str,
     location: str,
@@ -267,6 +334,7 @@ def get_history(
             reason=f"Use one of: {', '.join(ROLLUP_MODES)}.",
         )
     office = offices.require_known_office(office)
+    require_window(begin, end)
     tsid = timeseries.require_canonical_ts_id(office, location, parameter)
     parts = publishers.parse_ts_id(tsid)
     series = timeseries.fetch_window(tsid, office=office, begin=begin, end=end, unit=unit)
@@ -634,4 +702,4 @@ def _coerce_dt(raw: Any) -> datetime | None:
     return None
 
 
-__all__ = ["get_history", "get_profile", "get_value"]
+__all__ = ["get_history", "get_profile", "get_value", "parse_rfc3339", "require_window"]

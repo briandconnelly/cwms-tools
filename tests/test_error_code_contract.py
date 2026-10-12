@@ -114,6 +114,13 @@ PROVOCATIONS[("cwms_get_history", "invalid_field")] = (
     {**GOOD_ARGS["cwms_get_history"], "begin_iso": "not-a-date"},
     None,
 )
+PROVOCATIONS[("cwms_get_history", "usage_error")] = (
+    {
+        **GOOD_ARGS["cwms_get_history"],
+        "end_iso": GOOD_ARGS["cwms_get_history"]["begin_iso"],  # empty window
+    },
+    None,
+)
 PROVOCATIONS[("cwms_browse_region", "usage_error")] = (
     {"office": "SWT", "south": 1.0},  # partial bbox
     None,

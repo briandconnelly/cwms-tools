@@ -366,8 +366,28 @@ def _commands() -> list[dict[str, Any]]:
                 )
             ],
             "options": [
-                _opt("--begin", "string", required=True, help="RFC3339 window start."),
-                _opt("--end", "string", required=True, help="RFC3339 window end."),
+                _opt(
+                    "--begin",
+                    "string",
+                    required=True,
+                    help=(
+                        "Window start: RFC 3339 date-time with timezone (Z or ±HH:MM), "
+                        "e.g. 2026-05-17T00:00:00Z. "
+                        "Other unambiguous ISO 8601 spellings with an offset are accepted too; "
+                        "a date alone, or a time without an offset, is rejected."
+                    ),
+                ),
+                _opt(
+                    "--end",
+                    "string",
+                    required=True,
+                    help=(
+                        "Window end: RFC 3339 date-time with timezone (Z or ±HH:MM), "
+                        "e.g. 2026-05-18T00:00:00Z. "
+                        "Other unambiguous ISO 8601 spellings with an offset are accepted too; "
+                        "a date alone, or a time without an offset, is rejected."
+                    ),
+                ),
                 _opt("--unit", "string", default="EN", enum=["EN", "SI"]),
                 _opt(
                     "--rollup",
@@ -375,9 +395,11 @@ def _commands() -> list[dict[str, Any]]:
                     default="raw",
                     enum=["raw", "hourly", "daily"],
                     help=(
-                        "'raw' returns every point (server-side 5,000-point cap); "
-                        "'hourly'/'daily' return per-bucket min/max/mean/count and "
-                        "are not subject to that cap."
+                        "'raw' returns every point (server-side 5,000-point cap; "
+                        "30 days of 15-minute data is ~2,900 points). For windows "
+                        "longer than about two days use 'hourly'/'daily': per-bucket "
+                        "min/max/mean/count, not subject to that cap. `summary` is "
+                        "always present regardless of rollup."
                     ),
                 ),
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),

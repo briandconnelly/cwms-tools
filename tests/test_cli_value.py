@@ -578,3 +578,21 @@ def test_attach_repair_intent_spec_mode_keeps_non_positional_overrides() -> None
         "unit": "EN",
         "id_specs": ["SWT/FOSS/Elev"],
     }
+
+
+@pytest.mark.parametrize(
+    ("begin", "end", "code", "field"),
+    [
+        ("2026-10-05", "2026-10-06T00:00:00Z", "invalid_field", "begin"),
+        ("2026-10-06T00:00:00Z", "2026-10-05T00:00:00Z", "usage_error", "end"),
+    ],
+)
+def test_value_history_window_validation(begin, end, code, field) -> None:
+    args = ["value", "history", "SWT/FOSS/Elev", "--begin", begin, "--end", end]
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        result = runner.invoke(app, args)
+        assert len(mocked.calls) == 0
+    assert result.exit_code == 2
+    err = json.loads(result.stderr)["error"]
+    assert err["code"] == code
+    assert err["details"]["field"] == field

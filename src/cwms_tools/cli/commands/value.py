@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Annotated
 
 import typer
@@ -215,14 +215,24 @@ def history(
         str,
         typer.Option(
             "--begin",
-            help="Window start as an RFC3339 timestamp (e.g. 2026-05-17T00:00:00Z).",
+            help=(
+                "Window start: RFC 3339 date-time with timezone (Z or ±HH:MM), "
+                "e.g. 2026-05-17T00:00:00Z. "
+                "Other unambiguous ISO 8601 spellings with an offset are accepted too; "
+                "a date alone, or a time without an offset, is rejected."
+            ),
         ),
     ],
     end: Annotated[
         str,
         typer.Option(
             "--end",
-            help="Window end as an RFC3339 timestamp (e.g. 2026-05-18T00:00:00Z).",
+            help=(
+                "Window end: RFC 3339 date-time with timezone (Z or ±HH:MM), "
+                "e.g. 2026-05-18T00:00:00Z. "
+                "Other unambiguous ISO 8601 spellings with an offset are accepted too; "
+                "a date alone, or a time without an offset, is rejected."
+            ),
         ),
     ],
     unit: Annotated[
@@ -238,11 +248,12 @@ def history(
             "--rollup",
             help=(
                 "'raw' returns every point, up to a server-side cap (currently "
-                "5,000 — see `truncated`); 'hourly'/'daily' return per-bucket "
-                "min/max/mean/count (UTC buckets) for compact trends and are not "
-                "subject to that cap. The `summary` key is always present "
-                "regardless of rollup (null only when the window has no numeric "
-                "observations)."
+                "5,000 — see `truncated`; 30 days of 15-minute data is ~2,900 "
+                "points, ~220 KB). For windows longer than about two days use "
+                "'hourly'/'daily', which return per-bucket min/max/mean/count "
+                "(UTC buckets) and are not subject to that cap. The `summary` "
+                "key is always present regardless of rollup (null only when the "
+                "window has no numeric observations)."
             ),
         ),
     ] = Rollup.RAW,
@@ -267,9 +278,10 @@ def history(
     compact per-bucket summary of the full window in one call.
     """
     office, name, parameter = _parse_id(id_spec)
-    begin_dt = _parse_iso(begin, field="begin")
-    end_dt = _parse_iso(end, field="end")
     try:
+        begin_dt = values.parse_rfc3339(begin, field="begin")
+        end_dt = values.parse_rfc3339(end, field="end")
+        values.require_window(begin_dt, end_dt, begin_field="begin", end_field="end")
         payload = values.get_history(
             office,
             name,
@@ -392,19 +404,3 @@ def profile(
             spec_fields={"office": office, "name": name, "parameter": parameter},
         )
         emit_error(localize_repair(err))
-
-
-def _parse_iso(value: str, *, field: str) -> datetime:
-    """Parse an RFC3339 timestamp or emit a precise INVALID_FIELD error to stderr."""
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        emit_error(
-            CwmsToolsError.of(
-                ErrorCode.INVALID_FIELD,
-                f"Could not parse --{field} as RFC3339: {exc}",
-                field=field,
-                value=value,
-                reason="RFC3339 with timezone, e.g. 2026-05-17T00:00:00Z",
-            )
-        )
