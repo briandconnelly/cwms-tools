@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Annotated, Any, NoReturn
 from fastmcp import FastMCP
 from fastmcp.exceptions import McpError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from mcp.types import ReadResourceRequestParams
@@ -27,7 +27,7 @@ from cwms_tools.core import overview
 from cwms_tools.core._compact import CompactDumpMixin
 from cwms_tools.core.concurrency import run_sync
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
-from cwms_tools.core.models import Detail, ErrorRef, SourceMeta
+from cwms_tools.core.models import Detail, ErrorRef, OfficesResponse, SourceMeta
 from cwms_tools.mcp.contract import canonical_fingerprint
 from cwms_tools.mcp.output_schema import iserror_output_schema
 from cwms_tools.mcp.resources import (
@@ -114,35 +114,6 @@ class OverviewIndexResponse(CompactDumpMixin, BaseModel):
     document_sha256: str
     sections: list[OverviewIndexEntry]
     source: SourceMeta
-
-
-class OfficeRecord(CompactDumpMixin, BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    name: str
-    long_name: str | None = None
-    type: str | None = None
-    type_label: str | None = None
-    reports_to: str | None = None
-
-
-class OfficesGuidance(CompactDumpMixin, BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    nw_regional_rollup: str
-    nw_district_stubs: list[str]
-    nw_rollup_targets: dict[str, str]
-
-
-class OfficesResponse(CompactDumpMixin, BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    count: int
-    offices: list[OfficeRecord]
-    guidance: OfficesGuidance
-    partial: bool = Field(
-        description="True when a cold-start upstream failure served a fallback slice."
-    )
 
 
 def _overview_source() -> SourceMeta:

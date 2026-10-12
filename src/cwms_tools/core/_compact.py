@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from pydantic import BaseModel, GetJsonSchemaHandler, model_serializer
+from pydantic import BaseModel, GetJsonSchemaHandler, ValidationError, model_serializer
 
 from cwms_tools.core.rounding import round_floats
 
@@ -102,5 +102,22 @@ def surface_payload(model_cls: type[BaseModel], payload: Mapping[str, Any]) -> d
     data = dict(payload)
     if "source" in model_cls.model_fields:
         data.setdefault("source", _PLACEHOLDER_SOURCE)
-    model = model_cls.model_validate(data)
+    try:
+        model = model_cls.model_validate(data)
+    except ValidationError as exc:
+        # Imported here: `core.errors` inherits CompactDumpMixin from this module.
+        from cwms_tools.core.errors import CwmsToolsError, ErrorCode  # noqa: PLC0415
+
+        # A producer handed the surface a shape its own response model rejects:
+        # a cwms-tools defect, reported as the `wrapper_bug` envelope so the CLI
+        # boundary emits it structured instead of a traceback. The message names
+        # only the model and a count — error locations can echo payload keys.
+        raise CwmsToolsError.of(
+            ErrorCode.WRAPPER_BUG,
+            f"{model_cls.__name__}: response failed validation ({exc.error_count()} error(s)).",
+            reason=(
+                "The producer returned a shape its response model rejects. This is "
+                "a cwms-tools defect, not an upstream or usage problem; please report it."
+            ),
+        ) from exc
     return model.model_dump(mode="json", exclude=set(_ENVELOPE_FIELDS))

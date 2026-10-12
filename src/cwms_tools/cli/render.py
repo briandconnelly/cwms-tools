@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import typer
 
+from cwms_tools.core._compact import surface_payload
 from cwms_tools.core.errors import (
     CwmsToolsError,
     ErrorCode,
@@ -23,6 +24,11 @@ from cwms_tools.core.errors import (
 )
 from cwms_tools.core.offices import ghost_office_repair, nw_rollup_target
 from cwms_tools.core.rounding import round_floats
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from pydantic import BaseModel
 
 # Per `agent-friendly-cli` §"Agent-Safe Invocation": machine mode is forced on
 # whenever stdout is not a TTY, regardless of flags. Explicit `--machine` /
@@ -87,6 +93,21 @@ def emit(value: Any, *, mode: OutputMode | None = None) -> None:
 def diagnostic(message: str) -> None:
     """Write a single diagnostic line to stderr."""
     typer.echo(message, err=True)
+
+
+def emit_model(model_cls: type[BaseModel], payload: Mapping[str, Any]) -> None:
+    """Serialize `payload` through its MCP response model and print it (#143).
+
+    The CLI's success path for every tool with an MCP peer. A payload the model
+    rejects is a cwms-tools defect; `surface_payload` reports it as a
+    `wrapper_bug` `CwmsToolsError`, routed here through `emit_error` so the
+    agent gets the structured envelope on stderr (exit 11), never a traceback.
+    """
+    try:
+        data = surface_payload(model_cls, payload)
+    except CwmsToolsError as err:
+        emit_error(err)
+    emit(data)
 
 
 def emit_error(error: CwmsToolsError) -> NoReturn:

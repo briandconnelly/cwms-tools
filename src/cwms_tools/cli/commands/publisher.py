@@ -6,9 +6,8 @@ from typing import Annotated
 
 import typer
 
-from cwms_tools.cli.render import emit, emit_error
+from cwms_tools.cli.render import emit_error, emit_model
 from cwms_tools.core import publishers_index, shaping
-from cwms_tools.core._compact import surface_payload
 from cwms_tools.core.errors import CwmsToolsError
 from cwms_tools.core.models import Detail, PublishersForParameterResponse
 
@@ -66,8 +65,4 @@ def for_parameter(
         )
     except CwmsToolsError as err:
         emit_error(err)
-    emit(
-        surface_payload(
-            PublishersForParameterResponse, shaping.shape_publishers_detail(payload, detail)
-        )
-    )
+    emit_model(PublishersForParameterResponse, shaping.shape_publishers_detail(payload, detail))

@@ -114,7 +114,7 @@ def normalize(payload: dict[str, Any]) -> dict[str, Any]:
 def _lock_names(office: str, project: str, *, use_cache: bool) -> list[str]:
     cache = get_cache()
     key = build_cache_key("locks", office, "list", project, api_root=current_config().api_root)
-    if use_cache and (hit := cache.get(key)) is not None:
+    if use_cache and (hit := cache.get(key)) is not None and _valid_cached_names(hit):
         return hit
     with upstream_call("/projects/locks", operation="lock list"):
         data = locks_api.get_locks(office_id=office, project_id=project)
@@ -133,7 +133,7 @@ def _lock_detail(office: str, name: str, *, use_cache: bool) -> dict[str, Any]:
     key = build_cache_key(
         "locks", office, "detail", name, _UNIT, api_root=current_config().api_root
     )
-    if use_cache and (hit := cache.get(key)) is not None:
+    if use_cache and (hit := cache.get(key)) is not None and _valid_cached_detail(hit):
         return dict(hit)
     with upstream_call(f"/projects/locks/{name}", operation="lock lookup"):
         data = locks_api.get_lock(name=name, office_id=office, unit=_UNIT)
@@ -145,10 +145,29 @@ def _lock_detail(office: str, name: str, *, use_cache: bool) -> dict[str, Any]:
     return dict(record)
 
 
+def _valid_cached_names(hit: Any) -> bool:
+    """A cached lock list is trusted only if every name would pass `_lock_name`.
+
+    Lists cached before the blank-name guard (#158) can hold `""`; serving one
+    would hand the blank name to `get_lock` again. Treat it as a miss instead.
+    """
+    return isinstance(hit, list) and all(isinstance(n, str) and n.strip() for n in hit)
+
+
+def _valid_cached_detail(hit: Any) -> bool:
+    """A cached lock record is trusted only if it carries a non-blank name."""
+    return isinstance(hit, dict) and isinstance(hit.get("name"), str) and bool(hit["name"].strip())
+
+
 def _lock_name(entry: dict[str, Any]) -> str | None:
+    """The lock's location name, or None when absent or blank.
+
+    A blank name is rejected here rather than handed to `get_lock`, whose own
+    argument guard raises a bare `ValueError` that no envelope would catch.
+    """
     location = entry.get("location")
     name = location.get("name") if isinstance(location, dict) else None
-    return name if isinstance(name, str) else None
+    return name if isinstance(name, str) and name.strip() else None
 
 
 def _malformed(endpoint: str, *, operation: str) -> CwmsToolsError:

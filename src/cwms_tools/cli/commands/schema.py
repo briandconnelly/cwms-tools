@@ -156,12 +156,12 @@ def _commands() -> list[dict[str, Any]]:
             "latency_class": "network",
             "arguments": [],
             "options": [],
-            "error_codes": [],
+            "error_codes": _errs("wrapper_bug"),
             "notes": (
                 "Lists the USACE office codes the `--office` option expects, plus "
                 "the NW regional-rollup guidance. Network-backed, cached 7 days; "
                 "degrades to a documented fallback slice with `partial: true` on "
-                "cold-start upstream failure (never errors)."
+                "cold-start upstream failure (never errors on upstream failure)."
             ),
         },
         # Place tools (M4).
@@ -184,7 +184,12 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
             "error_codes": _errs(
-                "ghost_office", "invalid_cursor", "rate_limited", "upstream_error", "usage_error"
+                "ghost_office",
+                "invalid_cursor",
+                "rate_limited",
+                "upstream_error",
+                "usage_error",
+                "wrapper_bug",
             ),
             "notes": (
                 "Default --limit=50 caps result count to keep responses small "
@@ -212,7 +217,12 @@ def _commands() -> list[dict[str, Any]]:
                 ),
             ],
             "error_codes": _errs(
-                "ghost_office", "not_found", "rate_limited", "upstream_error", "usage_error"
+                "ghost_office",
+                "not_found",
+                "rate_limited",
+                "upstream_error",
+                "usage_error",
+                "wrapper_bug",
             ),
         },
         {
@@ -223,7 +233,12 @@ def _commands() -> list[dict[str, Any]]:
             "arguments": [_arg("spec", "string", help="OFFICE/NAME.")],
             "options": [],
             "error_codes": _errs(
-                "ghost_office", "not_found", "rate_limited", "upstream_error", "usage_error"
+                "ghost_office",
+                "not_found",
+                "rate_limited",
+                "upstream_error",
+                "usage_error",
+                "wrapper_bug",
             ),
         },
         # Region browse (M4).
@@ -257,7 +272,12 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--cursor", "string", help="Pagination cursor from prior next_cursor."),
             ],
             "error_codes": _errs(
-                "ghost_office", "invalid_cursor", "rate_limited", "upstream_error", "usage_error"
+                "ghost_office",
+                "invalid_cursor",
+                "rate_limited",
+                "upstream_error",
+                "usage_error",
+                "wrapper_bug",
             ),
             "notes": (
                 "Default --limit=50 caps result count; pass --limit=0 for no cap. "
@@ -294,7 +314,12 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
             "error_codes": _errs(
-                "ghost_office", "not_found", "rate_limited", "upstream_error", "usage_error"
+                "ghost_office",
+                "not_found",
+                "rate_limited",
+                "upstream_error",
+                "usage_error",
+                "wrapper_bug",
             ),
             "notes": (
                 "Threshold classification against CWMS Location Levels is OFF "
@@ -329,6 +354,7 @@ def _commands() -> list[dict[str, Any]]:
             ],
             "error_codes": _errs(
                 "ghost_office",
+                "wrapper_bug",
                 "invalid_field",
                 "not_found",
                 "rate_limited",
@@ -354,7 +380,12 @@ def _commands() -> list[dict[str, Any]]:
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
             "error_codes": _errs(
-                "ghost_office", "not_found", "rate_limited", "upstream_error", "usage_error"
+                "ghost_office",
+                "not_found",
+                "rate_limited",
+                "upstream_error",
+                "usage_error",
+                "wrapper_bug",
             ),
             "notes": "Reads every depth sensor of one string in a single call.",
         },
@@ -374,7 +405,7 @@ def _commands() -> list[dict[str, Any]]:
                 ),
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
-            "error_codes": _errs("rate_limited", "upstream_error"),
+            "error_codes": _errs("rate_limited", "upstream_error", "wrapper_bug"),
         },
         # MCP server (M7).
         {

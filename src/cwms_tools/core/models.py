@@ -345,7 +345,11 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     last_data_timestamp: str | None = None
     lock_lookup_status: Literal["ok", "partial", "failed", "not_applicable"] | None = Field(
         default=None,
-        description="Only with include_locks; partial/failed also set partial.",
+        description=(
+            "Only with include_locks. `ok` with an empty `locks` means CDA listed no "
+            "locks for the project, not that none exist (CDA returns [] for some "
+            "lock-and-dam projects); partial/failed also set partial."
+        ),
     )
     locks: list[dict[str, Any]] | None = Field(
         default=None,
@@ -696,6 +700,42 @@ class PublishersForParameterResponse(CompactDumpMixin, BaseModel):
     source: SourceMeta
 
 
+# --------------------------------------------------------------------------
+# Office directory (`cwms_list_offices` / `cwms-tools offices`, mirrors
+# `cwms://offices`). Lives here, not in `mcp/`, so the CLI can validate through
+# the same model without importing the FastMCP server (#158).
+# --------------------------------------------------------------------------
+
+
+class OfficeRecord(CompactDumpMixin, BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    long_name: str | None = None
+    type: str | None = None
+    type_label: str | None = None
+    reports_to: str | None = None
+
+
+class OfficesGuidance(CompactDumpMixin, BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nw_regional_rollup: str
+    nw_district_stubs: list[str]
+    nw_rollup_targets: dict[str, str]
+
+
+class OfficesResponse(CompactDumpMixin, BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    count: int
+    offices: list[OfficeRecord]
+    guidance: OfficesGuidance
+    partial: bool = Field(
+        description="True when a cold-start upstream failure served a fallback slice."
+    )
+
+
 __all__ = [
     "ActiveThreshold",
     "BrowseRegionResponse",
@@ -708,6 +748,9 @@ __all__ = [
     "HistoryResponse",
     "LevelLookupStatus",
     "ListParametersResponse",
+    "OfficeRecord",
+    "OfficesGuidance",
+    "OfficesResponse",
     "PlaceSummary",
     "PublisherAtPlace",
     "PublisherCoverage",

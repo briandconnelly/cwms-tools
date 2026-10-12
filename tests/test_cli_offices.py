@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import cwms
@@ -11,7 +12,8 @@ from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
 from cwms_tools.core import session
-from cwms_tools.core.cache import Cache, set_cache
+from cwms_tools.core.cache import Cache, get_cache, set_cache
+from cwms_tools.mcp.server import build_server
 
 API_ROOT = "https://example.test/cwms-data/"
 
@@ -69,3 +71,31 @@ def test_schema_lists_offices_command() -> None:
     cmd = {c["path"]: c for c in doc["commands"]}.get("cwms-tools offices")
     assert cmd is not None
     assert cmd["latency_class"] == "network"
+
+
+@pytest.mark.parametrize("upstream_status", [200, 503], ids=["live", "fallback"])
+def test_offices_cli_mcp_parity(configured, upstream_status) -> None:
+    """`cwms-tools offices` and `cwms_list_offices` must agree field for field:
+    both serialize through `OfficesResponse` (#158)."""
+    outputs = []
+    for surface in ("mcp", "cli"):
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+            if upstream_status == 200:
+                mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+            else:
+                mocked.add(responses.GET, f"{API_ROOT}offices", status=503)
+            if surface == "mcp":
+                result = asyncio.run(build_server().call_tool("cwms_list_offices", arguments={}))
+                data = dict(result.structured_content or {})
+                data = dict(data.get("result", data))
+                data.pop("ok", None)
+                data.pop("source", None)
+                outputs.append(data)
+            else:
+                cli = runner.invoke(app, ["--machine", "offices"])
+                assert cli.exit_code == 0, cli.stderr
+                outputs.append(json.loads(cli.stdout))
+        get_cache().clear()
+    mcp_out, cli_out = outputs
+    assert cli_out == mcp_out
+    assert cli_out["partial"] is (upstream_status != 200)
