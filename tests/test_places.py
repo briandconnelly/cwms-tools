@@ -1377,6 +1377,7 @@ def test_search_places_cold_chain_reaches_every_curated_office(
     first = places.search_places("Fort Peck")
     assert first["results"] == [] and first["partial"] is True
     assert first["repair_hint"]["reason"] == "no_offices_in_scope"
+    assert "while one is present" in first["repair_hint"]["message"]
     searched: list[str] = []
     hint = first["repair_hint"]
     for _ in range(10):
@@ -1387,6 +1388,7 @@ def test_search_places_cold_chain_reaches_every_curated_office(
             break
         hint = resp["repair_hint"]
         assert hint["reason"] == "offices_skipped_for_budget"
+        assert "while one is present" in hint["message"]
         assert "cursor" not in hint["args"] and "limit" not in hint["args"]
     assert searched[:4] == ["NWDM", "NWDP", "SWT", "MVS"]
     assert searched == offices.discovery_office_candidates()

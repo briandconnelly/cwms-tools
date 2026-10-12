@@ -71,8 +71,8 @@ def search(
                 "offices`). Repeat to fan out across multiple offices "
                 "(e.g. `-o NWDP -o NWDM`). If unknown, omit it: on a fresh "
                 "cache the first call returns no rows and a `repair_hint`; "
-                "keep following `repair_hint` until "
-                "`offices_skipped_for_budget` is empty. If you know the "
+                "keep following `repair_hint` while one is present (the chain "
+                "ends when a response carries none). If you know the "
                 "region, pass the office directly (NWDM Missouri mainstem, "
                 "NWDP Columbia/Snake, SWT Oklahoma, MVS St. Louis)."
             ),
@@ -145,10 +145,12 @@ def search(
     followable to exhaustion; it appears in three cases. When `--office` is
     omitted and the resolved scope is empty, it names the curated
     data-bearing offices to retry with. When the per-call fan-out budget
-    skips offices, it names the skipped ones. When `--office` is omitted,
+    skips offices, it names the skipped ones (followed, when `--office` was
+    omitted, by the curated offices not yet searched). When `--office` is omitted,
     only some curated offices are cached, and nothing matched, it names the
-    curated offices that were never searched. Follow it until
-    `offices_skipped_for_budget` is empty. Offices that failed with a
+    curated offices that were never searched. Keep following
+    `repair_hint` while one is present; the chain ends when a response
+    carries none. Offices that failed with a
     temporary upstream error are listed in `partial_reasons` as
     `temporary_errors_not_retried` for the caller to retry explicitly.
     """

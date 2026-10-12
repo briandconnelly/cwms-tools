@@ -178,7 +178,8 @@ def _commands() -> list[dict[str, Any]]:
                     repeatable=True,
                     help=(
                         "Office code; repeat to fan out. If unknown, omit it and follow "
-                        "`repair_hint` until `offices_skipped_for_budget` is empty; if known, "
+                        "`repair_hint` while one is present (the chain ends when a response "
+                        "carries none); if known, "
                         "pass it (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT Oklahoma, "
                         "MVS St. Louis). List codes with `cwms-tools offices`."
                     ),

@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cwms_search_places` / `place search`: a cold-cache name-first search is now
   followable to exhaustion. Whenever offices are skipped by the fan-out budget
   the response sets `partial: true` and carries a `repair_hint` whose
-  `args.office` is exactly the skipped list; the curated office list is now a
+  `args.office` is the skipped offices (followed, when `office` was omitted, by
+  the curated offices not yet searched); keep following `repair_hint` while one
+  is present, the chain ends when a response carries none. The curated office list is now a
   priority order (NWDM, NWDP, SWT, MVS, ...) so the first follow-up reaches the
   data-rich offices. The `no_offices_in_scope` reason no longer tells the
   caller to omit a field they omitted. A partly-warm cache (some curated offices

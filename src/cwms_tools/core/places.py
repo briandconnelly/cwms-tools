@@ -88,8 +88,10 @@ def search_places(
     under `repair_hint.args.office`. Separately, whenever any office was
     skipped for the fan-out budget (#161), the response sets `partial: true`
     and carries a `repair_hint` (reason `offices_skipped_for_budget`) whose
-    `args.office` is exactly the skipped list; follow it repeatedly until
-    `offices_skipped_for_budget` is empty. That hint carries no `cursor` or
+    `args.office` is the budget-skipped offices, followed (when `office` was
+    omitted) by the curated offices not yet searched. Keep following
+    `repair_hint` while one is present; the chain ends when a response
+    carries no `repair_hint`. That hint carries no `cursor` or
     `limit` (a cursor locks the office set it was minted for) and is not
     attached on a cursor continuation.
 
@@ -275,7 +277,8 @@ def _skipped_scope_repair_hint(
 ) -> dict[str, Any]:
     """Build the `repair_hint` for a search that skipped offices for budget.
 
-    `also` lists further offices to search after the skipped ones (deduplicated).
+    `args.office` is the skipped offices followed by `also` (deduplicated): the
+    curated offices not yet searched when `office` was omitted, otherwise empty.
     """
     offices_next = list(dict.fromkeys([*skipped, *also]))
     args: dict[str, Any] = {"query": query, "office": offices_next}
@@ -285,8 +288,9 @@ def _skipped_scope_repair_hint(
         "reason": "offices_skipped_for_budget",
         "message": (
             f"{len(skipped)} office(s) were not searched because of the per-call fan-out "
-            "budget. Retry with `office` set to exactly this list to continue; repeat "
-            "until `offices_skipped_for_budget` is empty."
+            "budget. Retry with `office` set to `args.office` (the skipped offices, then "
+            "any curated offices not yet searched); keep following `repair_hint` while "
+            "one is present. The chain ends when a response carries no `repair_hint`."
         ),
         "tool": "cwms_search_places",
         "args": args,
@@ -305,7 +309,8 @@ def _cached_scope_repair_hint(
         "message": (
             "Only offices already cached were searched and nothing matched. Retry with "
             "`office` set to the curated offices that were not cached (priority order); "
-            "keep following `repair_hint` until `offices_skipped_for_budget` is empty."
+            "keep following `repair_hint` while one is present; the chain ends when a "
+            "response carries no `repair_hint`."
         ),
         "tool": "cwms_search_places",
         "args": args,
@@ -329,8 +334,8 @@ def _empty_scope_repair_hint(query: str, parameter: str | None) -> dict[str, Any
         "message": (
             "No office catalog is cached yet, so nothing was searched. Retry with "
             "`office` set to this curated list (priority order; the budget takes the "
-            "first few per call) and keep following `repair_hint` until "
-            "`offices_skipped_for_budget` is empty."
+            "first few per call) and keep following `repair_hint` while one is present; "
+            "the chain ends when a response carries no `repair_hint`."
         ),
         "tool": "cwms_search_places",
         "args": args,
