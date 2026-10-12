@@ -41,6 +41,10 @@ def test_capabilities_carry_issues_url_and_guidance() -> None:
     assert "upstream_error" in guidance
     assert "ghost" in guidance.lower()
     assert "active_workarounds" in guidance
+    # Codex review of #156: a malformed-argument rejection by the schema layer
+    # is documented, expected behavior (see error_handling.tools), not a defect.
+    assert "malformed argument" in guidance.lower()
+    assert "not a defect" in guidance.lower()
     # How to report: offer, don't file unasked; quote the branchable identifiers.
     assert "error.code" in guidance
     assert "error.data.machine_code" in guidance
