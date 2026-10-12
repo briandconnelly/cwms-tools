@@ -154,6 +154,32 @@ def test_cli_place_describe_empty_location_body_writes_envelope(configured) -> N
     assert envelope["error"]["source"]["endpoints_called"] == ["/locations/FOSS"]
 
 
+def _arm_empty_project(mocked) -> None:
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/FOSS",
+        json={"office-id": "SWT", "name": "FOSS", "location-kind": "PROJECT"},
+    )
+    mocked.add(responses.GET, f"{API_ROOT}projects/FOSS", body="", status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TS_CATALOG, status=200)
+
+
+def test_describe_place_empty_project_body_is_partial_on_both_surfaces(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_empty_project(mocked)
+        is_error, mcp_payload = _mcp("cwms_describe_place", {"office": "SWT", "name": "FOSS"})
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_empty_project(mocked)
+        result = runner.invoke(app, ["place", "describe", "SWT/FOSS"])
+    assert is_error is False
+    assert result.exit_code == 0, result.stderr
+    cli_payload = json.loads(result.stdout)
+    for payload in (mcp_payload, cli_payload):
+        assert payload["partial"] is True
+        assert payload["partial_reasons"] == ["project_lookup_empty"]
+        assert payload.get("project") is None
+
+
 # --------------------------------------------------------------------------
 # Catalog fetch: transport failures
 # --------------------------------------------------------------------------

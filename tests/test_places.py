@@ -332,9 +332,17 @@ def test_location_non_object_body_raises(configured, mocked, body) -> None:
         status=200,
         content_type="application/json",
     )
+    mocked.add(responses.GET, f"{API_ROOT}locations/FOSS", json=LOCATION_SINGLE_PAYLOAD)
     with pytest.raises(CwmsToolsError) as ex_info:
         locations.get_one("SWT", "FOSS")
-    assert ex_info.value.envelope.code is ErrorCode.UPSTREAM_ERROR
+    env = ex_info.value.envelope
+    assert env.code is ErrorCode.UPSTREAM_ERROR
+    assert env.temporary is True
+    assert env.details is not None
+    assert (env.details.field, env.details.value) == ("name", "FOSS")
+    # Not cached: the next call re-asks upstream and gets the real record.
+    assert locations.get_one("SWT", "FOSS") == LOCATION_SINGLE_PAYLOAD
+    assert _calls_to(mocked, "locations/FOSS") == 2
 
 
 # --------------------------------------------------------------------------
