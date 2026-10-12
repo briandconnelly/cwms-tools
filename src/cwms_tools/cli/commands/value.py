@@ -98,8 +98,8 @@ def get(
                 "the value is still returned with "
                 "`level_lookup_status: 'timed_out'` and no thresholds. When ON "
                 "the response carries `status_class` plus `level_lookup_status` "
-                "(computed, timed_out, or unavailable when no thresholds "
-                "matched)."
+                "(computed, timed_out, or unavailable when there are no "
+                "thresholds or the lookup failed)."
             ),
         ),
     ] = False,

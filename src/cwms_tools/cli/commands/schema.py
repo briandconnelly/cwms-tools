@@ -159,7 +159,8 @@ def _commands() -> list[dict[str, Any]]:
             "error_codes": _errs("wrapper_bug"),
             "notes": (
                 "Lists the USACE office codes the `--office` option expects, plus "
-                "the NW regional-rollup guidance. Network-backed, cached 7 days; "
+                "the NW regional-rollup guidance and `region_hints` (region -> office "
+                "with example catalog ids). Network-backed, cached 7 days; "
                 "degrades to a documented fallback slice with `partial: true` on "
                 "cold-start upstream failure (never errors on upstream failure)."
             ),

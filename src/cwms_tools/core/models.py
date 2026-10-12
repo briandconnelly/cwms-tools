@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 # --------------------------------------------------------------------------
 
 
-_LAST_DATA_DESC = "Per catalog extent; can lag weeks or be null. Fresh: `cwms_get_value`."
+_LAST_DATA_DESC = "CDA catalog extent; can lag weeks or be null. Fresh: `cwms_get_value`."
 
 
 class Detail(StrEnum):

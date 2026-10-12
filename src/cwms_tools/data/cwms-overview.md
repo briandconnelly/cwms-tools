@@ -787,7 +787,7 @@ hints. Enrich each match with:
 
 - `parameter_count` — immediate ghost detection
 - `publishers: [...]` — fingerprint of who publishes here
-- `last_data_timestamp` — freshness signal
+- `last_data_timestamp` — catalog-extent hint (can lag weeks; `cwms_get_value` is fresh)
 - `co_located: [...]` — sibling records at the same coordinates
 
 These four fields turn "search returns 20 hits, agent calls

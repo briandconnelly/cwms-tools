@@ -19,12 +19,13 @@ app = typer.Typer(
     help=(
         "List USACE office codes (the values `--office` expects), with the "
         "NW regional-rollup guidance — query NWDM/NWDP, not the NW district "
-        "stubs. Network-backed and cached 7 days."
+        "stubs — and `region_hints` (region -> office, with example catalog "
+        "ids). Network-backed and cached 7 days."
     ),
 )
 
 
 @app.callback(invoke_without_command=True)
 def offices() -> None:
-    """Emit the USACE office directory plus NW regional-rollup guidance."""
+    """Emit the USACE office directory plus NW regional-rollup guidance and `region_hints`."""
     emit_model(OfficesResponse, offices_payload())

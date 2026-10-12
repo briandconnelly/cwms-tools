@@ -272,6 +272,12 @@ def capability_contract_payload() -> dict[str, Any]:
                 "retry_after_ms, rate_limit_remaining, request_id, protocol_request_id, "
                 "source."
             ),
+            "timed_out_retry": (
+                "On `level_lookup_status: 'timed_out'` in a long-lived MCP server, "
+                "the levels lookup keeps running in the background and the levels "
+                "listing is cached for about 24 h, so a later `with_status` call "
+                "often classifies. A one-shot CLI process exits and does not keep it."
+            ),
             "resources": (
                 "resources/read failures surface as JSON-RPC errors carrying the "
                 "SAME ErrorEnvelope tool failures use in error.data, with only two "

@@ -22,7 +22,7 @@ call instead of a brittle chain of raw API lookups.
 - Resolves natural place names to canonical CWMS locations, with ghost-location
   filtering and co-located sensor hints.
 - Describes a place in one call: location record, project metadata when
-  available, published parameters, publishers, and latest data timestamp.
+  available, published parameters, publishers, and a catalog last-data hint.
 - Reads the latest value or bounded history for CWMS time series parameters.
 - Optionally classifies the latest value against CWMS Location Levels when
   callers opt in with `--with-status` or `with_status=true`.
@@ -82,7 +82,7 @@ uv run cwms-tools place parameters NWDM/FTPK
 uv run cwms-tools value get NWDM/FTPK/Elev
 
 # Opt in to threshold classification when status context matters.
-uv run cwms-tools value get NWDM/FTPK/Elev --with-status
+uv run cwms-tools value get SWT/FOSS/Elev --with-status
 
 # Read a bounded history window.
 uv run cwms-tools value history NWDM/FTPK/Elev \

@@ -424,6 +424,20 @@ def test_canonical_fingerprint_moves_with_server_instructions(
     assert contract_module.canonical_fingerprint() != base
 
 
+def test_canonical_fingerprint_moves_with_office_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`contract` must pass `offices.static_guidance()` as `office_guidance=`."""
+    base = canonical_fingerprint()
+    original = contract_module.offices.static_guidance()
+    # Positive control: an unchanged replacement must not move the hash.
+    monkeypatch.setattr(contract_module.offices, "static_guidance", lambda: dict(original))
+    assert contract_module.canonical_fingerprint() == base
+    changed = {**original, "region_hints": [*original["region_hints"], {"office": "XXX"}]}
+    monkeypatch.setattr(contract_module.offices, "static_guidance", lambda: changed)
+    assert contract_module.canonical_fingerprint() != base
+
+
 def test_overview_summaries_are_a_fingerprint_input(monkeypatch) -> None:
     import dataclasses
 
