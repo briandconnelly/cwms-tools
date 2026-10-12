@@ -125,6 +125,36 @@ def test_profile_degrades_a_sensor_whose_fetch_500s(configured, monkeypatch) -> 
 
 
 # --------------------------------------------------------------------------
+# Empty singleton body (#137): both surfaces report the same envelope
+# --------------------------------------------------------------------------
+
+
+def _arm_empty_location(mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}locations/FOSS", body="", status=200)
+
+
+def test_mcp_describe_place_empty_location_body_returns_envelope(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_empty_location(mocked)
+        is_error, payload = _mcp("cwms_describe_place", {"office": "SWT", "name": "FOSS"})
+    assert is_error is True
+    assert payload["error"]["code"] == "upstream_error"
+    assert payload["error"]["temporary"] is True
+    assert payload["error"]["source"]["endpoints_called"] == ["/locations/FOSS"]
+
+
+def test_cli_place_describe_empty_location_body_writes_envelope(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_empty_location(mocked)
+        result = runner.invoke(app, ["place", "describe", "SWT/FOSS"])
+    assert result.exit_code != 0
+    envelope = json.loads(result.stderr)
+    assert envelope["error"]["code"] == "upstream_error"
+    assert envelope["error"]["temporary"] is True
+    assert envelope["error"]["source"]["endpoints_called"] == ["/locations/FOSS"]
+
+
+# --------------------------------------------------------------------------
 # Catalog fetch: transport failures
 # --------------------------------------------------------------------------
 

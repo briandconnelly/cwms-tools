@@ -61,6 +61,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A location or project lookup that comes back with an empty body is now
+  reported instead of passed off as a record (#137). cwms-python 1.1.x turns
+  an empty 200/204 body into `{}`. A location lookup then fails with a
+  temporary `upstream_error` naming the place, instead of caching `{}` as the
+  Location. A project lookup degrades to `partial: true` with the new
+  `project_lookup_empty` reason and the location fallback, instead of
+  reporting `project: {}` as a complete project. Neither result is cached, so
+  the next call asks upstream again. The `cwms_describe_place` `project` field
+  description now says it is also null when the project lookup failed, so the
+  capability fingerprint changes.
 - Error messages from failed location, project, and location-level lookups no
   longer include the upstream exception text, which carried the full request
   URL and response body (#136). They now name the operation, the endpoint or

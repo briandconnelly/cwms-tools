@@ -252,6 +252,92 @@ def test_describe_place_raises_upstream_error_on_project_5xx(configured, mocked)
 
 
 # --------------------------------------------------------------------------
+# Empty singleton bodies (#137): cwms-python 1.1.x returns `{}` for an empty
+# 200/204 body. Driven through the real client with mocked HTTP.
+# --------------------------------------------------------------------------
+
+EMPTY_BODIES = pytest.mark.parametrize("status", [200, 204], ids=["empty-200", "204"])
+
+
+def _calls_to(mocked, path: str) -> int:
+    return sum(1 for c in mocked.calls if c.request.url.split("?")[0] == f"{API_ROOT}{path}")
+
+
+@EMPTY_BODIES
+def test_location_empty_body_raises_and_is_not_cached(configured, mocked, status) -> None:
+    url = f"{API_ROOT}locations/FOSS"
+    mocked.add(responses.GET, url, body="", status=status)
+    mocked.add(responses.GET, url, body="", status=status)
+    mocked.add(responses.GET, url, json=LOCATION_SINGLE_PAYLOAD, status=200)
+
+    for _ in range(2):
+        with pytest.raises(CwmsToolsError) as ex_info:
+            locations.get_one("SWT", "FOSS")
+        env = ex_info.value.envelope
+        assert env.code is ErrorCode.UPSTREAM_ERROR
+        assert env.temporary is True
+        assert "empty or non-object body" in env.message
+        assert env.details is not None
+        assert (env.details.field, env.details.value) == ("name", "FOSS")
+        assert env.source.endpoints_called == ["/locations/FOSS"]
+
+    # Control: a real record is cached, so the empties above were not.
+    assert locations.get_one("SWT", "FOSS") == LOCATION_SINGLE_PAYLOAD
+    assert locations.get_one("SWT", "FOSS") == LOCATION_SINGLE_PAYLOAD
+    assert _calls_to(mocked, "locations/FOSS") == 3
+
+
+@EMPTY_BODIES
+def test_project_empty_body_degrades_to_partial_and_is_not_cached(
+    configured, mocked, status
+) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}locations/FOSS", json=LOCATION_SINGLE_PAYLOAD)
+    url = f"{API_ROOT}projects/FOSS"
+    mocked.add(responses.GET, url, body="", status=status)
+    mocked.add(responses.GET, url, json=PROJECT_PAYLOAD, status=200)
+
+    first = projects.get_one("SWT", "FOSS")
+    assert first["partial"] is True
+    assert first["partial_reasons"] == ["project_lookup_empty"]
+    assert first["project_metadata"] is None
+    assert first["upstream_status"] is None
+    assert first["location_fallback"] == LOCATION_SINGLE_PAYLOAD
+
+    # Not cached: the next call re-asks upstream and gets the real project,
+    # which is cached (control).
+    second = projects.get_one("SWT", "FOSS")
+    assert second["partial"] is False
+    assert second["project_metadata"] == PROJECT_PAYLOAD
+    assert projects.get_one("SWT", "FOSS") == second
+    assert _calls_to(mocked, "projects/FOSS") == 2
+
+
+def test_describe_place_reports_empty_project_body_as_partial(configured, mocked) -> None:
+    _arm_all(mocked)
+    mocked.replace(responses.GET, f"{API_ROOT}projects/FOSS", body="", status=200)
+    payload = places.describe_place("SWT", "FOSS")
+    assert payload["location"] == LOCATION_SINGLE_PAYLOAD
+    assert payload["project"] is None
+    assert payload["partial"] is True
+    assert payload["partial_reasons"] == ["project_lookup_empty"]
+    assert payload["upstream_status"] is None
+
+
+@pytest.mark.parametrize("body", ["null", "[]", '"FOSS"'])
+def test_location_non_object_body_raises(configured, mocked, body) -> None:
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}locations/FOSS",
+        body=body,
+        status=200,
+        content_type="application/json",
+    )
+    with pytest.raises(CwmsToolsError) as ex_info:
+        locations.get_one("SWT", "FOSS")
+    assert ex_info.value.envelope.code is ErrorCode.UPSTREAM_ERROR
+
+
+# --------------------------------------------------------------------------
 # list_parameters
 # --------------------------------------------------------------------------
 

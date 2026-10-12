@@ -21,7 +21,7 @@ programming error) propagates untouched.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from cwms.api import ApiError
 from requests import RequestException
@@ -78,6 +78,35 @@ def from_transport_error(exc: BaseException, *, endpoint: str, operation: str) -
     )
 
 
+def is_record(payload: Any) -> TypeGuard[dict[str, Any]]:
+    """True when a singleton endpoint returned a usable record: a non-empty object.
+
+    cwms-python 1.1.x returns `{}` for an empty 200/204 body, so `{}` (or a
+    non-object body) from a single-record endpoint is an anomaly, not a record
+    (#137). List endpoints are different: there `{}` legitimately means "none".
+    """
+    return isinstance(payload, dict) and bool(payload)
+
+
+def require_record(
+    payload: Any, *, endpoint: str, operation: str, field: str, value: str
+) -> dict[str, Any]:
+    """Return `payload` if it is a record, else raise a temporary upstream_error.
+
+    Callers must check before caching, so the anomaly is never served from cache.
+    """
+    if is_record(payload):
+        return payload
+    raise CwmsToolsError.of(
+        ErrorCode.UPSTREAM_ERROR,
+        f"{operation}: upstream returned an empty or non-object body for {endpoint}.",
+        field=field,
+        value=value,
+        endpoints_called=[endpoint],
+        temporary=True,
+    )
+
+
 @contextmanager
 def upstream_call(endpoint: str, *, operation: str) -> Iterator[None]:
     """Re-raise upstream failures inside the block as `CwmsToolsError`."""
@@ -89,4 +118,11 @@ def upstream_call(endpoint: str, *, operation: str) -> Iterator[None]:
         raise from_transport_error(exc, endpoint=endpoint, operation=operation) from exc
 
 
-__all__ = ["failure_summary", "from_api_error", "from_transport_error", "upstream_call"]
+__all__ = [
+    "failure_summary",
+    "from_api_error",
+    "from_transport_error",
+    "is_record",
+    "require_record",
+    "upstream_call",
+]
