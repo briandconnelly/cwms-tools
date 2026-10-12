@@ -35,6 +35,9 @@ if TYPE_CHECKING:
 # --------------------------------------------------------------------------
 
 
+_LAST_DATA_DESC = "A catalog extent; lags weeks. Fresh: `cwms_get_value`."
+
+
 class Detail(StrEnum):
     """'summary' (compact, default) or 'full' (verbose fields + quality codes)."""
 
@@ -214,7 +217,7 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
         description="Parameter codes published here (e.g. Temp-Water, Elev). Empty for ghosts.",
     )
     publishers: list[str] = Field(default_factory=list)
-    last_data_timestamp: str | None = None
+    last_data_timestamp: str | None = Field(default=None, description=_LAST_DATA_DESC)
     co_located: list[str] = Field(default_factory=list)
     data_at: list[str] = Field(
         default_factory=list,
@@ -364,7 +367,7 @@ class DescribePlaceResponse(CompactDumpMixin, BaseModel):
     parameter_count: int
     publishers: list[PublisherFingerprint]
     ts_ids: list[str]
-    last_data_timestamp: str | None = None
+    last_data_timestamp: str | None = Field(default=None, description=_LAST_DATA_DESC)
     data_at: list[str] | None = Field(
         default=None,
         description=(
@@ -418,7 +421,7 @@ class ListParametersResponse(CompactDumpMixin, BaseModel):
     ts_count: int
     by_publisher: list[PublisherAtPlace]
     all_parameters: list[str]
-    last_data_timestamp: str | None = None
+    last_data_timestamp: str | None = Field(default=None, description=_LAST_DATA_DESC)
     data_at: list[str] | None = Field(
         default=None,
         description=(

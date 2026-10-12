@@ -11,6 +11,7 @@ import responses
 from typer.testing import CliRunner
 
 from cwms_tools.cli.app import app
+from cwms_tools.core import offices as offices_core
 from cwms_tools.core import session
 from cwms_tools.core.cache import Cache, get_cache, set_cache
 from cwms_tools.mcp.server import build_server
@@ -51,6 +52,9 @@ def test_offices_emits_directory_and_guidance(configured) -> None:
     names = {o["name"] for o in payload["offices"]}
     assert names == {"NWO", "NWDM"}
     assert payload["guidance"]["nw_rollup_targets"]["NWO"] == "NWDM"
+    # CLI <-> MCP parity: the static guidance (incl. region_hints) is shared.
+    static = offices_core.static_guidance()
+    assert {k: payload["guidance"][k] for k in static} == static
 
 
 def test_offices_degrades_to_partial_without_erroring(configured) -> None:

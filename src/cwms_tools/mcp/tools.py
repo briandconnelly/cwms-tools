@@ -459,16 +459,15 @@ def register_value_tools(mcp: FastMCP) -> None:
         unit: Annotated[Literal["EN", "SI"], _UNIT_HINT] = "EN",
         with_status: Annotated[
             bool,
-            "Classify against CWMS Location Levels. OFF by default (slow, "
-            "often times out on cold cache); `level_lookup_status` reports "
-            "what happened either way.",
+            "Classify against Location Levels (~1.5 s on SWT/FOSS; 8 s "
+            "budget; on timeout `level_lookup_status: 'timed_out'`).",
         ] = False,
         detail: Detail = Detail.SUMMARY,
     ) -> ValueWithContextResponse | ErrorRef:
         """Latest observation for a parameter at a place.
 
-        Value-only and fast by default; `with_status=true` also classifies
-        against thresholds but is slow and often times out.
+        Value-only and fast by default; `with_status=true` adds a
+        threshold lookup (value kept on timeout).
 
         Auto-selects the canonical timeseries id. On successful
         classification, carries `status_class` and `thresholds_active`.
