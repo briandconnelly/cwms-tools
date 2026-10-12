@@ -126,15 +126,15 @@ def search_places(
         limit = None  # 0 means "no cap"; normalize so pagination math is well-defined
 
     req = pagination.request_hash({"q": query, "parameter": parameter})
-    decoded, offset, offices_searched, offices_skipped, partial_reasons = _resolve_scope(
-        office=office, cursor=cursor, limit=limit, req=req, use_cache=use_cache
+    decoded, offset, offices_searched, offices_skipped, partial_reasons, asked_single = (
+        _resolve_scope(office=office, cursor=cursor, limit=limit, req=req, use_cache=use_cache)
     )
 
     gathered, gather_reasons, temporary_errored = _gather_enriched(
         offices_searched,
         query,
         use_cache=use_cache,
-        reraise_single=len(offices_searched) == 1 and not offices_skipped,
+        reraise_single=asked_single and not offices_skipped,
     )
     partial_reasons.extend(gather_reasons)
     enriched, filtered_out = _apply_parameter_filter(
@@ -349,11 +349,13 @@ def _resolve_scope(
     limit: int | None,
     req: str,
     use_cache: bool,
-) -> tuple[dict[str, Any] | None, int, list[str], list[str], list[str]]:
+) -> tuple[dict[str, Any] | None, int, list[str], list[str], list[str], bool]:
     """Resolve the office set to search, honoring a continuation cursor.
 
     Returns `(decoded_cursor, offset, offices_searched, offices_skipped,
-    partial_reasons)`. On the cursor path the office set is bounded to the
+    partial_reasons, asked_single)`; `asked_single` is true when the caller
+    asked for exactly one (canonical) office, so a failure there re-raises
+    instead of degrading to a partial (#163). On the cursor path the office set is bounded to the
     cursor's locked list — a forged cursor cannot WIDEN the fan-out beyond
     what `coerce_offices` structurally allows (at most `MAX_CURSOR_OFFICES`
     entries) — but that list is then re-run through `_run_fanout` (#72), the
@@ -379,10 +381,18 @@ def _resolve_scope(
             requested = offices.cached_offices_for_locations()
         explicit_empty = office is not None and not requested
         requested, invalid_reasons = _validate_offices(requested)
+        asked_single = len(requested) + len(invalid_reasons) == 1
         offices_searched, offices_skipped, partial_reasons = _run_fanout(
             requested, use_cache=use_cache, explicit_empty=explicit_empty
         )
-        return None, 0, offices_searched, offices_skipped, [*invalid_reasons, *partial_reasons]
+        return (
+            None,
+            0,
+            offices_searched,
+            offices_skipped,
+            [*invalid_reasons, *partial_reasons],
+            asked_single,
+        )
 
     if limit is None:
         # `cursor` implies paged access; an unlimited limit (None / CLI 0)
@@ -408,7 +418,14 @@ def _resolve_scope(
             "(cache expired, or the cursor is invalid); restart without `cursor`",
             offending_value=", ".join(offices_skipped)[: pagination.CURSOR_ECHO_MAX],
         )
-    return decoded, offset, offices_searched, offices_skipped, partial_reasons
+    return (
+        decoded,
+        offset,
+        offices_searched,
+        offices_skipped,
+        partial_reasons,
+        len(offices_searched) == 1,
+    )
 
 
 def _validate_offices(requested: list[str]) -> tuple[list[str], list[str]]:
@@ -419,12 +436,14 @@ def _validate_offices(requested: list[str]) -> tuple[list[str], list[str]]:
     the CANONICAL code (`["SWT", "swt"]` is one office), first occurrence wins."""
     valid: list[str] = []
     reasons: list[str] = []
+    first_error: CwmsToolsError | None = None
     for office in requested:
         try:
             canonical = offices.require_known_office(office)
         except CwmsToolsError as err:
             if len(requested) == 1:
                 raise
+            first_error = first_error or err
             if err.envelope.code is not ErrorCode.GHOST_OFFICE:
                 reasons.append(f"{office}: {err.envelope.code.value}")
                 continue
@@ -433,6 +452,10 @@ def _validate_offices(requested: list[str]) -> tuple[list[str], list[str]]:
             canonical = office.upper()
         if canonical not in valid:
             valid.append(canonical)
+    if not valid and first_error is not None:
+        # Nothing valid survived an explicit list: raise rather than return an
+        # ok:true "no offices in scope" result for offices the caller DID pass.
+        raise first_error
     return valid, reasons
 
 

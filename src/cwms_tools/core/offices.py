@@ -20,8 +20,11 @@ from __future__ import annotations
 import time
 from contextlib import suppress
 from typing import Any
+from urllib.parse import urljoin
 
+import requests
 from cwms import api as cwms_api
+from requests.adapters import HTTPAdapter
 
 from cwms_tools.core.cache import Cache, build_cache_key, get_cache
 from cwms_tools.core.errors import CwmsToolsError, ErrorCode, RepairHint
@@ -181,10 +184,8 @@ def list_offices(*, use_cache: bool = True) -> tuple[list[dict[str, Any]], bool]
 
 
 #: Bound on the validation-only directory fetch (connect, read). `cwms.api.get`
-#: exposes no timeout and its adapter retries 6x with backoff, so this goes
-#: through `cwms.api.SESSION.get` directly. The adapter's retries still apply
-#: (they are per-session), so a hard outage costs one bounded retry sequence
-#: per cooldown window, not one per producer call.
+#: exposes no timeout and its session retries 6x with backoff, so the preflight
+#: uses its own non-retrying session: one attempt per cooldown window.
 _DIRECTORY_TIMEOUT_S: tuple[float, float] = (3.05, 10.0)
 #: After a fallback, skip validation for this long (measured from when the
 #: failed lookup FINISHED, keyed by API root) instead of adding a failing
@@ -199,10 +200,33 @@ def _reset_directory_state() -> None:
     _directory_fallback.clear()
 
 
+_preflight_session: requests.Session | None = None
+
+
+def _preflight_session_for(source: requests.Session) -> requests.Session:
+    """A plain, non-retrying session carrying cwms-python's default headers (auth)."""
+    global _preflight_session  # noqa: PLW0603
+    if _preflight_session is None:
+        sess = requests.Session()
+        adapter = HTTPAdapter(max_retries=0)
+        sess.mount("https://", adapter)
+        sess.mount("http://", adapter)
+        _preflight_session = sess
+    _preflight_session.headers.update(source.headers)
+    return _preflight_session
+
+
 def _fetch_directory_bounded() -> list[dict[str, Any]]:
-    """One bounded GET /offices through cwms-python's session (shares its retry adapter)."""
+    """One attempt, no retries, at GET /offices.
+
+    The producer's own call still goes through cwms-python's retrying session;
+    this preflight must not inherit its `Retry(total=6)` backoff.
+    """
+    source = cwms_api.SESSION
+    url = urljoin(cwms_api.return_base_url(), "offices")
     headers = {"Accept": cwms_api.api_version_text(cwms_api.API_VERSION)}
-    with cwms_api.SESSION.get("offices", headers=headers, timeout=_DIRECTORY_TIMEOUT_S) as resp:
+    sess = _preflight_session_for(source)
+    with sess.get(url, headers=headers, timeout=_DIRECTORY_TIMEOUT_S) as resp:
         resp.raise_for_status()
         return _parse_office_records(resp.json())
 
@@ -212,7 +236,8 @@ def directory_for_validation() -> tuple[list[str], bool]:
 
     Cached directory first (the same cache key `list_offices` writes, so a
     `cwms://offices` read or a prior validation serves both); else one bounded
-    fetch. Any failure is `([], True)` -- never raise from a preflight.
+    fetch. Any cache or network failure is `([], True)`: this never raises on
+    those (a preflight must not turn an outage into an error).
     """
     cfg = current_config()
     cache: Cache | None = None

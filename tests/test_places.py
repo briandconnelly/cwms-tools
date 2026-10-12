@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import cwms
 import pytest
 import responses
@@ -1583,3 +1585,37 @@ def test_search_places_invalid_office_is_partial_in_fanout_and_raises_alone(
     with pytest.raises(CwmsToolsError) as ex:
         places.search_places("FOSS", office="XYZ")
     assert ex.value.envelope.code is ErrorCode.INVALID_FIELD
+
+
+def test_search_places_reraise_keys_on_requested_count_not_resolved_count(
+    configured, mocked, validating_directory
+) -> None:
+    """`["SWT","XYZ"]` is a two-office ask: an SWT failure degrades to partial and
+    keeps the invalid_field reason; `["SWT"]` alone still raises (control)."""
+    mocked.add(
+        responses.GET, f"{API_ROOT}offices", json=[{"office-id": "SWT", "type": "DIS"}], status=200
+    )
+    mocked.add(
+        responses.GET, re.compile(rf"{re.escape(API_ROOT)}(catalog|locations).*"), status=404
+    )
+    payload = places.search_places("FOSS", office=["SWT", "XYZ"])
+    assert payload["results"] == []
+    assert "XYZ: invalid_field" in payload["partial_reasons"]
+    assert any(r.startswith("SWT:") for r in payload["partial_reasons"])
+    with pytest.raises(CwmsToolsError) as ex:
+        places.search_places("FOSS", office=["SWT"])
+    assert ex.value.envelope.code is ErrorCode.NOT_FOUND
+
+
+def test_search_places_all_invalid_explicit_offices_raise(
+    configured, mocked, validating_directory
+) -> None:
+    mocked.add(
+        responses.GET, f"{API_ROOT}offices", json=[{"office-id": "SWT", "type": "DIS"}], status=200
+    )
+    with pytest.raises(CwmsToolsError) as ex:
+        places.search_places("FOSS", office=["XYZ", "ABC"])
+    env = ex.value.envelope
+    assert env.code is ErrorCode.INVALID_FIELD
+    assert env.details is not None and env.details.field == "office_id"
+    assert env.repair is not None and env.repair.tool == "cwms_list_offices"

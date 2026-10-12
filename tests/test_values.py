@@ -795,3 +795,18 @@ def test_get_value_normalizes_office_case_and_rejects_unknown_office(
     assert ex.value.envelope.code is ErrorCode.INVALID_FIELD
     # No catalog call was made for the unknown office (cwms-python sends `office=`).
     assert not [c for c in mocked.calls if "office=XYZ" in (c.request.url or "")]
+
+
+def test_get_history_rejects_unknown_office(configured, validating_directory) -> None:
+    directory = [{"office-id": "SWT", "long-name": "Tulsa District", "type": "DIS"}]
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=directory, status=200)
+        with pytest.raises(CwmsToolsError) as ex:
+            values.get_history(
+                "XYZ",
+                "FOSS",
+                "Elev",
+                begin=datetime(2026, 5, 17, tzinfo=UTC),
+                end=datetime(2026, 5, 18, tzinfo=UTC),
+            )
+    assert ex.value.envelope.code is ErrorCode.INVALID_FIELD

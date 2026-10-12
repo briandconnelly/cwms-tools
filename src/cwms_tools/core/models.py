@@ -674,7 +674,8 @@ class PublishersCoverage(CompactDumpMixin, BaseModel):
         default_factory=list,
         description=(
             "Offices skipped by a catalog fetch error (distinct from budget "
-            "skips); retrying may help."
+            "skips); retrying may help. Also lists codes rejected by office "
+            "validation, which do not appear in `offices_requested`."
         ),
     )
     complete: bool = Field(

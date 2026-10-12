@@ -369,20 +369,31 @@ def test_require_known_office_skips_validation_on_fallback_and_backs_off(
     configured, validating_directory
 ) -> None:
     """Never block on a degraded directory, and don't re-hit a failing /offices
-    on every producer call. cwms-python's adapter retries a 503 several times, so
-    count attempts after the FIRST lookup and assert the second adds none."""
+    on every producer call. The preflight is unretried: one 503 is one attempt."""
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         mocked.add(responses.GET, f"{API_ROOT}offices", status=503)
         assert offices.require_known_office("XYZ") == "XYZ"
-        attempts = len(mocked.calls)
-        assert attempts >= 1
+        assert len(mocked.calls) == 1
         assert offices.require_known_office("XYZ") == "XYZ"
-        assert len(mocked.calls) == attempts
+        assert len(mocked.calls) == 1
     # The cooldown is keyed by API root and clears on reset.
     offices._reset_directory_state()
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_directory(mocked)
         assert offices.require_known_office("swt") == "SWT"
+
+
+def test_directory_for_validation_is_one_attempt_on_503_and_returns_ids_on_200(
+    configured, validating_directory
+) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", status=503)
+        assert offices.directory_for_validation() == ([], True)
+        assert len(mocked.calls) == 1
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        _arm_directory(mocked)
+        ids, fallback = offices.directory_for_validation()
+    assert fallback is False and "SWT" in ids
 
 
 def test_require_known_office_accepts_directory_office_outside_curated_list(
