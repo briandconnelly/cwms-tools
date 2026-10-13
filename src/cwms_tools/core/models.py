@@ -251,6 +251,16 @@ class SearchRepairHint(CompactDumpMixin, BaseModel):
     args: dict[str, Any]
 
 
+# What a finished search did not cover; informational, never auto-followed
+# (#187). No docstring: it would ship in every `tools/list` output schema.
+class ScopeNote(CompactDumpMixin, BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+    message: str
+    tool: str
+
+
 class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     """Response shape for `cwms_search_places`."""
 
@@ -283,10 +293,14 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
             "(`reason: no_offices_in_scope`), offices were skipped for the fan-out "
             "budget (`reason: offices_skipped_for_budget`; `args.office` is the skipped "
             "offices, then, when `office` was omitted, the curated offices not yet "
-            "searched), or only cached offices were searched and nothing matched "
-            "(`reason: cached_scope_incomplete`). Pass `args` back verbatim; continue "
-            "while a `repair_hint` is present."
+            "searched), or only cached offices were searched and nothing with data "
+            "matched (`reason: cached_scope_incomplete`). Pass `args` back verbatim; "
+            "continue while a `repair_hint` is present."
         ),
+    )
+    scope_note: ScopeNote | None = Field(
+        default=None,
+        description="No match has data and no `repair_hint` remains. Not proof of absence.",
     )
     results: list[PlaceSummary]
     total_count: int = Field(
@@ -838,6 +852,7 @@ __all__ = [
     "PublisherFingerprint",
     "PublishersCoverage",
     "PublishersForParameterResponse",
+    "ScopeNote",
     "SearchPlacesResponse",
     "SourceMeta",
     "StatusClass",

@@ -535,6 +535,23 @@ def test_search_places_budget_repair_hint_parity_real_producer(
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])
+def test_search_places_terminal_scope_note_parity_real_producer(
+    detail: str, configured, monkeypatch
+) -> None:
+    """#187: a finished miss carries the same `scope_note` on both surfaces."""
+    monkeypatch.setattr(places.catalog, "enrich_locations", lambda office, **_: [])
+    argv = ["place", "search", "Folsom", "-o", "SWT", "--detail", detail]
+    cli_data = _cli_data(SEARCH, argv)
+    mcp_data = _mcp_data(
+        "cwms_search_places", {"query": "Folsom", "office": "SWT", "detail": detail}
+    )
+    assert cli_data == mcp_data
+    assert cli_data["results"] == [] and "repair_hint" not in cli_data
+    assert cli_data["scope_note"]["reason"] == "searched_offices_only"
+    assert "`cwms-tools offices`" in cli_data["scope_note"]["message"]
+
+
+@pytest.mark.parametrize("detail", ["summary", "full"])
 def test_publishers_cold_cache_repair_parity_real_producer(detail: str, configured) -> None:
     cli_data = _cli_data(PUBLISHERS, ["publisher", "for-parameter", "Elev", "--detail", detail])
     mcp_data = _mcp_data("cwms_publishers_for_parameter", {"parameter": "Elev", "detail": detail})

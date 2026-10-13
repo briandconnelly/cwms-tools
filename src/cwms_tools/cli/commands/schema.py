@@ -180,7 +180,7 @@ def _commands() -> list[dict[str, Any]]:
                     help=(
                         "Office code; repeat to fan out. If unknown, omit it and follow "
                         "`repair_hint` while one is present (the chain ends when a response "
-                        "carries none); if known, "
+                        "carries none; see `scope_note`, not proof of absence); if known, "
                         "pass it (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT Oklahoma, "
                         "MVS St. Louis). List codes with `cwms-tools offices`."
                     ),
@@ -203,7 +203,11 @@ def _commands() -> list[dict[str, Any]]:
                 "Default --limit=50 caps result count to keep responses small "
                 "on broad queries; pass --limit=0 for no cap. Response carries "
                 "`has_more`/`next_cursor`/`total_count` when the cap is reached "
-                "(fully pageable — `truncated` stays false)."
+                "(fully pageable — `truncated` stays false). A response with no "
+                "match that has data and no `repair_hint` carries `scope_note`: "
+                "only `offices_searched` were searched, so it is not proof the "
+                "place is absent from CWMS; widen with `--office` (codes and "
+                "region hints: `cwms-tools offices`)."
             ),
         },
         {

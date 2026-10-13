@@ -313,12 +313,12 @@ def test_discovery_office_candidates_is_a_priority_order() -> None:
     assert [r["name"] for r in offices._fallback_records()] == sorted(cands)
 
 
-# `_LIVE_SHAPE` holds only HQ/NWDM/NWO; validation tests need SWT and SPK too.
+# `_LIVE_SHAPE` holds only HQ/NWDM/NWO; validation tests need SWT and SPN too.
 DIRECTORY = [
     {"office-id": "SWT", "long-name": "Tulsa District", "type": "DIS", "reports-to": "SWD"},
     {"office-id": "NWDM", "long-name": "Missouri River Basin", "type": "MSCR", "reports-to": "NWD"},
     {"office-id": "NWO", "long-name": "Omaha District", "type": "DIS", "reports-to": "NWD"},
-    {"office-id": "SPK", "long-name": "Sacramento District", "type": "DIS", "reports-to": "SPD"},
+    {"office-id": "SPN", "long-name": "San Francisco District", "type": "DIS", "reports-to": "SPD"},
 ]
 
 
@@ -402,11 +402,12 @@ def test_directory_for_validation_is_one_attempt_on_503_and_returns_ids_on_200(
 def test_require_known_office_accepts_directory_office_outside_curated_list(
     configured, validating_directory
 ) -> None:
-    """Review focus #5: SPK is a real office that is not in the curated discovery list."""
+    """Review focus #5: SPN is a real office that is not in the curated discovery list
+    (SPK was the example until #187 curated it)."""
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _arm_directory(mocked)
-        assert offices.require_known_office("SPK") == "SPK"
-    assert "SPK" not in offices.discovery_office_candidates()
+        assert offices.require_known_office("SPN") == "SPN"
+    assert "SPN" not in offices.discovery_office_candidates()
 
 
 def test_require_known_office_fallback_first_call_uppercases(
