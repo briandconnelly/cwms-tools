@@ -20,6 +20,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An implicit search whose cached matches are all barren records (no
   parameters and no `data_at`) now keeps widening, instead of stopping before
   the office that holds the data.
+- `cwms_search_places` / `place search` no longer fails when it matches many
+  locations, as SAM's ~60 `Carters*` records did (#190). CDA answers a
+  timeseries-catalog `like` pattern over 512 bytes with a 500 (Oracle's
+  `REGEXP_LIKE` limit, measured live); the old 2,048-byte cap, which also
+  counted URL-encoded bytes, let these through, and the search failed with a
+  `temporary` `upstream_error` that no retry could clear. Enrichment now packs
+  names into patterns of at most 512 bytes, up to 8 per office per search. A
+  failed or skipped lookup leaves only its own rows unchecked: they come back
+  with `enrichment_incomplete` (`upstream_error`, `batch_limit`, or
+  `pattern_too_long`) and the response sets `partial` with a per-office
+  `partial_reasons` entry that says whether to search again or narrow the
+  query. Unchecked rows are not ghosts. The `parameter` filter keeps them,
+  `nearby_non_matching_count` does not count them, and `scope_note` is not
+  emitted while any match is unchecked. Before this, rows over the old cap came
+  back looking like ghosts with no `partial` signal.
+- `cwms_get_profile` / `value profile` reports depth sensors whose catalog
+  lookup failed as `partial` / `partial_reasons`. It no longer leaves them out
+  without saying so, or answers "no depth-tagged sensors" or `not_found` when
+  every sensor is unchecked.
+- A `cwms_search_places` cursor now fails with `invalid_cursor` if the result
+  order changed since it was issued, even when the total is unchanged. Before,
+  a page could repeat or skip rows. Cursors issued before this release also
+  fail, so restart the search without `cursor`.
 
 ### Added
 

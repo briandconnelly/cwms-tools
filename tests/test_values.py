@@ -652,6 +652,54 @@ def test_get_profile_sorts_shallow_to_deep_with_depth(configured, monkeypatch) -
     assert "note" not in payload
 
 
+def test_get_profile_reports_unchecked_sensors_alongside_read_ones(configured, monkeypatch) -> None:
+    """#190: a depth sensor whose catalog lookup failed is unknown; the profile
+    reports it instead of silently leaving it out."""
+    from cwms_tools.core import catalog as catalog_mod
+
+    rows = [
+        *_profile_catalog(),
+        {"name": "GWLW_S1-D50,0ft", "parameters": [], "enrichment_incomplete": "upstream_error"},
+        {"name": "GWLW_S1-D60,0ft", "parameters": [], "enrichment_incomplete": "upstream_error"},
+    ]
+    monkeypatch.setattr(
+        catalog_mod, "enrich_locations", lambda office, like=None, use_cache=True: rows
+    )
+    monkeypatch.setattr(
+        values,
+        "get_value",
+        lambda office, loc, parameter, **_: {"value": 1.0, "unit": "degF"},
+    )
+    payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
+    assert payload["sensor_count"] == 3
+    assert payload["partial"] is True
+    assert payload["partial_reasons"] == [
+        "2 depth sensor(s) not checked for 'Temp-Water' (upstream_error); "
+        "read one with cwms_get_value"
+    ]
+
+
+def test_get_profile_all_unchecked_is_partial_not_note_or_not_found(
+    configured, monkeypatch
+) -> None:
+    """With every child unchecked, neither "no sensors" nor not_found is proven."""
+    from cwms_tools.core import catalog as catalog_mod
+
+    rows = [{"name": "GWLW_S1-D3,0ft", "parameters": [], "enrichment_incomplete": "batch_limit"}]
+    monkeypatch.setattr(
+        catalog_mod, "enrich_locations", lambda office, like=None, use_cache=True: rows
+    )
+
+    def _no_parent_check(*a, **kw):
+        raise AssertionError("parent not_found check must not run with unchecked children")
+
+    monkeypatch.setattr(values, "_require_profile_parent", _no_parent_check)
+    payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
+    assert payload["profile"] == []
+    assert payload["partial"] is True
+    assert "note" not in payload
+
+
 def test_get_profile_empty_returns_note(configured, monkeypatch) -> None:
     from cwms_tools.core import catalog as catalog_mod
 

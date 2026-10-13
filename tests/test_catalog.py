@@ -429,39 +429,175 @@ def test_enrich_locations_returns_empty_when_name_filter_matches_nothing(
     assert not ts_calls, "no ts catalog query should be made for an empty match set"
 
 
-def test_enrich_locations_skips_ts_catalog_when_alternation_overflows(
-    configured, mocked, monkeypatch
-) -> None:
-    """Broad searches with many matches would build a too-large alternation
-    regex and CDA rejects the request with a 500. We must skip the ts catalog
-    fetch and mark rows truncated rather than firing the oversized request."""
-    # Tighten the byte budget so we don't need to generate thousands of fixture
-    # rows to trigger the branch.
-    monkeypatch.setattr(catalog, "MAX_TS_LIKE_BYTES", 64)
-    locations_payload = {
+def _bridge_locations(count: int, prefix: str = "Bridge_") -> dict:
+    return {
         "locations": [
             {
                 "office-id": "NWDP",
-                "name": f"Bridge_{i:03d}",
+                "name": f"{prefix}{i:03d}",
                 "public-name": f"Bridge #{i}",
-                "latitude": 47.0,
+                "latitude": 47.0 + i,
                 "longitude": -122.0,
             }
-            for i in range(25)
+            for i in range(count)
         ]
     }
+
+
+_JSON = {"Content-Type": "application/json"}
+# CDA's measured limit, independent of the constant under test (#190).
+_CDA_LIKE_LIMIT = 512
+
+
+def _ts_catalog_callback(fail_when=lambda like: False, status: int = 500):
+    """Answer each ts-catalog batch with one Elev series per name it can match.
+
+    Mirrors CDA: a `like` over 512 raw bytes is a 500, so an
+    oversized request fails the test instead of passing silently.
+    """
+    import re
+    from urllib.parse import parse_qs, urlparse
+
+    def callback(request):
+        like = parse_qs(urlparse(request.url).query)["like"][0]
+        if len(like.encode("utf-8")) > _CDA_LIKE_LIMIT or fail_when(like):
+            return (status, _JSON, json.dumps({"message": "Database Error"}))
+        names = [re.sub(r"\\(.)", r"\1", n) for n in like[2:-3].split("|")]
+        entries = [{"name": f"{n}.Elev.Inst.1Hour.0.CBT-RAW"} for n in names]
+        return (200, _JSON, json.dumps({"entries": entries}))
+
+    return callback
+
+
+def _ts_likes(mocked) -> list[str]:
+    from urllib.parse import parse_qs, urlparse
+
+    return [
+        parse_qs(urlparse(c.request.url).query)["like"][0]
+        for c in mocked.calls
+        if "catalog/TIMESERIES" in c.request.url
+    ]
+
+
+@pytest.mark.parametrize(
+    ("names", "expected"),
+    [
+        ([], []),
+        (["A", "B"], [["A", "B"]]),
+        # Escaped metacharacters count at their escaped length.
+        (["a#b", "c d"], [["a#b", "c d"]]),
+    ],
+)
+def test_pack_ts_like_batches_small_inputs(names, expected) -> None:
+    batches, oversize = catalog._pack_ts_like_batches(names)
+    assert [b for _, b in batches] == expected
+    assert oversize == []
+
+
+def test_pack_ts_like_batches_fills_to_exactly_the_byte_limit() -> None:
+    """512 bytes is allowed and 513 is not (CDA's live boundary, #190)."""
+    overhead = len("^(|)\\.")  # anchors, parens, one separator, escaped dot
+    first = "A" * 100
+    fits = "B" * (catalog.MAX_TS_LIKE_BYTES - overhead - len(first))
+    batches, _ = catalog._pack_ts_like_batches([first, fits])
+    assert len(batches) == 1
+    assert len(batches[0][0].encode()) == catalog.MAX_TS_LIKE_BYTES
+
+    batches, _ = catalog._pack_ts_like_batches([first, fits + "C"])
+    assert [b for _, b in batches] == [[first], [fits + "C"]]
+
+
+def test_pack_ts_like_batches_measures_utf8_bytes_not_characters() -> None:
+    """A two-byte character must count twice, or the batch overflows on CDA."""
+    name = "é" * 150  # 150 chars, 300 bytes
+    batches, _ = catalog._pack_ts_like_batches([name, name])
+    assert [b for _, b in batches] == [[name], [name]]
+    assert all(len(like.encode()) <= catalog.MAX_TS_LIKE_BYTES for like, _ in batches)
+
+
+def test_pack_ts_like_batches_sets_oversize_name_aside_and_packs_the_rest() -> None:
+    huge = "X" * catalog.MAX_TS_LIKE_BYTES
+    batches, oversize = catalog._pack_ts_like_batches(["A", huge, "B"])
+    assert oversize == [huge]
+    assert [b for _, b in batches] == [["A", "B"]]
+
+
+def test_enrich_locations_batches_like_under_the_byte_limit(configured, mocked) -> None:
+    """#190: a match set whose single alternation would exceed 512 bytes is
+    split into batches; every row is enriched and every request fits."""
     mocked.add(
-        method=responses.GET,
-        url=f"{API_ROOT}catalog/LOCATIONS",
-        json=locations_payload,
-        status=200,
+        responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=_bridge_locations(60), status=200
+    )
+    mocked.add_callback(
+        responses.GET, f"{API_ROOT}catalog/TIMESERIES", callback=_ts_catalog_callback()
     )
     rows = catalog.enrich_locations("NWDP", like="Bridge")
-    assert len(rows) == 25
-    assert all(r.get("enrichment_truncated") is True for r in rows)
-    assert rows[0]["enrichment_truncated_reason"] == "alternation_overflow"
-    ts_calls = [c for c in mocked.calls if "catalog/TIMESERIES" in c.request.url]
-    assert not ts_calls, "the oversized regex must not hit the upstream"
+    assert len(rows) == 60
+    assert all(r["parameter_count"] == 1 for r in rows)
+    assert not any("enrichment_incomplete" in r for r in rows)
+    likes = _ts_likes(mocked)
+    assert len(likes) > 1
+    assert all(len(like.encode()) <= catalog.MAX_TS_LIKE_BYTES for like in likes)
+
+
+def test_enrich_locations_failed_batch_degrades_only_its_rows(configured, mocked) -> None:
+    """A 500 on one batch must not fail the search or blank other batches."""
+    mocked.add(
+        responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=_bridge_locations(60), status=200
+    )
+    mocked.add_callback(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        callback=_ts_catalog_callback(fail_when=lambda like: "Bridge_000" in like),
+    )
+    rows = catalog.enrich_locations("NWDP", like="Bridge", use_cache=False)
+    failed = [r for r in rows if r.get("enrichment_incomplete")]
+    ok = [r for r in rows if not r.get("enrichment_incomplete")]
+    assert failed and ok
+    assert failed[0]["name"] == "Bridge_000"
+    assert all(r["enrichment_incomplete"] == "upstream_error" for r in failed)
+    assert failed[0]["enrichment_error"] == {"code": "upstream_error", "temporary": True}
+    assert all(r["parameter_count"] == 0 for r in failed)
+    assert all(r["parameter_count"] == 1 for r in ok)
+
+
+def test_enrich_locations_does_not_cache_a_failed_batch(configured, mocked) -> None:
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=_bridge_locations(3), status=200)
+    state = {"fail": True}
+    mocked.add_callback(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        callback=_ts_catalog_callback(fail_when=lambda like: state["fail"]),
+    )
+    first = catalog.enrich_locations("NWDP", like="Bridge")
+    assert all(r["enrichment_incomplete"] == "upstream_error" for r in first)
+    state["fail"] = False
+    second = catalog.enrich_locations("NWDP", like="Bridge")
+    assert all(r["parameter_count"] == 1 for r in second)
+
+
+def test_enrich_locations_caps_batches_and_marks_the_rest(configured, mocked, monkeypatch) -> None:
+    monkeypatch.setattr(catalog, "MAX_TS_LIKE_BATCHES", 2)
+    mocked.add(
+        responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=_bridge_locations(100), status=200
+    )
+    mocked.add_callback(
+        responses.GET, f"{API_ROOT}catalog/TIMESERIES", callback=_ts_catalog_callback()
+    )
+    rows = catalog.enrich_locations("NWDP", like="Bridge")
+    assert len(_ts_likes(mocked)) == 2
+    capped = [r for r in rows if r.get("enrichment_incomplete") == "batch_limit"]
+    assert capped and "enrichment_error" not in capped[0]
+    assert len(capped) + sum(r["parameter_count"] for r in rows) == 100
+
+
+def test_enrich_locations_without_like_still_raises_on_upstream_failure(configured, mocked) -> None:
+    """Unfiltered enrichment feeds ghost counts and sibling repair; a failure
+    there must stay an error, never zero-filled rows (#190 review)."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=_bridge_locations(3), status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", status=500)
+    with pytest.raises(CwmsToolsError):
+        catalog.enrich_locations("NWDP", use_cache=False)
 
 
 def test_get_locations_catalog_wraps_5xx_as_temporary_upstream_error(configured, mocked) -> None:

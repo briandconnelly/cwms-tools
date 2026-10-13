@@ -147,6 +147,7 @@ def search_places(
         reraise_single=asked_single and not offices_skipped,
     )
     partial_reasons.extend(gather_reasons)
+    partial_reasons.extend(_enrichment_reasons(gathered))
     enriched, filtered_out = _apply_parameter_filter(
         gathered,
         parameter,
@@ -154,8 +155,12 @@ def search_places(
     )
     enriched.sort(key=lambda r: (-r["parameter_count"], r["office_id"], r["name"]))
     total_count = len(enriched)
+    # Ordered identities: enrichment that recovers between pages can reorder
+    # rows without changing the total, which would skip or repeat rows (#190).
+    order = pagination.request_hash({"rows": [[r["office_id"], r["name"]] for r in enriched]})
     if decoded is not None:
         pagination.ensure_total(decoded, total=total_count)  # catalog-shift guard
+        pagination.ensure_order(decoded, order=order)
 
     next_cursor: str | None = None
     if limit is None:
@@ -174,6 +179,7 @@ def search_places(
                     "req": req,
                     "offices": offices_searched,
                     "total": total_count,
+                    "order": order,
                 }
             )
 
@@ -192,6 +198,7 @@ def search_places(
             "last_data_timestamp": r.get("last_data_timestamp"),
             "co_located": r.get("co_located", []),
             "data_at": r.get("data_at", []),
+            "enrichment_incomplete": r.get("enrichment_incomplete"),
             # The unfiltered upstream location DTO (#74) — `shaping.shape_place_detail`
             # strips this in `summary` mode; only `detail=full` keeps it.
             "raw": r.get("raw"),
@@ -233,9 +240,58 @@ def search_places(
         response["partial_reasons"] = partial_reasons
     if repair_hint is not None:
         response["repair_hint"] = repair_hint
-    elif decoded is None and offices_searched and not actionable:
+    elif (
+        decoded is None
+        and offices_searched
+        and not actionable
+        and not any(r.get("enrichment_incomplete") for r in enriched)
+    ):
+        # An unenriched match may hold data, so "nothing has data" is unproven.
         response["scope_note"] = dict(_SCOPE_NOTE)
     return response
+
+
+_INCOMPLETE_ADVICE: dict[str, str] = {
+    "batch_limit": "too many matches to enrich; narrow the query",
+    "pattern_too_long": "id too long to look up; use cwms_list_parameters on it",
+}
+
+
+def _enrichment_reasons(rows: list[dict[str, Any]]) -> list[str]:
+    """One `partial_reasons` entry per office with unenriched matches (#190).
+
+    Every distinct cause is kept, with its remedy; an upstream failure keeps
+    its error code and whether it was temporary.
+    """
+    totals: dict[str, int] = {}
+    causes: dict[str, dict[str, int]] = {}
+    for r in rows:
+        office_id = r["office_id"]
+        totals[office_id] = totals.get(office_id, 0) + 1
+        reason = r.get("enrichment_incomplete")
+        if not reason:
+            continue
+        err = r.get("enrichment_error") or {}
+        if reason == "upstream_error":
+            code = err.get("code", "upstream_error")
+            cause = (
+                f"{code} (temporary): search again"
+                if err.get("temporary")
+                else f"{code}: use cwms_list_parameters on a specific match"
+            )
+        else:
+            cause = f"{reason}: {_INCOMPLETE_ADVICE[reason]}"
+        per_office = causes.setdefault(office_id, {})
+        per_office[cause] = per_office.get(cause, 0) + 1
+    out: list[str] = []
+    for office_id, per_office in causes.items():
+        count = sum(per_office.values())
+        detail = "; ".join(f"{n} {cause}" for cause, n in per_office.items())
+        out.append(
+            f"{office_id}: enrichment_incomplete ({count} of {totals[office_id]} matches "
+            f"not checked for data — {detail})"
+        )
+    return out
 
 
 def _has_actionable_match(rows: list[dict[str, Any]]) -> bool:
@@ -656,6 +712,10 @@ def _apply_parameter_filter(
 
     def annotate_data_at(row: dict[str, Any]) -> None:
         """Set `row["data_at"]` from the broader catalog when this row is barren."""
+        if row.get("enrichment_incomplete"):
+            # Unknown, not barren (#190): no whole-office fallback fetch.
+            row["data_at"] = []
+            return
         office_id = row["office_id"]
         in_office_by_name = by_office[office_id]
         siblings = row.get("co_located") or []
@@ -677,7 +737,9 @@ def _apply_parameter_filter(
         if parameter is None:
             kept.append(row)
             continue
-        if parameter in (row.get("parameters") or []):
+        if parameter in (row.get("parameters") or []) or row.get("enrichment_incomplete"):
+            # An unenriched row might publish `parameter`: keep it, flagged,
+            # rather than count it as a confirmed non-match (#190).
             kept.append(row)
             continue
         promoted_here = _promote_parameter_siblings(

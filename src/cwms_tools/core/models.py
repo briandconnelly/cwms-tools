@@ -226,6 +226,14 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
             "`cwms_list_parameters` on each."
         ),
     )
+    enrichment_incomplete: Literal["batch_limit", "pattern_too_long", "upstream_error"] | None = (
+        Field(
+            default=None,
+            description=(
+                "Data unchecked: zero counts mean unknown, not ghost; see `partial_reasons`."
+            ),
+        )
+    )
     raw: dict[str, Any] | None = Field(
         default=None,
         description=(
@@ -717,6 +725,9 @@ class ProfileResponse(CompactDumpMixin, BaseModel):
         default=None,
         description="Present only when no depth-tagged sensors matched; explains how to recover.",
     )
+    partial: bool = False
+    # Depth sensors not checked (#190); the profile may be missing them.
+    partial_reasons: list[str] = Field(default_factory=list)
     source: SourceMeta
 
 

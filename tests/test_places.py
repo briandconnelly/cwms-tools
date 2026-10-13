@@ -2106,3 +2106,141 @@ def test_search_places_cursor_page_never_carries_scope_note(
     assert first["scope_note"]["reason"] == "searched_offices_only"
     second = places.search_places("x", office="SWT", limit=1, cursor=first["next_cursor"])
     assert "scope_note" not in second and "repair_hint" not in second
+
+
+# --------------------------------------------------------------------------
+# #190: unenriched matches are unknown, never ghosts
+# --------------------------------------------------------------------------
+
+
+def _row(name: str, *, count: int = 0, incomplete: str | None = None, **extra) -> dict:
+    row = {
+        "office_id": "SAM",
+        "name": name,
+        "parameter_count": count,
+        "parameters": ["Elev"] if count else [],
+        "publishers": [],
+        "co_located": [],
+    }
+    if incomplete:
+        row["enrichment_incomplete"] = incomplete
+    row.update(extra)
+    return row
+
+
+def _gather_returning(monkeypatch, rows_by_call):
+    """Patch the fan-out to SAM and `_gather_enriched` to return each list in turn."""
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kw: (["SAM"], [], []))
+    calls = iter(rows_by_call)
+    monkeypatch.setattr(
+        places,
+        "_gather_enriched",
+        lambda offices, q, use_cache, reraise_single: ([dict(r) for r in next(calls)], [], []),
+    )
+
+
+def test_search_places_surfaces_unenriched_rows_as_partial(monkeypatch):
+    err = {"code": "upstream_error", "temporary": True}
+    rows = [
+        _row("Carters", count=1),
+        _row("Carters-Pool", incomplete="upstream_error", enrichment_error=err),
+        _row("Carters-Tail", incomplete="upstream_error", enrichment_error=err),
+        _row("Carters-LVDT#9", incomplete="batch_limit"),
+    ]
+    _gather_returning(monkeypatch, [rows])
+    out = places.search_places("Carters", office="SAM")
+    assert out["partial"] is True
+    assert out["partial_reasons"] == [
+        "SAM: enrichment_incomplete (3 of 4 matches not checked for data — "
+        "2 upstream_error (temporary): search again; "
+        "1 batch_limit: too many matches to enrich; narrow the query)"
+    ]
+    by_name = {r["name"]: r for r in out["results"]}
+    assert by_name["Carters-Pool"]["enrichment_incomplete"] == "upstream_error"
+    assert by_name["Carters"]["enrichment_incomplete"] is None
+    assert "enrichment_error" not in by_name["Carters-Pool"]
+
+
+def test_search_places_permanent_enrichment_error_is_not_advised_as_retry(monkeypatch):
+    err = {"code": "upstream_error", "temporary": False}
+    _gather_returning(
+        monkeypatch,
+        [[_row("Carters", incomplete="upstream_error", enrichment_error=err)]],
+    )
+    out = places.search_places("Carters", office="SAM")
+    (reason,) = out["partial_reasons"]
+    assert "search again" not in reason
+    assert "upstream_error: use cwms_list_parameters" in reason
+
+
+def test_search_places_parameter_filter_keeps_unenriched_rows(monkeypatch):
+    """An unknown row may publish the parameter: keep it, don't count it as a
+    non-match, and don't fetch the whole office to repair it."""
+    _gather_returning(
+        monkeypatch,
+        [[_row("Carters", count=1), _row("Carters-Pool", incomplete="batch_limit")]],
+    )
+
+    def _no_broader(*a, **kw):
+        raise AssertionError("an unenriched row must not trigger the broader fetch")
+
+    monkeypatch.setattr(places.catalog, "enrich_locations", _no_broader)
+    out = places.search_places("Carters", office="SAM", parameter="Elev")
+    assert {r["name"] for r in out["results"]} == {"Carters", "Carters-Pool"}
+    assert out["nearby_non_matching_count"] == 0
+
+
+def test_search_places_unenriched_rows_suppress_scope_note(monkeypatch):
+    """ "No match has data" is unproven while a match is unchecked."""
+    monkeypatch.setattr(places.catalog, "enrich_locations", lambda *a, **kw: [])
+    _gather_returning(monkeypatch, [[_row("Carters-Pool", incomplete="upstream_error")]])
+    assert "scope_note" not in places.search_places("Carters", office="SAM")
+
+    _gather_returning(monkeypatch, [[_row("Carters-Pool")]])  # control: a real ghost
+    assert "scope_note" in places.search_places("Carters", office="SAM")
+
+
+def test_search_places_cursor_rejects_reorder_with_same_total(monkeypatch):
+    """Page 1 saw B unenriched (sorted last); recovery moves B first with the
+    same total. Continuing by offset would repeat A and skip B."""
+    before = [_row("A", count=1), _row("B", incomplete="upstream_error"), _row("C")]
+    after = [_row("A", count=1), _row("B", count=2), _row("C")]
+    _gather_returning(monkeypatch, [before, after])
+    page1 = places.search_places("x", office="SAM", limit=1)
+    assert [r["name"] for r in page1["results"]] == ["A"]
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("x", office="SAM", limit=1, cursor=page1["next_cursor"])
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_search_places_cursor_without_order_is_rejected(monkeypatch):
+    rows = [_row("A", count=1), _row("B", count=1)]
+    _gather_returning(monkeypatch, [rows, rows])
+    page1 = places.search_places("x", office="SAM", limit=1)
+    legacy = pagination.decode_cursor(page1["next_cursor"])
+    del legacy["order"]
+    with pytest.raises(CwmsToolsError) as exc:
+        places.search_places("x", office="SAM", limit=1, cursor=pagination.encode_cursor(legacy))
+    assert exc.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_search_places_single_office_degrades_on_enrichment_500(configured, mocked):
+    """#190 end to end: a 500 on the ts-catalog lookup used to fail an explicit
+    single-office search with a temporary upstream_error; the rows now return."""
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        json={
+            "entries": [
+                {"office": "SAM", "name": "Carters", "latitude": 34.6, "longitude": -84.7},
+                {"office": "SAM", "name": "Carters-Pool", "latitude": 34.6, "longitude": -84.6},
+            ]
+        },
+        status=200,
+    )
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", status=500)
+    out = places.search_places("Carters", office="SAM", use_cache=False)
+    assert [r["name"] for r in out["results"]] == ["Carters", "Carters-Pool"]
+    assert all(r["enrichment_incomplete"] == "upstream_error" for r in out["results"])
+    assert out["partial"] is True
+    assert "(temporary): search again" in out["partial_reasons"][0]
