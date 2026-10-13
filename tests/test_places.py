@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 import cwms
 import pytest
@@ -2511,3 +2512,210 @@ def test_search_repair_hint_uses_the_error_repair_shape() -> None:
     schema = SearchPlacesResponse.model_json_schema()["$defs"]["SearchRepairHint"]
     assert set(schema["required"]) == {"next_step", "message", "tool", "arguments"}
     assert "args" not in schema["properties"] and "reason" not in schema["properties"]
+
+
+# --------------------------------------------------------------------------
+# search_places — parameter_suggestions for an unobserved parameter (#97)
+# --------------------------------------------------------------------------
+
+
+def _office_catalog(monkeypatch, catalogs: Mapping[str, list[dict] | Exception]) -> list[str]:
+    """Patch the whole-office catalog read (`broader()`); return the call log."""
+    calls: list[str] = []
+
+    def fake(office_id, *, use_cache=True, **kw):
+        calls.append(office_id)
+        found = catalogs[office_id]
+        if isinstance(found, Exception):
+            raise found
+        return [dict(r) for r in found]
+
+    monkeypatch.setattr(places.catalog, "enrich_locations", fake)
+    return calls
+
+
+def _published(name: str, *params: str, office: str = "SAM") -> dict:
+    return _row(name, count=len(params), parameters=list(params), office_id=office)
+
+
+def test_search_places_typo_parameter_gets_suggestions(monkeypatch):
+    _gather_returning(monkeypatch, [[_published("Carters", "Elev")]])
+    _office_catalog(monkeypatch, {"SAM": [_published("Carters", "Elev"), _published("X", "Stor")]})
+    out = places.search_places("Carters", office="SAM", parameter="Stro")
+    assert out["results"] == []
+    assert out["nearby_non_matching_count"] == 1
+    assert out["parameter_suggestions"] == ["Stor"]
+    assert "partial" not in out, "a typo hint does not make the search incomplete"
+
+
+def test_search_places_suggestions_leave_continuation_unchanged(monkeypatch):
+    """Budget skips still continue: the code may exist in a later office (#97)."""
+    rows = [_published("Carters", "Elev")]
+    catalogs = {"SAM": [_published("Carters", "Elev"), _published("X", "Stor")]}
+    _office_catalog(monkeypatch, catalogs)
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kw: (["SAM"], ["SWT"], []))
+    monkeypatch.setattr(
+        places, "_gather_enriched", lambda *a, **k: ([dict(r) for r in rows], [], [])
+    )
+    with_hint = places.search_places("Carters", office=["SAM", "SWT"], parameter="Stro")
+    assert with_hint["parameter_suggestions"] == ["Stor"]
+    assert with_hint["repair_hint"]["next_step"] == "offices_skipped_for_budget"
+    assert with_hint["repair_hint"]["arguments"]["office"] == ["SWT"]
+    assert with_hint["repair_hint"]["arguments"]["parameter"] == "Stro"
+
+    # Control: identical response apart from the new field.
+    monkeypatch.setattr(places, "_parameter_suggestions", lambda *a, **k: None)
+    without = places.search_places("Carters", office=["SAM", "SWT"], parameter="Stro")
+    with_hint.pop("parameter_suggestions")
+    assert with_hint == without
+
+
+def test_search_places_suggestions_keep_scope_note(monkeypatch):
+    _gather_returning(monkeypatch, [[_published("Carters", "Elev")]])
+    _office_catalog(monkeypatch, {"SAM": [_published("Carters", "Elev"), _published("X", "Stor")]})
+    out = places.search_places("Carters", office="SAM", parameter="Stro")
+    assert out["scope_note"]["reason"] == "searched_offices_only"
+
+
+def test_search_places_parameter_published_elsewhere_in_office_gets_no_suggestion(monkeypatch):
+    """A valid code this place just doesn't publish is not a typo."""
+    _gather_returning(monkeypatch, [[_published("Carters", "Temp-Air")]])
+    _office_catalog(
+        monkeypatch,
+        {"SAM": [_published("Carters", "Temp-Air"), _published("Y", "Temp-Water")]},
+    )
+    out = places.search_places("Carters", office="SAM", parameter="Temp-Water")
+    assert out["results"] == []
+    assert "parameter_suggestions" not in out
+
+
+def test_search_places_no_name_match_gets_no_suggestion(monkeypatch):
+    _gather_returning(monkeypatch, [[]])
+    calls = _office_catalog(monkeypatch, {"SAM": [_published("X", "Stor")]})
+    out = places.search_places("Nowhere", office="SAM", parameter="Stro")
+    assert "parameter_suggestions" not in out
+    assert calls == []
+
+
+def test_search_places_empty_office_list_gets_no_suggestion(configured, mocked) -> None:
+    out = places.search_places("Gas Works", office=[], parameter="Stro")
+    assert "parameter_suggestions" not in out
+
+
+def test_search_places_all_unenriched_gets_no_suggestion(monkeypatch):
+    _gather_returning(monkeypatch, [[_row("Carters", incomplete="batch_limit")]])
+    calls = _office_catalog(monkeypatch, {"SAM": [_published("X", "Stor")]})
+    out = places.search_places("Carters", office="SAM", parameter="Stro")
+    assert "parameter_suggestions" not in out
+    assert calls == [], "no whole-office fetch for unknown rows"
+
+
+def test_search_places_mixed_kept_unenriched_rows_get_no_suggestion(monkeypatch):
+    """One office all-dropped, another with a retained unknown row: not all-dropped."""
+    rows = [_published("Carters", "Elev"), _row("Other", incomplete="batch_limit", office_id="SWT")]
+    _gather_returning(monkeypatch, [rows])
+    _office_catalog(monkeypatch, {"SAM": [_published("X", "Stor")]})
+    out = places.search_places("Carters", office="SAM", parameter="Stro")
+    assert [r["name"] for r in out["results"]] == ["Other"]
+    assert "parameter_suggestions" not in out
+
+
+def test_search_places_failed_office_catalog_is_not_an_empty_vocabulary(monkeypatch):
+    _gather_returning(monkeypatch, [[_published("Carters", "Stor")]])
+    _office_catalog(monkeypatch, {"SAM": RuntimeError("CDA down")})
+    # Only the matched row's own codes are known, and no office catalog was
+    # read successfully, so nothing is suggested.
+    out = places.search_places("Carters", office="SAM", parameter="Stro")
+    assert "parameter_suggestions" not in out
+
+
+def test_search_places_vocabulary_from_successful_offices_only(monkeypatch):
+    rows = [_published("Carters", "Elev"), _published("Webb", "Elev", office="SWT")]
+    _gather_returning(monkeypatch, [rows])
+    calls = _office_catalog(
+        monkeypatch,
+        {"SAM": [_published("Carters", "Elev")], "SWT": RuntimeError("CDA down")},
+    )
+    out = places.search_places("Carters", office="SAM", parameter="elev2")
+    assert sorted(set(calls)) == ["SAM", "SWT"]
+    assert out["parameter_suggestions"] == ["Elev"]
+
+
+def test_search_places_empty_successful_catalog_still_counts(monkeypatch):
+    """An office catalog read that succeeds with no rows is evidence, unlike a failure."""
+    _gather_returning(monkeypatch, [[_published("Carters", "Stor")]])
+    _office_catalog(monkeypatch, {"SAM": []})
+    out = places.search_places("Carters", office="SAM", parameter="Stro")
+    assert out["parameter_suggestions"] == ["Stor"]
+
+
+def test_search_places_case_slip_suggests_only_the_case_match(monkeypatch):
+    _gather_returning(monkeypatch, [[_published("Carters", "Elev-Forebay")]])
+    _office_catalog(
+        monkeypatch,
+        {"SAM": [_published("Carters", "Elev-Forebay"), _published("Z", "Elev", "ELEV-x")]},
+    )
+    # `Elev` is published, so take a code that only differs by case from one.
+    out = places.search_places("Carters", office="SAM", parameter="ELEV")
+    assert out["parameter_suggestions"] == ["Elev"]
+
+
+def test_search_places_base_expansion(monkeypatch):
+    rows = [_published("Carters", "Elev-Forebay", "Elev-Tailwater")]
+    _gather_returning(monkeypatch, [rows])
+    _office_catalog(monkeypatch, {"SAM": rows})
+    out = places.search_places("Carters", office="SAM", parameter="Elev")
+    assert out["parameter_suggestions"] == ["Elev-Forebay", "Elev-Tailwater"]
+
+
+def test_search_places_no_close_candidate_omits_field(monkeypatch):
+    _gather_returning(monkeypatch, [[_published("Carters", "Elev")]])
+    _office_catalog(monkeypatch, {"SAM": [_published("Carters", "Elev")]})
+    out = places.search_places("Carters", office="SAM", parameter="Xyzzy")
+    assert "parameter_suggestions" not in out
+
+
+def test_search_places_without_parameter_has_no_suggestions(monkeypatch):
+    _gather_returning(monkeypatch, [[_published("Carters", "Elev")]])
+    out = places.search_places("Carters", office="SAM")
+    assert "parameter_suggestions" not in out
+
+
+@pytest.mark.parametrize("use_cache", [True, False])
+def test_search_places_suggestions_add_no_catalog_calls(monkeypatch, use_cache):
+    rows = [_published("Carters", "Elev"), _published("Carters-Tail", "Elev")]
+    catalogs = {"SAM": [*rows, _published("X", "Stor")]}
+
+    def run(*, suggest: bool) -> list[str]:
+        _gather_returning(monkeypatch, [rows])
+        calls = _office_catalog(monkeypatch, catalogs)
+        if not suggest:
+            monkeypatch.setattr(places, "_parameter_suggestions", lambda *a, **k: None)
+        out = places.search_places("Carters", office="SAM", parameter="Stro", use_cache=use_cache)
+        assert ("parameter_suggestions" in out) is suggest
+        return calls
+
+    with_feature = run(suggest=True)
+    assert with_feature == run(suggest=False)
+    assert with_feature == ["SAM"]
+
+
+def test_search_places_suggestion_then_later_hop_finds_exact_match(monkeypatch):
+    """A code absent from the first office can be published in a later hop:
+    the first response suggests AND keeps the hint; following it finds the match."""
+    fanouts = iter([(["SAM"], ["SWT"], []), (["SWT"], [], [])])
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kw: next(fanouts))
+    gathers = iter([[_published("Lake", "Elev")], [_published("Lake", "Elev-Pool", office="SWT")]])
+    monkeypatch.setattr(
+        places, "_gather_enriched", lambda *a, **k: ([dict(r) for r in next(gathers)], [], [])
+    )
+    _office_catalog(monkeypatch, {"SAM": [_published("Lake", "Elev"), _published("Y", "Elev-Pul")]})
+
+    first = places.search_places("Lake", office=["SAM", "SWT"], parameter="Elev-Pool")
+    assert first["parameter_suggestions"] == ["Elev-Pul", "Elev"]
+    hint = first["repair_hint"]
+    assert hint["arguments"]["parameter"] == "Elev-Pool"
+
+    second = places.search_places(**hint["arguments"])
+    assert [r["name"] for r in second["results"]] == ["Lake"]
+    assert "parameter_suggestions" not in second

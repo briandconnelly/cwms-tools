@@ -216,7 +216,8 @@ def register_place_tools(mcp: FastMCP) -> None:
             str | None,
             "Filter to locations publishing this parameter; ghost parents "
             "with a `data_at` match are kept. Drop count in "
-            "`nearby_non_matching_count`.",
+            "`nearby_non_matching_count`; a code no office read publishes "
+            "gets `parameter_suggestions`.",
         ] = None,
         limit: Annotated[
             int,

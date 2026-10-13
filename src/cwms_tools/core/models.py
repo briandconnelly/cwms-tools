@@ -297,6 +297,13 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
         default=None,
         description="Rows dropped for not publishing `parameter`, when set. Omitted otherwise.",
     )
+    parameter_suggestions: list[str] | None = Field(
+        default=None,
+        description=(
+            "`parameter` unpublished in the offices read: similar published codes, "
+            "alternatives not corrections."
+        ),
+    )
     partial: bool = False
     partial_reasons: list[str] = Field(default_factory=list)
     repair_hint: SearchRepairHint | None = Field(

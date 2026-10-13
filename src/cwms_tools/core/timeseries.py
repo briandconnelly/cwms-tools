@@ -7,7 +7,6 @@ detects the silent truncation at the upstream `page_size=300000` cap.
 
 from __future__ import annotations
 
-import difflib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -141,10 +140,7 @@ def require_canonical_ts_id(
 
 def _closest_parameter(parameter: str, published: list[str]) -> str | None:
     """Case-insensitive exact match first (`elev` -> `Elev`), then difflib."""
-    for code in published:
-        if code.casefold() == parameter.casefold():
-            return code
-    close = difflib.get_close_matches(parameter, published, n=1, cutoff=0.6)
+    close = publishers.similar_parameters(parameter, published, n=1)
     return close[0] if close else None
 
 

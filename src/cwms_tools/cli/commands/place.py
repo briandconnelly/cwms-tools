@@ -104,7 +104,8 @@ def search(
                 "(e.g. Temp-Water, Elev, Flow-In). When set, non-publishing "
                 "rows are dropped — except barren parents whose `data_at` "
                 "siblings publish it. `nearby_non_matching_count` reflects "
-                "what was filtered out."
+                "what was filtered out. A code no office read publishes "
+                "gets `parameter_suggestions` (similar published codes)."
             ),
         ),
     ] = None,

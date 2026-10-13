@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cwms_search_places` / `place search` add `parameter_suggestions` when a
+  `parameter` filter drops every match and no office catalog the search read
+  publishes that code: up to five similar published codes, so a typo such as
+  `Stro` or `elev` points at `Stor` or `Elev` instead of an empty result (#97).
+  Treat them as alternatives, not corrections: a close string can be a
+  different quantity (`Temp-Water` → `Temp-Air`). A code published anywhere in
+  an office the search read gets no suggestions. `repair_hint`, `scope_note`
+  and `partial` are unchanged, because the code may still be published in an
+  office a later hop searches. No extra CDA calls. The capability fingerprint
+  changes.
 - `cwms_search_places` / `place search` take an optional `state` (`--state`):
   a two-letter code such as `CA` or `PR` that searches the districts covering
   that state, so a caller who knows only the state need not guess the office

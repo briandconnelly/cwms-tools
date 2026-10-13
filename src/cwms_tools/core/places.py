@@ -139,6 +139,11 @@ def search_places(
     siblings publish the parameter (the depth-sensor repair case). The
     response carries `nearby_non_matching_count` so the agent sees how
     much was filtered without paying for the filtered rows themselves.
+    When every match is dropped and no whole-office catalog read this call
+    publishes `parameter` (a likely typo, e.g. `Stro` or `elev`), the
+    response adds `parameter_suggestions`: similar published codes, advisory
+    only (#97). It changes neither `repair_hint`, `scope_note` nor `partial`:
+    the code may still be published in an office a later hop searches.
 
     `limit` caps the number of results returned (default 50). Broad
     searches can return hundreds of rows on a big office; the cap
@@ -194,10 +199,12 @@ def search_places(
     )
     partial_reasons.extend(gather_reasons)
     partial_reasons.extend(_enrichment_reasons(gathered))
+    observed: dict[str, set[str]] = {}
     enriched, filtered_out = _apply_parameter_filter(
         gathered,
         parameter,
         use_cache=use_cache,
+        observed=observed,
     )
     enriched.sort(key=lambda r: (-r["parameter_count"], r["office_id"], r["name"]))
     total_count = len(enriched)
@@ -271,6 +278,9 @@ def search_places(
     if parameter is not None:
         response["parameter"] = parameter
         response["nearby_non_matching_count"] = filtered_out
+        suggestions = _parameter_suggestions(parameter, gathered, enriched, observed)
+        if suggestions:
+            response["parameter_suggestions"] = suggestions
     actionable = _has_actionable_match(enriched)
     extra_reasons, repair_hint = _continuation(
         query,
@@ -756,16 +766,42 @@ def _gather_enriched(
     return merged, reasons, temporary_errored
 
 
+def _parameter_suggestions(
+    parameter: str,
+    gathered: list[dict[str, Any]],
+    kept: list[dict[str, Any]],
+    observed: dict[str, set[str]],
+) -> list[str] | None:
+    """Similar published codes when `parameter` looks like a typo (#97).
+
+    Only when every matched row was dropped (none kept, so none unknown), at
+    least one whole-office catalog was read, and no row in those catalogs or
+    the matches publishes `parameter`. A valid code published elsewhere in an
+    examined office is not a typo, so it gets nothing. Advisory only.
+    """
+    if not gathered or kept or not observed:
+        return None
+    vocabulary = set().union(*observed.values())
+    vocabulary.update(p for r in gathered for p in r.get("parameters") or [])
+    if parameter in vocabulary:
+        return None
+    return publishers.similar_parameters(parameter, vocabulary, expand_base=True) or None
+
+
 def _apply_parameter_filter(
     enriched: list[dict[str, Any]],
     parameter: str | None,
     *,
     use_cache: bool,
+    observed: dict[str, set[str]] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Compute `data_at` per row and apply the optional parameter filter.
 
     Returns `(kept_rows, dropped_count)`. `dropped_count` is 0 when no
-    parameter filter is set.
+    parameter filter is set. `observed`, when given, is filled with the
+    parameter codes of each office whose whole catalog was read successfully
+    (a failed read is absent, not empty) — the vocabulary behind
+    `parameter_suggestions` (#97), at no extra catalog cost.
 
     When `parameter` is set, also pulls in *co-located siblings publishing
     the parameter* from the broader (unfiltered) office catalog, even
@@ -790,6 +826,9 @@ def _apply_parameter_filter(
             rows = catalog.enrich_locations(office_id, use_cache=use_cache)
         except Exception:
             rows = []
+        else:
+            if observed is not None:
+                observed[office_id] = {p for r in rows for p in r.get("parameters") or []}
         index = {r["name"]: r for r in rows}
         broader_by_office[office_id] = index
         return index
