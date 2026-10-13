@@ -2359,6 +2359,15 @@ def test_search_repair_hint_schema_marks_the_match_found_reason_optional() -> No
     from cwms_tools.core.models import SearchPlacesResponse
 
     desc = SearchPlacesResponse.model_fields["repair_hint"].description or ""
-    assert "`match_found_offices_skipped`" in desc
-    assert "continue unless optional" in desc
+    assert "continue unless `match_found_offices_skipped` (optional)" in desc
     assert "continue while one is present" not in desc
+    # Copilot review: `reason` is the branch key, so the schema advertises its values.
+    reason = SearchPlacesResponse.model_json_schema()["$defs"]["SearchRepairHint"]["properties"][
+        "reason"
+    ]
+    assert reason["enum"] == [
+        "no_offices_in_scope",
+        "offices_skipped_for_budget",
+        "cached_scope_incomplete",
+        "match_found_offices_skipped",
+    ]
