@@ -548,6 +548,7 @@ def test_search_places_terminal_scope_note_parity_real_producer(
     assert cli_data == mcp_data
     assert cli_data["results"] == [] and "repair_hint" not in cli_data
     assert cli_data["scope_note"]["reason"] == "searched_offices_only"
+    assert "`cwms-tools offices`" in cli_data["scope_note"]["message"]
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])

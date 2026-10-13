@@ -260,7 +260,7 @@ _SCOPE_NOTE: dict[str, str] = {
         "offices were not searched, so this does not show the place is absent "
         "from CWMS; keep results from earlier `repair_hint` hops. To widen, pass "
         "`office` explicitly: valid codes and region hints are at "
-        "`cwms_list_offices` / `cwms://offices`."
+        "`cwms_list_offices` / `cwms://offices` (CLI: `cwms-tools offices`)."
     ),
     "tool": "cwms_list_offices",
 }

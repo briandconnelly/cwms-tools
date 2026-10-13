@@ -112,6 +112,9 @@ def test_schema_commands_are_structured() -> None:
     assert detail_opt["enum"] == ["summary", "full"]
     office_opt = next(o for o in cmd["options"] if o["name"] == "--office")
     assert office_opt["repeatable"] is True
+    # #187: the machine contract carries the terminal rule, not just the help text.
+    assert "scope_note" in office_opt["help"]
+    assert "scope_note" in cmd["notes"] and "cwms-tools offices" in cmd["notes"]
     assert "invalid_cursor" in {e["code"] for e in cmd["error_codes"]}
     assert cmd["latency_class"] in {"local", "cached", "network", "slow", "async"}
 
