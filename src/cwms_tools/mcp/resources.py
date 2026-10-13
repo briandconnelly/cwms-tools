@@ -121,7 +121,7 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
     # than failing the call, so this tool returns a result (with coverage) instead
     # of an error.code in normal operation. The exception: an explicit `offices`
     # list in which every code fails validation raises `invalid_field` (#163).
-    "cwms_publishers_for_parameter": ["invalid_field"],
+    "cwms_publishers_for_parameter": ["ghost_office", "invalid_field"],
     "cwms_get_overview_section": ["not_found", "usage_error"],
     # offices_payload() never raises: core.offices.list_offices() catches both
     # upstream fetch failure and cache init/read/write failure, degrading to

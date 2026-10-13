@@ -137,27 +137,37 @@ def publishers_for_parameter(
 
 
 def _validate_offices(requested: list[str], *, explicit: bool) -> tuple[list[str], list[str]]:
-    """Canonicalize and dedupe; return `(valid, error_skipped)` (#163).
+    """Canonicalize and dedupe; return `(valid, error_skipped)` (#163, #183).
 
     An office that fails validation lands in `error_skipped`. When nothing valid
-    survives an explicit list, the first `invalid_field` is raised instead of an
-    ok, empty, repair-less result (the `cwms_search_places` rule).
+    survives an explicit list, raise instead of an ok, empty, repair-less result
+    (the `cwms_search_places` rule): the first `ghost_office` if any office was
+    an NW stub — its rollup repair leads to a call that works — else the first
+    `invalid_field`. A list with at least one valid office keeps the partial
+    result, with the failures in `error_skipped`.
     """
     valid: list[str] = []
     error_skipped: list[str] = []
+    first_ghost: CwmsToolsError | None = None
     first_invalid: CwmsToolsError | None = None
     for requested_office in requested:
         try:
             canonical = offices_mod.require_known_office(requested_office)
         except CwmsToolsError as err:
-            if first_invalid is None and err.envelope.code is ErrorCode.INVALID_FIELD:
+            code = err.envelope.code
+            if first_ghost is None and code is ErrorCode.GHOST_OFFICE:
+                first_ghost = err
+            elif first_invalid is None and code is ErrorCode.INVALID_FIELD:
                 first_invalid = err
             error_skipped.append(requested_office)
             continue
         if canonical not in valid:
             valid.append(canonical)
-    if explicit and not valid and first_invalid is not None:
-        raise first_invalid
+    if explicit and not valid:
+        if first_ghost is not None:
+            raise first_ghost
+        if first_invalid is not None:
+            raise first_invalid
     return valid, error_skipped
 
 

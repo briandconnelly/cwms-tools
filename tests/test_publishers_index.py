@@ -411,3 +411,88 @@ def test_publishers_for_parameter_mcp_all_invalid_names_offices_argument(
     assert err["code"] == "invalid_field"
     assert err["details"]["field"] == "offices"
     assert err["details"]["value"] == "XYZ"
+
+
+def test_publishers_for_parameter_all_stub_offices_raise_ghost_office(configured) -> None:
+    """#183: an explicit list of only NW district stubs is `ghost_office` with a
+    rollup repair (the search rule), not an ok, empty, repair-less result."""
+    with pytest.raises(CwmsToolsError) as ex:
+        publishers_index.publishers_for_parameter("Elev", offices=["NWO"])
+    env = ex.value.envelope
+    assert env.code is ErrorCode.GHOST_OFFICE
+    assert env.details is not None and env.details.value == "NWO"
+
+    result = runner.invoke(app, ["publisher", "for-parameter", "Elev", "--office", "NWO"])
+    assert result.exit_code == 12
+    cli_error = json.loads(result.stderr)["error"]
+    assert cli_error["code"] == "ghost_office"
+    assert cli_error["details"]["field"] == "office"
+    assert cli_error["repair"]["next_step"] == "retry_with_rollup_office"
+    assert cli_error["repair"]["tool"] == "cwms-tools publisher for-parameter"
+    assert cli_error["repair"]["arguments"] == {
+        "parameter": "Elev",
+        "office": ["NWDM"],
+        "detail": "summary",
+    }
+
+
+def test_publishers_for_parameter_mcp_all_stub_offices_repair_names_offices(configured) -> None:
+    """The MCP repair rewrites the tool's own list argument `offices`: each stub
+    becomes its rollup, deduplicated in order (NWO, NWK -> NWDM; NWS -> NWDP)."""
+    import asyncio
+
+    from cwms_tools.mcp.server import build_server
+
+    server = build_server()
+    result = asyncio.run(
+        server.call_tool(
+            "cwms_publishers_for_parameter",
+            arguments={"parameter": "Elev", "offices": ["NWO", "NWK", "NWS"]},
+        )
+    )
+    structured = result.structured_content or {}
+    err = structured.get("result", structured)["error"]
+    assert err["code"] == "ghost_office"
+    assert err["details"]["field"] == "offices"
+    assert err["repair"]["tool"] == "cwms_publishers_for_parameter"
+    assert err["repair"]["arguments"] == {
+        "parameter": "Elev",
+        "offices": ["NWDM", "NWDP"],
+        "detail": "summary",
+    }
+
+
+def test_publishers_for_parameter_stub_plus_unknown_prefers_ghost_office(
+    configured, validating_directory
+) -> None:
+    """With nothing valid left, a stub's rollup repair leads to a working call;
+    an unknown code's repair only lists offices. Prefer ghost_office."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}offices",
+            json=[{"office-id": "SWT", "type": "DIS"}],
+            status=200,
+        )
+        with pytest.raises(CwmsToolsError) as ex:
+            publishers_index.publishers_for_parameter("Elev", offices=["XYZ", "NWO"])
+    assert ex.value.envelope.code is ErrorCode.GHOST_OFFICE
+    assert ex.value.envelope.details is not None
+    assert ex.value.envelope.details.value == "NWO"
+
+
+def test_publishers_for_parameter_stub_beside_a_real_office_still_indexes(configured) -> None:
+    """A mixed list keeps today's partial behavior: the stub is error-skipped and
+    the real office is indexed (only an all-stub list raises)."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json=_ts_catalog("FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"),
+            status=200,
+        )
+        payload = publishers_index.publishers_for_parameter("Elev", offices=["NWO", "SWT"])
+    cov = payload["coverage"]
+    assert cov["offices_indexed"] == ["SWT"]
+    assert cov["offices_error_skipped"] == ["NWO"]
+    assert payload["publisher_count"] == 1

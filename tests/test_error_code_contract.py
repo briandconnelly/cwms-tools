@@ -92,6 +92,8 @@ NW_STUB_ARGS = {
         "end_iso": "2026-05-18T00:00:00Z",
     },
     "cwms_get_profile": {"office": "NWO", "name": "BECR", "parameter": "Temp-Water"},
+    # #183: an explicit office list of only stubs raises rather than an empty ok.
+    "cwms_publishers_for_parameter": {"parameter": "Elev", "offices": ["NWO"]},
 }
 
 # (tool, code) -> (args, upstream_status or None for purely-local provocations)
