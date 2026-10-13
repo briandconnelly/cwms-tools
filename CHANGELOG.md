@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `tools/list` is about 6% smaller (68,934 → 64,763 characters). Output schemas
+  are re-expressed more compactly without dropping anything (#181): an `anyOf`
+  of plain types becomes a `type` list, and `type` is dropped beside a
+  `const`/`enum` that implies it. Every field, constraint, description and
+  `default` is kept, and responses are unchanged. The error branch's `details`
+  description now notes that `reason` may explain recovery, with or without
+  `repair`. The capability fingerprint changes.
 - **Breaking:** `cwms_search_places` / `place search`'s `repair_hint` now
   uses the same shape as an error envelope's `repair` (#177). `reason` is
   renamed `next_step` (same four values) and `args` is renamed `arguments`;

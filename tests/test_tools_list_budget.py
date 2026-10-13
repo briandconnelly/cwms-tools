@@ -73,6 +73,14 @@ from cwms_tools.mcp.server import build_server
 #: and gave it an optional `message`, which the error branch of every tool
 #: also lists. Field descriptions moved to code comments to limit the growth.
 #: Measured 68,775; borrowed against #181.
+#:
+#: #181 (2026-10-13) repaid the borrowing: `_compact()` re-expresses every
+#: output schema without removing information (all fields, constraints,
+#: descriptions and `default`s stay), and the `details`/`SourceMeta`
+#: descriptions were tightened while `details` gained recovery guidance.
+#: Measured 64,763: ~6.8% headroom under an unchanged ceiling (the maintainer
+#: accepted that over raising it to reach 10%). Sharing the error branch
+#: across tools isn't possible: each outputSchema is a standalone document.
 BUDGET_CHARS = 69_500
 
 
@@ -84,7 +92,9 @@ BUDGET_CHARS = 69_500
 INPUT_CEILING = 11_000
 #: #188's `coverage` block and `state` echo measured 51,442 (2026-10-13).
 #: #177's typed repairs measured 52,521 (2026-10-13).
-OUTPUT_CEILING = 53_000
+#: #181's `_compact()` measured 48,509 (2026-10-13); lowered to match the
+#: total's ~6.8% headroom.
+OUTPUT_CEILING = 52_000
 DESCRIPTION_CEILING = 4_000
 
 #: Floors: a subtotal below this means the schema lookup is broken (#142),
