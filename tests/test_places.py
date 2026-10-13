@@ -2509,5 +2509,5 @@ def test_search_repair_hint_uses_the_error_repair_shape() -> None:
 
     assert set(SearchRepairHint.model_fields) == set(RepairHint.model_fields)
     schema = SearchPlacesResponse.model_json_schema()["$defs"]["SearchRepairHint"]
-    assert set(schema["required"]) == {"next_step", "message", "tool"}
+    assert set(schema["required"]) == {"next_step", "message", "tool", "arguments"}
     assert "args" not in schema["properties"] and "reason" not in schema["properties"]

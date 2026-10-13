@@ -121,8 +121,9 @@ class RepairHint(CompactDumpMixin, BaseModel):
     next_step: str
     # The MCP tool / CLI command to call next.
     tool: str
-    # Arguments for the next call, resendable verbatim.
-    arguments: dict[str, Any] = Field(default_factory=dict)
+    # Arguments for the next call, resendable verbatim. Required: an empty
+    # dict still serializes (only None is stripped), so it is always sent.
+    arguments: dict[str, Any]
     # Free-form fallback action when no single tool call fully recovers.
     alternative: str | None = None
     # Why the call is suggested and when following it is optional.

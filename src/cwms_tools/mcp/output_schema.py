@@ -77,7 +77,7 @@ COMPACT_ERROR_SCHEMA: Final[dict[str, Any]] = {
                         "alternative": {"type": "string"},
                         "message": {"type": "string"},
                     },
-                    "required": ["next_step", "tool"],
+                    "required": ["next_step", "tool", "arguments"],
                 },
                 "temporary": {"type": "boolean"},
                 "retry_after_ms": {"type": "integer"},

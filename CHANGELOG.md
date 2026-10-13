@@ -36,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cwms_publishers_for_parameter`'s `repair` already had this shape; its
   output schema now declares it instead of an untyped object. The shared
   repair shape gains an optional `message`, so the error branch of every
-  tool's output schema lists it too. Clients that read `repair_hint.args` or
+  tool's output schema lists it too, and the schemas now mark `arguments`
+  required (it was always sent, if only as `{}`). Clients that read `repair_hint.args` or
   `repair_hint.reason` must switch to the new names; the old keys are not
   sent alongside them.
 - `cwms_search_places` / `place search` now tells an agent it may stop once it

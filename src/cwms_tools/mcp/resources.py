@@ -284,12 +284,12 @@ def capability_contract_payload() -> dict[str, Any]:
                 "protocol errors without this envelope. The error object's full field "
                 "set is documented in the error branch of each tool's outputSchema; "
                 "key repair fields: code, message, details (field, value, reason), "
-                "repair (next_step, tool, arguments, alternative), temporary, "
+                "repair (next_step, tool, arguments, alternative, message), temporary, "
                 "retry_after_ms, rate_limit_remaining, request_id, protocol_request_id, "
                 "source. Success responses that suggest a next call use the same repair "
-                "shape: `repair_hint` on cwms_search_places and `repair` on "
-                "cwms_publishers_for_parameter, each with an optional `message`; call "
-                "`tool` with `arguments` either way."
+                "shape: `repair_hint` on cwms_search_places (`message` always set) and "
+                "`repair` on cwms_publishers_for_parameter; call `tool` with `arguments` "
+                "either way."
             ),
             "timed_out_retry": (
                 "On `level_lookup_status: 'timed_out'` in a long-lived MCP server, "

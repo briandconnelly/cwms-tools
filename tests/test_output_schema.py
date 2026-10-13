@@ -50,6 +50,15 @@ def test_compact_error_schema_repair_hint_fields_match() -> None:
     assert compact_repair_fields == repair_fields
 
 
+def test_compact_error_schema_repair_required_fields_match() -> None:
+    """#177 review: `arguments` is always sent, so both schemas require it."""
+    model_required = set(RepairHint.model_json_schema()["required"])
+    compact_required = set(
+        COMPACT_ERROR_SCHEMA["properties"]["error"]["properties"]["repair"]["required"]
+    )
+    assert compact_required == model_required == {"next_step", "tool", "arguments"}
+
+
 def test_compact_error_schema_source_fields_match_source_info() -> None:
     source_fields = set(SourceInfo.model_fields)
     compact_source_fields = set(
