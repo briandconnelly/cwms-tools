@@ -120,7 +120,9 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
     # Per-office failures are absorbed into coverage.offices_error_skipped rather
     # than failing the call, so this tool returns a result (with coverage) instead
     # of an error.code in normal operation. The exception: an explicit `offices`
-    # list in which every code fails validation raises `invalid_field` (#163).
+    # list in which every code fails validation raises — `ghost_office` (with a
+    # rollup repair) if any code is an NW district stub (#183), else
+    # `invalid_field` (#163).
     "cwms_publishers_for_parameter": ["ghost_office", "invalid_field"],
     "cwms_get_overview_section": ["not_found", "usage_error"],
     # offices_payload() never raises: core.offices.list_offices() catches both

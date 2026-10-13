@@ -244,8 +244,10 @@ def test_provocation_returns_advertised_code(
 
 
 def test_publishers_for_parameter_absorbs_office_errors(configured) -> None:
-    """This tool advertises NO error codes: per-office failures degrade into
-    coverage.offices_error_skipped on an ok:true response."""
+    """Per-office upstream failures are absorbed: they degrade into
+    coverage.offices_error_skipped on an ok:true response. Only an explicit
+    office list in which every code fails validation raises (`ghost_office` or
+    `invalid_field`; see the provocations above)."""
     server = build_server()
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
         _mock_all(mocked, 500)
