@@ -498,8 +498,9 @@ REGION_HINTS: tuple[dict[str, Any], ...] = (
 #: Geography only: it says nothing about whether an office publishes data
 #: (that stays dynamic, from CDA). Curated 2026-10-13; NWK, SWT, NAN and NWO
 #: lists checked against each district's own civil-works page, SPK against its
-#: boundary map. PR and VI now sit in the Caribbean District (SAA, est. 2024),
-#: which is not a CDA office; they map to SAJ, whose catalog holds the PR
+#: boundary map. PR and VI sit in the Caribbean District (SAA, est. 2024),
+#: which is not a CDA office, so they are SAJ `proxy_states` (`proxy_for`
+#: SAA), kept apart from its own `states`: SAJ's catalog holds the PR
 #: projects (Cerrillos, Portugues; no VI rows seen). Fingerprinted via
 #: `static_guidance()`.
 DISTRICT_COVERAGE: tuple[dict[str, Any], ...] = (
@@ -591,8 +592,11 @@ DISTRICT_COVERAGE: tuple[dict[str, Any], ...] = (
     {"office": "SAC", "states": ["SC"], "basins": ["Santee", "Cooper"]},
     {
         "office": "SAJ",
-        "states": ["FL", "GA", "PR", "VI"],
+        "states": ["FL", "GA"],
         "basins": ["St. Johns", "Kissimmee-Okeechobee-Everglades"],
+        # Not SAJ's geography: SAA is not a CDA office, and SAJ's catalog holds PR.
+        "proxy_states": ["PR", "VI"],
+        "proxy_for": "SAA",
     },
     {
         "office": "SAM",
@@ -624,13 +628,16 @@ DISTRICT_COVERAGE: tuple[dict[str, Any], ...] = (
 )
 
 #: Every state/territory code `offices_for_state` accepts.
-COVERED_STATES: frozenset[str] = frozenset(s for d in DISTRICT_COVERAGE for s in d["states"])
+COVERED_STATES: frozenset[str] = frozenset(
+    s for d in DISTRICT_COVERAGE for s in (*d["states"], *d.get("proxy_states", ()))
+)
 
 
 def offices_for_state(state: str) -> list[str]:
     """Offices to search for a two-letter state code (#188), in search order.
 
-    Districts whose `DISTRICT_COVERAGE` lists `state`, NW stubs replaced by
+    Districts whose `DISTRICT_COVERAGE` lists `state` (in `states` or
+    `proxy_states`), NW stubs replaced by
     their rollup (deduplicated), ordered by `DISCOVERY_OFFICE_PRIORITY` and then
     by table order. An unknown code raises `invalid_field`.
     """
@@ -648,7 +655,7 @@ def offices_for_state(state: str) -> list[str]:
         )
     matched: list[str] = []
     for entry in DISTRICT_COVERAGE:
-        if code in entry["states"]:
+        if code in entry["states"] or code in entry.get("proxy_states", ()):
             office = NW_ROLLUP_TARGETS.get(entry["office"], entry["office"])
             if office not in matched:
                 matched.append(office)
@@ -669,7 +676,12 @@ def static_guidance() -> dict[str, Any]:
         "nw_rollup_targets": dict(NW_ROLLUP_TARGETS),
         "region_hints": [{**h, "examples": list(h["examples"])} for h in REGION_HINTS],
         "coverage": [
-            {**d, "states": list(d["states"]), "basins": list(d["basins"])}
+            {
+                **d,
+                "states": list(d["states"]),
+                "basins": list(d["basins"]),
+                **({"proxy_states": list(d["proxy_states"])} if "proxy_states" in d else {}),
+            }
             for d in DISTRICT_COVERAGE
         ],
     }

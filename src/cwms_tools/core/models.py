@@ -826,6 +826,11 @@ class DistrictCoverage(CompactDumpMixin, BaseModel):
     office: str
     states: list[str]
     basins: list[str]
+    proxy_states: list[str] | None = Field(
+        default=None,
+        description="Not this district's: searched here for `proxy_for`, not a CDA office.",
+    )
+    proxy_for: str | None = None
 
 
 class OfficesGuidance(CompactDumpMixin, BaseModel):

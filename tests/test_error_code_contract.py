@@ -123,6 +123,10 @@ PROVOCATIONS[("cwms_get_history", "usage_error")] = (
     },
     None,
 )
+PROVOCATIONS[("cwms_search_places", "usage_error")] = (
+    {**GOOD_ARGS["cwms_search_places"], "state": "OK"},  # state with office (#188)
+    None,
+)
 PROVOCATIONS[("cwms_browse_region", "usage_error")] = (
     {"office": "SWT", "south": 1.0},  # partial bbox
     None,

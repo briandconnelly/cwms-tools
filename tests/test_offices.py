@@ -569,7 +569,6 @@ def test_district_coverage_reaches_every_state_and_territory() -> None:
         ("NWO", "MO"),
         ("NWK", "CO"),
         ("SWT", "TX"),
-        ("SAJ", "PR"),
         ("LRC", "WI"),
         ("LRL", "TN"),
     ],
@@ -625,3 +624,25 @@ def test_offices_payload_carries_coverage(configured) -> None:
     from cwms_tools.core.models import OfficesResponse
 
     OfficesResponse.model_validate(payload)
+
+
+def test_saj_carries_pr_and_vi_only_as_proxy_states_for_saa() -> None:
+    """PR/VI belong to SAA (not a CDA office); SAJ searches them as a catalog
+    proxy, marked as such rather than claimed as SAJ geography."""
+    saj = next(d for d in offices.DISTRICT_COVERAGE if d["office"] == "SAJ")
+    assert not {"PR", "VI"} & set(saj["states"])
+    assert saj["proxy_states"] == ["PR", "VI"] and saj["proxy_for"] == "SAA"
+    assert offices.offices_for_state("VI") == ["SAJ"]
+    assert sum("proxy_states" in d for d in offices.DISTRICT_COVERAGE) == 1
+
+
+def test_offices_payload_marks_the_saj_proxy(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+        from cwms_tools.mcp.resources import offices_payload
+
+        payload = offices_payload()
+    coverage = {d["office"]: d for d in payload["guidance"]["coverage"]}
+    assert coverage["SAJ"]["proxy_states"] == ["PR", "VI"]
+    assert coverage["SAJ"]["proxy_for"] == "SAA"
+    assert "proxy_states" not in coverage["SPK"]

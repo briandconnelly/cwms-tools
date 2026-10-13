@@ -65,6 +65,7 @@ TOOL_ERROR_CODES: dict[str, list[str]] = {
         "invalid_field",
         "rate_limited",
         "upstream_error",
+        "usage_error",
     ],
     "cwms_describe_place": [
         "ghost_office",
