@@ -155,16 +155,25 @@ def get_profile(
     prefix = f"{name}-D"
     enriched = catalog.enrich_locations(office, like=prefix, use_cache=use_cache)
     children: list[tuple[str, dict[str, Any]]] = []
+    # Depth sensors whose catalog lookup failed (#190): unknown, so they are
+    # reported rather than silently left out of the profile.
+    unchecked: dict[str, int] = {}
     for row in enriched:
         loc = row["name"]
         if not loc.startswith(prefix):
             continue
         parsed = depth.parse_depth(loc)
-        if parsed is None or parameter not in row.get("parameters", []):
+        if parsed is None:
+            continue
+        reason = row.get("enrichment_incomplete")
+        if reason:
+            unchecked[reason] = unchecked.get(reason, 0) + 1
+            continue
+        if parameter not in row.get("parameters", []):
             continue
         children.append((loc, parsed))
     children.sort(key=lambda c: depth.depth_sort_key(c[0]))
-    if not children:
+    if not children and not unchecked:
         _require_profile_parent(office, name, use_cache=use_cache)
 
     profile = [
@@ -183,7 +192,14 @@ def get_profile(
         "sensor_count": len(profile),
         "profile": profile,
     }
-    if not profile:
+    if unchecked:
+        response["partial"] = True
+        response["partial_reasons"] = [
+            f"{n} depth sensor(s) not checked for {parameter!r} ({reason}); "
+            "read one with cwms_get_value"
+            for reason, n in unchecked.items()
+        ]
+    elif not profile:
         response["note"] = (
             f"No depth-tagged sensors under {name!r} publish {parameter!r} in {office}. "
             "Confirm the parent string id and parameter with cwms_list_parameters / "

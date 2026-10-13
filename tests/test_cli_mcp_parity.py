@@ -574,3 +574,58 @@ def test_describe_place_data_at_parity(configured, monkeypatch, detail) -> None:
     cli_data = _cli_data(DESCRIBE, ["place", "describe", "SWT/FOSS", "--detail", detail])
     mcp_data = _mcp_data("cwms_describe_place", {"office": "SWT", "name": "FOSS", "detail": detail})
     assert cli_data == mcp_data and cli_data["data_at"] == ["GARR"]
+
+
+@pytest.mark.parametrize("detail", ["summary", "full"])
+def test_search_places_unenriched_rows_parity_real_producer(
+    detail: str, configured, monkeypatch
+) -> None:
+    """#190: a degraded search's per-row flag and `partial_reasons` reach both
+    surfaces identically, the flag is omitted on complete rows, and the
+    internal `enrichment_error` never leaks."""
+    rows: list[dict[str, Any]] = copy.deepcopy(_KIND_ROWS)
+    rows[0]["enrichment_incomplete"] = "upstream_error"
+    rows[0]["enrichment_error"] = {"code": "upstream_error", "temporary": True}
+    rows[0]["parameter_count"] = 0
+    monkeypatch.setattr(
+        places.catalog, "enrich_locations", lambda office, use_cache=True, **_: copy.deepcopy(rows)
+    )
+    argv = ["place", "search", "FOSS", "-o", "SWT", "--detail", detail]
+    cli_data = _cli_data(SEARCH, argv)
+    mcp_data = _mcp_data("cwms_search_places", {"query": "FOSS", "office": "SWT", "detail": detail})
+    assert cli_data == mcp_data
+    assert cli_data["partial"] is True
+    assert any("enrichment_incomplete" in r for r in cli_data["partial_reasons"])
+    flagged = [r for r in cli_data["results"] if "enrichment_incomplete" in r]
+    assert [r["enrichment_incomplete"] for r in flagged] == ["upstream_error"]
+    assert len(flagged) < len(cli_data["results"])
+    assert "enrichment_error" not in json.dumps(cli_data)
+
+
+@pytest.mark.parametrize("detail", ["summary", "full"])
+def test_profile_unchecked_sensors_parity_real_producer(
+    detail: str, configured, monkeypatch
+) -> None:
+    """#190: unchecked depth sensors surface as `partial` on both surfaces."""
+    rows = [
+        {"name": "GWLW_S1-D3,0ft", "parameters": ["Temp-Water"]},
+        {"name": "GWLW_S1-D9,0ft", "parameters": [], "enrichment_incomplete": "batch_limit"},
+    ]
+    monkeypatch.setattr(
+        values.catalog, "enrich_locations", lambda office, like=None, use_cache=True: rows
+    )
+    monkeypatch.setattr(
+        values,
+        "get_value",
+        lambda office, loc, parameter, **_: {"value": 20.0, "unit": "degC", "ts_id": "T"},
+    )
+    argv = ["value", "profile", "NWDP/GWLW_S1/Temp-Water", "--detail", detail]
+    cli_data = _cli_data(PROFILE, argv)
+    mcp_data = _mcp_data(
+        "cwms_get_profile",
+        {"office": "NWDP", "name": "GWLW_S1", "parameter": "Temp-Water", "detail": detail},
+    )
+    assert cli_data == mcp_data
+    assert cli_data["partial"] is True
+    assert cli_data["partial_reasons"][0].startswith("1 depth sensor(s) not checked")
+    assert cli_data["sensor_count"] == 1

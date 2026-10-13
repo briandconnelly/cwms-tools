@@ -18,7 +18,6 @@ import difflib
 import math
 import re
 from typing import Any
-from urllib.parse import quote
 
 import cwms.catalog.catalog as catalog_api
 
@@ -30,13 +29,19 @@ from cwms_tools.core.offices import NW_STUBS, ghost_office_error
 from cwms_tools.core.session import current_config
 from cwms_tools.core.upstream import empty_collection_error, upstream_call
 
-# URL-encoded byte budget for the ts catalog `like` parameter. CDA rejects
-# very large alternation regexes with a 500; the empirical threshold is
-# uncertain but ~3 KB fails. This cap stays well under that boundary.
-# When the candidate `like` regex would exceed this, `enrich_locations`
-# skips ts-catalog enrichment for the affected rows and marks them
-# truncated rather than hitting the upstream with a too-large request.
-MAX_TS_LIKE_BYTES: int = 2048
+# Byte limit (UTF-8, before URL encoding) on the ts catalog `like` pattern.
+# CDA answers a longer pattern with `500 Database Error`: measured live on
+# 2026-10-13 in SAM and SWT, 512 bytes passes and 513 fails, which matches
+# Oracle's REGEXP_LIKE pattern limit (#190). `enrich_locations` packs its
+# name alternation into batches that each fit.
+MAX_TS_LIKE_BYTES: int = 512
+
+# Most `like` batches one filtered `enrich_locations` call sends (#190). It
+# bounds logical ts-catalog calls per office, not HTTP pages or a whole
+# search's work; rows past it come back with `enrichment_incomplete:
+# batch_limit`. Eight batches hold roughly 150-400 names
+# (SAM's 58 `Carters*` ids, about 22 bytes each, need three).
+MAX_TS_LIKE_BATCHES: int = 8
 
 
 def get_locations_catalog(
@@ -261,18 +266,36 @@ def _dedupe_rows_by_name(raw_rows: list[dict[str, Any]]) -> list[dict[str, Any]]
     return rows
 
 
-def _build_ts_like_for_rows(rows: list[dict[str, Any]]) -> tuple[str | None, bool]:
-    """Return `(ts_like_or_none, truncated)`.
+def _like_for_names(names: list[str]) -> str:
+    """The anchored `^(name1|...|nameN)\\.` alternation over escaped names."""
+    return f"^({'|'.join(re.escape(n) for n in names)})\\."
 
-    Builds the `^(name1|...|nameN)\\.` alternation. When the URL-encoded
-    form would push the request past `MAX_TS_LIKE_BYTES`, returns
-    `(None, True)` so callers can skip the ts-catalog fetch — that path
-    is what an unbounded fallback would 500 on at the upstream.
+
+def _like_bytes(like: str) -> int:
+    return len(like.encode("utf-8"))
+
+
+def _pack_ts_like_batches(names: list[str]) -> tuple[list[tuple[str, list[str]]], list[str]]:
+    """Greedily pack `names` into `^(...)\\.` patterns of at most `MAX_TS_LIKE_BYTES`.
+
+    Returns `(batches, oversize)`: each batch is `(like, names_in_it)`, in
+    input order; `oversize` lists names whose own pattern is already over
+    the limit, so no request can carry them.
     """
-    candidate_like = f"^({'|'.join(re.escape(r['name']) for r in rows)})\\."
-    if len(quote(candidate_like, safe="")) <= MAX_TS_LIKE_BYTES:
-        return candidate_like, False
-    return None, True
+    batches: list[tuple[str, list[str]]] = []
+    oversize: list[str] = []
+    current: list[str] = []
+    for name in names:
+        if _like_bytes(_like_for_names([name])) > MAX_TS_LIKE_BYTES:
+            oversize.append(name)
+            continue
+        if current and _like_bytes(_like_for_names([*current, name])) > MAX_TS_LIKE_BYTES:
+            batches.append((_like_for_names(current), current))
+            current = []
+        current.append(name)
+    if current:
+        batches.append((_like_for_names(current), current))
+    return batches, oversize
 
 
 def _index_ts_payload(
@@ -305,6 +328,48 @@ def _index_ts_payload(
     return by_location, by_location_last, by_location_params
 
 
+def _fetch_ts_batches(
+    office_id: str,
+    names: list[str],
+    incomplete: dict[str, tuple[str, CwmsToolsError | None]],
+    *,
+    use_cache: bool,
+) -> dict[str, Any]:
+    """Fetch the extents ts catalog for `names` in `like`-sized batches (#190).
+
+    Returns the merged entries. Names left unenriched go into `incomplete` as
+    `name -> (reason, error)`: `pattern_too_long` (no request can carry it),
+    `batch_limit` (past `MAX_TS_LIKE_BATCHES`), or `upstream_error` (its
+    batch's request failed). A failed batch degrades only its own rows, and
+    failures are never cached. A rate limit stops the remaining batches, and
+    their rows carry the same error, so the caller waits `retry_after_ms`.
+    """
+    batches, oversize = _pack_ts_like_batches(names)
+    for name in oversize:
+        incomplete[name] = ("pattern_too_long", None)
+    for _, skipped in batches[MAX_TS_LIKE_BATCHES:]:
+        for name in skipped:
+            incomplete[name] = ("batch_limit", None)
+    entries: list[dict[str, Any]] = []
+    sendable = batches[:MAX_TS_LIKE_BATCHES]
+    for i, (like, batch_names) in enumerate(sendable):
+        try:
+            payload = get_timeseries_catalog(
+                office_id, like=like, include_extents=True, use_cache=use_cache
+            )
+        except CwmsToolsError as err:
+            rate_limited = err.envelope.code is ErrorCode.RATE_LIMITED
+            failed = sendable[i:] if rate_limited else [(like, batch_names)]
+            for _, names_in_batch in failed:
+                for name in names_in_batch:
+                    incomplete[name] = ("upstream_error", err)
+            if rate_limited:
+                break
+            continue
+        entries.extend(_iter_ts_entries(payload))
+    return {"entries": entries}
+
+
 def enrich_locations(
     office_id: str,
     *,
@@ -316,6 +381,12 @@ def enrich_locations(
 
     Each record carries: `parameter_count`, `publishers`, `last_data_timestamp`,
     `co_located` (other ids within ~100 m of the same coordinates).
+
+    With `like`, rows whose enrichment could not be fetched carry
+    `enrichment_incomplete` (`pattern_too_long`, `batch_limit`, or
+    `upstream_error`, the last with an internal `enrichment_error`
+    `{code, temporary}`); their zero counts mean "unknown", not "ghost".
+    Without `like`, an upstream failure still raises.
 
     Note on the `like` filter: CDA's server-side `like` on
     `/catalog/LOCATIONS` matches the location id only — a search for
@@ -345,21 +416,13 @@ def enrich_locations(
     # is in play. Without a filter the ts catalog is too large to fetch
     # with extents; agents who want freshness should describe a specific
     # place.
-    enrichment_truncated = False
+    incomplete: dict[str, tuple[str, CwmsToolsError | None]] = {}
     if like:
-        ts_like, enrichment_truncated = _build_ts_like_for_rows(rows)
-    else:
-        ts_like = None
-
-    if enrichment_truncated:
-        ts_payload: dict[str, Any] = {"entries": []}
-    else:
-        ts_payload = get_timeseries_catalog(
-            office_id,
-            like=ts_like,
-            include_extents=ts_like is not None,
-            use_cache=use_cache,
+        ts_payload = _fetch_ts_batches(
+            office_id, [r["name"] for r in rows], incomplete, use_cache=use_cache
         )
+    else:
+        ts_payload = get_timeseries_catalog(office_id, use_cache=use_cache)
     by_location, by_location_last, by_location_params = _index_ts_payload(ts_payload)
 
     enriched: list[dict[str, Any]] = []
@@ -383,9 +446,17 @@ def enrich_locations(
             "co_located": siblings,
             "raw": r,
         }
-        if enrichment_truncated:
-            entry["enrichment_truncated"] = True
-            entry["enrichment_truncated_reason"] = "alternation_overflow"
+        if name in incomplete:
+            reason, err = incomplete[name]
+            entry["enrichment_incomplete"] = reason
+            if err is not None:
+                # Internal: lets callers report the code / temporary flag;
+                # never projected into a response.
+                entry["enrichment_error"] = {
+                    "code": err.envelope.code.value,
+                    "temporary": err.envelope.temporary,
+                    "retry_after_ms": err.envelope.retry_after_ms,
+                }
         enriched.append(entry)
     return enriched
 

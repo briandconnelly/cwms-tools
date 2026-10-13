@@ -120,6 +120,18 @@ def ensure_total(cursor: dict[str, Any], *, total: int) -> None:
         )
 
 
+def ensure_order(cursor: dict[str, Any], *, order: str) -> None:
+    """Post-assembly check: the full result set must be in the cursor's order.
+
+    A cursor without `order` (minted before #190) also fails, and restarts.
+    """
+    if cursor.get("order") != order:
+        raise invalid_cursor(
+            "result order changed since the cursor was issued; restart without `cursor`",
+            offending_value=_echo(cursor.get("order")),
+        )
+
+
 def coerce_offices(cursor: dict[str, Any]) -> list[str]:
     """Validate + return the cursor's locked office set before any fan-out.
 
@@ -147,6 +159,7 @@ __all__ = [
     "coerce_offices",
     "decode_cursor",
     "encode_cursor",
+    "ensure_order",
     "ensure_total",
     "invalid_cursor",
     "request_hash",
