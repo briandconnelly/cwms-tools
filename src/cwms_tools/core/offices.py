@@ -504,7 +504,7 @@ REGION_HINTS: tuple[dict[str, Any], ...] = (
 #: `static_guidance()`.
 DISTRICT_COVERAGE: tuple[dict[str, Any], ...] = (
     {"office": "LRB", "states": ["NY", "OH", "PA"], "basins": ["Lake Erie", "Lake Ontario"]},
-    {"office": "LRC", "states": ["IL", "IN"], "basins": ["Chicago Area Waterways"]},
+    {"office": "LRC", "states": ["IL", "IN", "WI"], "basins": ["Chicago Area Waterways"]},
     {
         "office": "LRE",
         "states": ["MI", "MN", "WI", "IN", "OH"],
@@ -515,7 +515,11 @@ DISTRICT_COVERAGE: tuple[dict[str, Any], ...] = (
         "states": ["WV", "OH", "KY", "VA", "NC"],
         "basins": ["Kanawha", "Big Sandy", "Muskingum", "Scioto"],
     },
-    {"office": "LRL", "states": ["KY", "IN", "OH", "IL"], "basins": ["Ohio", "Wabash", "Green"]},
+    {
+        "office": "LRL",
+        "states": ["KY", "IN", "OH", "IL", "TN"],
+        "basins": ["Ohio", "Wabash", "Green"],
+    },
     {
         "office": "LRN",
         "states": ["TN", "KY", "AL", "MS", "GA", "NC", "VA"],

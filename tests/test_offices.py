@@ -570,6 +570,8 @@ def test_district_coverage_reaches_every_state_and_territory() -> None:
         ("NWK", "CO"),
         ("SWT", "TX"),
         ("SAJ", "PR"),
+        ("LRC", "WI"),
+        ("LRL", "TN"),
     ],
 )
 def test_district_coverage_keeps_checked_associations(office: str, state: str) -> None:
@@ -586,6 +588,8 @@ def test_district_coverage_keeps_checked_associations(office: str, state: str) -
         ("WA", ["NWDP"]),  # NWS/NWP/NWW stubs collapse onto their rollup
         ("MO", ["NWDM", "MVS", "MVR", "MVM", "SWL"]),  # NWO+NWK -> one NWDM
         ("PR", ["SAJ"]),
+        ("WI", ["MVR", "MVP", "LRC", "LRE"]),
+        ("TN", ["SAM", "LRN", "MVM", "LRL"]),
     ],
 )
 def test_offices_for_state_orders_by_priority_and_rolls_up_stubs(
