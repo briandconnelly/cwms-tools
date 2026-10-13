@@ -51,7 +51,7 @@ from cwms_tools.mcp.server import build_server
 #: guard fires, while still catching a regression back toward the pre-#67
 #: ~81.4k.
 #:
-#: 0.8.1 (milestone 2, 2026-10-12) deliberately grew the agent-facing prose:
+#: 0.9.0 (milestone 2, 2026-10-12) deliberately grew the agent-facing prose:
 #: #163 repair guidance on `office`/`name`, #170 `data_at`, #162 the
 #: `StatusClass`/`zone` vocabulary. Measured 63,258 chars with #162 and #163
 #: landed; bumped again to keep ~4% headroom. Still well under the ~81.4k
