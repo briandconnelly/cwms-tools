@@ -93,7 +93,11 @@ def search_places(
     `repair_hint` while one is present; the chain ends when a response
     carries no `repair_hint`. That hint carries no `cursor` or
     `limit` (a cursor locks the office set it was minted for) and is not
-    attached on a cursor continuation.
+    attached on a cursor continuation. An implicit search widens whenever no
+    match is usable (`_has_actionable_match`), so barren records in a warm
+    office do not end it (#187). A fresh, non-empty search with no usable
+    match and no `repair_hint` carries `scope_note` instead: informational,
+    never a continuation, saying only `offices_searched` were covered.
 
     `parameter`: optional CWMS parameter code (e.g. `Temp-Water`). When
     set, data-bearing rows that do not publish this parameter are dropped
@@ -213,6 +217,7 @@ def search_places(
     if parameter is not None:
         response["parameter"] = parameter
         response["nearby_non_matching_count"] = filtered_out
+    actionable = _has_actionable_match(enriched)
     extra_reasons, repair_hint = _continuation(
         query,
         parameter,
@@ -220,7 +225,7 @@ def search_places(
         offices_searched=offices_searched,
         offices_skipped=offices_skipped,
         temporary_errored=temporary_errored,
-        total_count=total_count,
+        actionable=actionable,
     )
     partial_reasons.extend(extra_reasons)
     if partial_reasons:
@@ -228,7 +233,35 @@ def search_places(
         response["partial_reasons"] = partial_reasons
     if repair_hint is not None:
         response["repair_hint"] = repair_hint
+    elif decoded is None and offices_searched and not actionable:
+        response["scope_note"] = dict(_SCOPE_NOTE)
     return response
+
+
+def _has_actionable_match(rows: list[dict[str, Any]]) -> bool:
+    """True when any match (every page, after the parameter filter) is usable:
+    it publishes data itself, or its `data_at` names a sibling that does.
+
+    One predicate drives both the implicit-scope widening and `scope_note`
+    (#187): a warm office matching only barren records must not end the
+    search before the office that holds the data is reached."""
+    return any(r.get("parameter_count", 0) > 0 or r.get("data_at") for r in rows)
+
+
+#: Informational, not a continuation: attached when a fresh search found no
+#: usable match and has no `repair_hint` left, so a finished chain is not read
+#: as "not in CWMS" (#187). Static text, so it never echoes caller input.
+_SCOPE_NOTE: dict[str, str] = {
+    "reason": "searched_offices_only",
+    "message": (
+        "No match with data for this query (and `parameter`, when set) in this "
+        "call's `offices_searched`. Other CWMS offices were not searched, so this "
+        "does not show the place is absent from CWMS; keep results from earlier "
+        "`repair_hint` hops. To widen, pass `office` explicitly: valid codes and "
+        "region hints are at `cwms_list_offices` / `cwms://offices`."
+    ),
+    "tool": "cwms_list_offices",
+}
 
 
 def _continuation(
@@ -239,14 +272,16 @@ def _continuation(
     offices_searched: list[str],
     offices_skipped: list[str],
     temporary_errored: list[str],
-    total_count: int,
+    actionable: bool,
 ) -> tuple[list[str], dict[str, Any] | None]:
     """Decide the continuation `partial_reasons` and `repair_hint` for a search.
 
     `implicit_scope` is true when the caller omitted `office` on a fresh search
-    (no cursor). Hints apply to that case, and — for the budget hint — to any
-    fresh search; an explicit empty list is a deliberate "search nothing" and is
-    never widened. Precedence: empty scope (#24) > budget continuation (#161) >
+    (no cursor). `actionable` is `_has_actionable_match` over every match: an
+    implicit search whose matches are all barren still widens (#187). Hints
+    apply to that case, and — for the budget hint — to any fresh search; an
+    explicit empty list is a deliberate "search nothing" and is never widened.
+    Precedence: empty scope (#24) > budget continuation (#161) >
     partly-warm cache. The budget hint restarts a fresh search (no cursor: a
     cursor locks the office set it was minted for) over the skipped offices; on an
     implicit scope the curated offices never searched ride along after them.
@@ -256,7 +291,7 @@ def _continuation(
     reasons: list[str] = []
     uncached = (
         [o for o in offices.discovery_office_candidates() if o not in offices_searched]
-        if implicit_scope and offices_searched and total_count == 0
+        if implicit_scope and offices_searched and not actionable
         else []
     )
     if temporary_errored:
@@ -306,14 +341,14 @@ def _skipped_scope_repair_hint(
 def _cached_scope_repair_hint(
     query: str, parameter: str | None, uncached: list[str]
 ) -> dict[str, Any]:
-    """Build the `repair_hint` for a partly-warm cache that matched nothing."""
+    """Build the `repair_hint` for a partly-warm cache with no usable match."""
     args: dict[str, Any] = {"query": query, "office": list(uncached)}
     if parameter is not None:
         args["parameter"] = parameter
     return {
         "reason": "cached_scope_incomplete",
         "message": (
-            "Only offices already cached were searched and nothing matched. Retry with "
+            "Only offices already cached were searched and nothing with data matched. Retry with "
             "`office` set to the curated offices that were not cached (priority order); "
             "keep following `repair_hint` while one is present; the chain ends when a "
             "response carries no `repair_hint`."

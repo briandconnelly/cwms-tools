@@ -441,9 +441,21 @@ representation choice (`unit=EN` or `unit=SI`).
 | `SWF`, `SWG`, `SWL`, `SWT` | District | SWD districts — publish their own |
 | `LRD`, `LRDG`, `LRDO` | Division + regions | Great Lakes / Ohio River |
 | `LRB`, `LRC`, `LRE`, `LRH`, `LRL`, `LRN`, `LRP` | District | LRD districts |
+| `SPD`, `SAD`, `NAD`, `POD` | Division | South Pacific, South Atlantic, North Atlantic, Pacific Ocean |
+| `SPK`, `SPL`, `SPA` | District | SPD districts that publish their own (`SPN`: no projects or Elev series seen) |
+| `SAM`, `SAJ`, `SAS`, `SAW` | District | SAD districts that publish their own (`SAC`: none seen) |
+| `NAE`, `NAB`, `NAP`, `NAO` | District | NAD districts that publish their own (`NAN`: none seen) |
+| `POA`, `POH` | District | POD districts: no projects or Elev series seen |
 
 **Rule of thumb: in NW Division, query `NWDM` or `NWDP`, never NWO/
 NWK/NWS/NWP/NWW.** Their district catalogs are essentially empty.
+
+The SPD/SAD/NAD/POD rows come from a 2026-10-12 survey that counted
+`/projects` entries and `Elev`-family timeseries per office: SPK 64
+projects, SAM 45, NAE 37, SPL 24, NAB 17, SPA 16, SAW 8, SAJ 7, SAS 6,
+NAP 5, NAO 2. "None seen" means both probes came back empty, which does
+not rule out other parameters; those offices are still searchable by
+name with an explicit office.
 
 ### 6.2 Sub-location naming patterns
 

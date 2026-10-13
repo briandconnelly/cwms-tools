@@ -74,7 +74,8 @@ def search(
                 "(e.g. `-o NWDP -o NWDM`). If unknown, omit it: on a fresh "
                 "cache the first call returns no rows and a `repair_hint`; "
                 "keep following `repair_hint` while one is present (the chain "
-                "ends when a response carries none). If you know the "
+                "ends when a response carries none; see `scope_note`, not proof "
+                "of absence). If you know the "
                 "region, pass the office directly (NWDM Missouri mainstem, "
                 "NWDP Columbia/Snake, SWT Oklahoma, MVS St. Louis)."
             ),
@@ -149,10 +150,14 @@ def search(
     data-bearing offices to retry with. When the per-call fan-out budget
     skips offices, it names the skipped ones (followed, when `--office` was
     omitted, by the curated offices not yet searched). When `--office` is omitted,
-    only some curated offices are cached, and nothing matched, it names the
-    curated offices that were never searched. Keep following
-    `repair_hint` while one is present; the chain ends when a response
-    carries none. Offices that failed with a
+    only some curated offices are cached, and no match has data (barren
+    records do not count), it names the curated offices that were never
+    searched. Keep following `repair_hint` while one is present; the chain
+    ends when a response carries none. A response with no match that has
+    data and no `repair_hint` carries `scope_note`: only `offices_searched`
+    were searched, so this is not proof the place is absent from CWMS; keep
+    earlier hops' results, and pass `--office` explicitly to widen (codes
+    and region hints: `cwms-tools offices`). Offices that failed with a
     temporary upstream error are listed in `partial_reasons` as
     `temporary_errors_not_retried` for the caller to retry explicitly.
     """

@@ -114,7 +114,14 @@ def ghost_offices_repair(
 #: first, then district-publishing offices roughly by how many published
 #: projects they carried in the 2026-10-11 survey (cwms-overview.md §8:
 #: NWDM 109, NWDP 95, SWT 49, LRN 28, MVR 25, MVS 15), then the remaining
-#: MVD/SWD/LRD districts. This is a curated priority, not a measurement of
+#: MVD/SWD/LRD districts. The SPD/SAD/NAD districts (#187) come from the
+#: 2026-10-12 survey (`/projects` count, then Elev-family ts rows): the three
+#: largest (SPK 64, SAM 45, NAE 37) sit after the first four so a cold chain
+#: reaches them on its second hop; the rest follow the existing offices.
+#: Offices that survey found with no projects and no Elev rows (SPN, NAN, SAC,
+#: POA, POH, the division HQs) were not selected; that is not evidence they
+#: publish nothing, and they stay searchable by name with an explicit
+#: `office`. This is a curated priority, not a measurement of
 #: richness. It is the fan-out order of the name-first repair chain (#161),
 #: the implicit candidate set `publishers_for_parameter` probes for cached
 #: offices (#164), and the degraded office-directory fallback. One copy:
@@ -124,6 +131,9 @@ DISCOVERY_OFFICE_PRIORITY: tuple[str, ...] = (
     "NWDP",
     "SWT",
     "MVS",
+    "SPK",
+    "SAM",
+    "NAE",
     "LRN",
     "MVR",
     "MVP",
@@ -139,6 +149,14 @@ DISCOVERY_OFFICE_PRIORITY: tuple[str, ...] = (
     "LRB",
     "LRC",
     "LRE",
+    "SPL",
+    "NAB",
+    "SPA",
+    "SAW",
+    "SAJ",
+    "SAS",
+    "NAP",
+    "NAO",
 )
 _FALLBACK_OFFICES: tuple[str, ...] = DISCOVERY_OFFICE_PRIORITY
 
@@ -454,7 +472,21 @@ REGION_HINTS: tuple[dict[str, Any], ...] = (
         "region": "Rock Island District (IA, IL, MO): upper Mississippi locks and dams",
         "examples": ["IL02"],
     },
-    {"office": "SPK", "region": "Sacramento District (CA, NV)", "examples": []},
+    {
+        "office": "SPK",
+        "region": "Sacramento District (CA, NV): Central Valley and Bay Area reservoirs",
+        "examples": ["Folsom Lake", "Del Valle"],
+    },
+    {
+        "office": "SAM",
+        "region": "Mobile District (AL, GA, MS, FL): Alabama-Coosa and ACF reservoirs",
+        "examples": ["Allatoona"],
+    },
+    {
+        "office": "NAE",
+        "region": "New England District (MA, NH, VT, CT, RI, ME): flood-control dams",
+        "examples": ["HKD", "BMD"],
+    },
 )
 
 

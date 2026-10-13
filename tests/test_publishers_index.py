@@ -496,3 +496,50 @@ def test_publishers_for_parameter_stub_beside_a_real_office_still_indexes(config
     assert cov["offices_indexed"] == ["SWT"]
     assert cov["offices_error_skipped"] == ["NWO"]
     assert payload["publisher_count"] == 1
+
+
+def test_publishers_for_parameter_implicit_complete_needs_the_187_offices(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#187: with only the pre-#187 offices cached, an implicit index is not
+    complete and `repair` names exactly the newly curated offices; once every
+    curated office is indexed it is complete."""
+    pre_187 = [
+        "NWDM",
+        "NWDP",
+        "SWT",
+        "MVS",
+        "LRN",
+        "MVR",
+        "MVP",
+        "MVK",
+        "MVM",
+        "MVN",
+        "SWL",
+        "SWG",
+        "SWF",
+        "LRL",
+        "LRH",
+        "LRP",
+        "LRB",
+        "LRC",
+        "LRE",
+    ]
+    added = [o for o in offices.discovery_office_candidates() if o not in pre_187]
+    assert added == ["SPK", "SAM", "NAE", "SPL", "NAB", "SPA", "SAW", "SAJ", "SAS", "NAP", "NAO"]
+    monkeypatch.setattr(publishers_index, "_budget", lambda: 64)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(
+            responses.GET,
+            f"{API_ROOT}catalog/TIMESERIES",
+            json=_ts_catalog("FOSS.Elev.Inst.15Minutes.0.Ccp-Rev"),
+            status=200,
+        )
+        publishers_index.publishers_for_parameter("Elev", offices=pre_187)
+        partial = publishers_index.publishers_for_parameter("Elev")
+        assert partial["coverage"]["complete"] is False
+        assert partial["repair"]["arguments"]["offices"] == added
+        publishers_index.publishers_for_parameter("Elev", offices=added)
+        full = publishers_index.publishers_for_parameter("Elev")
+    assert full["coverage"]["complete"] is True
+    assert "repair" not in full or full["repair"] is None

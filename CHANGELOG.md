@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Name-first `cwms_search_places` / `place search` (no `office`) can now reach
+  the South Pacific, South Atlantic and North Atlantic districts. Before this,
+  following `repair_hint` to the end for a place like Folsom Lake or Del Valle
+  (both SPK) ended with no results, which read as "not in CWMS" (#187). The
+  curated discovery list grows from 19 to 30 offices (SPK, SAM, NAE, SPL, NAB,
+  SPA, SAW, SAJ, SAS, NAP, NAO), chosen by a 2026-10-12 survey. It also feeds
+  `cwms_publishers_for_parameter`, so with `offices` omitted that tool reports
+  `complete: true` only once all 30 are indexed.
+- An implicit search whose cached matches are all barren records (no
+  parameters and no `data_at`) now keeps widening, instead of stopping before
+  the office that holds the data.
+
+### Added
+
+- `cwms_search_places` / `place search` carry `scope_note` when no match has
+  data and no `repair_hint` remains. It says only `offices_searched` were
+  covered, so this is not proof the place is absent from CWMS, and points to
+  `cwms_list_offices` / `cwms://offices`. It is informational, not a
+  continuation, and does not set `partial`.
+- `region_hints` gain SPK examples (Folsom Lake, Del Valle) and new SAM
+  (Allatoona) and NAE (HKD, BMD) entries, each verified as data-bearing.
+
 ## [0.9.0] - 2026-10-12
 
 ### Added

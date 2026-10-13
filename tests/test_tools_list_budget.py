@@ -56,7 +56,13 @@ from cwms_tools.mcp.server import build_server
 #: `StatusClass`/`zone` vocabulary. Measured 63,258 chars with #162 and #163
 #: landed; bumped again to keep ~4% headroom. Still well under the ~81.4k
 #: regression line.
-BUDGET_CHARS = 66_000
+#:
+#: #187 (2026-10-13) added `cwms_search_places`'s structured `scope_note`,
+#: which no prose trim could absorb (even a bare string field measured
+#: 66,160). Measured 66,339 with it; this 67,000 is borrowed headroom until
+#: #181 dedupes the per-tool error schema (~16.5k chars), after which the
+#: budget should come back down.
+BUDGET_CHARS = 67_000
 
 
 #: Per-component ceilings, set deliberately in #142 (2026-10-11) when these

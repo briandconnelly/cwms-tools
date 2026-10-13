@@ -1905,3 +1905,199 @@ def test_describe_place_ghost_sibling_lookup_failure_degrades(configured, mocked
     assert payload["data_at"] is None
     assert payload["partial"] is True
     assert payload["partial_reasons"] == ["not_a_project", "data_at_lookup_failed: upstream_error"]
+
+
+# --- #187: curated scope beyond NWD/MVD/SWD/LRD, ghost-only widening, scope_note
+
+
+def _del_valle_catalogs(mocked) -> None:
+    """Per-office catalogs: SPL holds a barren "Del Valle" record, SPK the
+    data-bearing project (the live layout reported in #187); every other
+    office is empty."""
+    import json as _json
+    from urllib.parse import parse_qs, urlparse
+
+    def office_of(request) -> str:
+        return parse_qs(urlparse(request.url).query).get("office", [""])[0]
+
+    def locations(request):
+        rows = {
+            "SPL": [{"office-id": "SPL", "name": "Del Valle", "location-kind": "SITE"}],
+            "SPK": [
+                {
+                    "office-id": "SPK",
+                    "name": "Del Valle",
+                    "public-name": "Del Valle Dam & Reservoir",
+                    "location-kind": "PROJECT",
+                }
+            ],
+        }.get(office_of(request), [])
+        return (200, {}, _json.dumps({"locations": rows}))
+
+    def timeseries(request):
+        rows = (
+            [{"name": "Del Valle.Elev.Inst.1Hour.0.CCP-Rev"}] if office_of(request) == "SPK" else []
+        )
+        return (200, {}, _json.dumps({"entries": rows}))
+
+    mocked.add_callback(
+        responses.GET,
+        f"{API_ROOT}catalog/LOCATIONS",
+        callback=locations,
+        content_type="application/json",
+    )
+    mocked.add_callback(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        callback=timeseries,
+        content_type="application/json",
+    )
+
+
+def _follow(hint: dict, *, max_hops: int = 12) -> list[dict]:
+    """Follow a `repair_hint` chain to its end; fail if it does not terminate."""
+    hops: list[dict] = []
+    for _ in range(max_hops):
+        resp = places.search_places(**hint["args"])
+        hops.append(resp)
+        if "repair_hint" not in resp:
+            return hops
+        hint = resp["repair_hint"]
+    pytest.fail(f"repair_hint chain did not end within {max_hops} hops")
+
+
+def test_discovery_candidates_include_the_surveyed_spd_sad_nad_districts() -> None:
+    """#187: name-first discovery must reach SPD/SAD/NAD offices that publish."""
+    cands = offices.discovery_office_candidates()
+    for office in ("SPK", "SAM", "NAE", "SPL", "NAB", "SPA", "SAW", "SAJ", "SAS", "NAP", "NAO"):
+        assert office in cands
+    assert cands[:7] == ["NWDM", "NWDP", "SWT", "MVS", "SPK", "SAM", "NAE"]
+    assert len(cands) == len(set(cands))
+
+
+def test_search_places_cold_chain_reaches_spk_for_del_valle(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#187: following the hints from a cold cache must find SPK's Del Valle."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 4)
+    _del_valle_catalogs(mocked)
+    first = places.search_places("Del Valle")
+    hops = _follow(first["repair_hint"])
+    found = {(r["office_id"], r["name"], r["parameter_count"]) for h in hops for r in h["results"]}
+    assert ("SPK", "Del Valle", 1) in found
+    assert "SPK" in hops[1]["offices_searched"], "SPK is reached on the second hop"
+
+
+def test_search_places_ghost_only_warm_match_still_widens(configured, mocked) -> None:
+    """#187: a warm SPL catalog matching only a barren record must not stop
+    the implicit search from naming the curated offices never searched."""
+    _del_valle_catalogs(mocked)
+    places.search_places("Del Valle", office="SPL")  # warms SPL only
+    payload = places.search_places("Del Valle")
+    assert payload["offices_searched"] == ["SPL"]
+    assert [(r["office_id"], r["parameter_count"]) for r in payload["results"]] == [("SPL", 0)]
+    assert payload["partial"] is True
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "cached_scope_incomplete"
+    assert "SPK" in hint["args"]["office"] and "SPL" not in hint["args"]["office"]
+    assert "scope_note" not in payload
+    hops = _follow(hint)
+    assert any(
+        r["office_id"] == "SPK" and r["parameter_count"] > 0 for h in hops for r in h["results"]
+    )
+
+
+def test_search_places_data_at_only_match_counts_as_actionable(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A barren row whose `data_at` names a publishing sibling is a usable answer."""
+    rows = [
+        {
+            "office_id": "SWT",
+            "name": "AAA",
+            "parameter_count": 0,
+            "publishers": [],
+            "co_located": [],
+            "data_at": [],
+        },
+        {
+            "office_id": "SWT",
+            "name": "BBB",
+            "parameter_count": 0,
+            "publishers": [],
+            "co_located": ["BBB-D1"],
+            "data_at": ["BBB-D1"],
+        },
+    ]
+    monkeypatch.setattr(places.offices, "cached_offices_for_locations", lambda: ["SWT"])
+    monkeypatch.setattr(
+        places, "_gather_enriched", lambda *a, **k: ([dict(r) for r in rows], [], [])
+    )
+    monkeypatch.setattr(places, "_apply_parameter_filter", lambda rows, *a, **k: (rows, 0))
+    # limit=1: the actionable row is on page 2; the predicate spans every match.
+    payload = places.search_places("x", limit=1)
+    assert [r["name"] for r in payload["results"]] == ["AAA"]
+    assert payload["has_more"] is True
+    assert "repair_hint" not in payload
+    assert "scope_note" not in payload
+
+
+def test_search_places_parameter_filtered_miss_widens(configured, mocked) -> None:
+    """A warm match that does not publish `parameter` is filtered out, so the
+    implicit search still names the curated offices never searched."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=LOCATIONS_PAYLOAD, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TIMESERIES_PAYLOAD, status=200)
+    places.search_places("zzz-warmup", office="SWT")
+    payload = places.search_places("FOSS", parameter="Temp-Water")
+    assert payload["results"] == []
+    assert payload["repair_hint"]["reason"] == "cached_scope_incomplete"
+    assert payload["repair_hint"]["args"]["parameter"] == "Temp-Water"
+
+
+def test_search_places_terminal_miss_carries_scope_note(configured, mocked) -> None:
+    """#187: a response with no usable match and no `repair_hint` must not read
+    as 'not in CWMS': it names the scope it covered, without a continuation."""
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json={"locations": []}, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
+    payload = places.search_places("Folsom", office=["SWT", "MVS"])
+    assert "repair_hint" not in payload
+    assert "partial" not in payload, "scope_note does not change partial semantics"
+    note = payload["scope_note"]
+    assert note["reason"] == "searched_offices_only"
+    assert note["tool"] == "cwms_list_offices"
+    assert "offices_searched" in note["message"]
+    assert "cwms://offices" in note["message"]
+
+
+def test_search_places_scope_note_absent_when_a_hint_or_match_exists(configured, mocked) -> None:
+    _arm_all(mocked)
+    hit = places.search_places("FOSS", office="SWT")
+    assert hit["results"] and "scope_note" not in hit
+    cold = places.search_places("Folsom")  # empty implicit scope: hint, no note
+    assert "repair_hint" in cold and "scope_note" not in cold
+    nothing = places.search_places("Folsom", office=[])  # deliberate empty scope
+    assert "scope_note" not in nothing
+
+
+def test_search_places_cursor_page_never_carries_scope_note(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = [
+        {
+            "office_id": "SWT",
+            "name": n,
+            "parameter_count": 0,
+            "publishers": [],
+            "co_located": [],
+            "data_at": [],
+        }
+        for n in ("A", "B")
+    ]
+    monkeypatch.setattr(
+        places, "_gather_enriched", lambda *a, **k: ([dict(r) for r in rows], [], [])
+    )
+    monkeypatch.setattr(places, "_apply_parameter_filter", lambda rows, *a, **k: (rows, 0))
+    first = places.search_places("x", office="SWT", limit=1)
+    assert first["scope_note"]["reason"] == "searched_offices_only"
+    second = places.search_places("x", office="SWT", limit=1, cursor=first["next_cursor"])
+    assert "scope_note" not in second and "repair_hint" not in second
