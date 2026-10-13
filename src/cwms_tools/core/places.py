@@ -254,11 +254,13 @@ def _has_actionable_match(rows: list[dict[str, Any]]) -> bool:
 _SCOPE_NOTE: dict[str, str] = {
     "reason": "searched_offices_only",
     "message": (
-        "No match with data for this query (and `parameter`, when set) in this "
-        "call's `offices_searched`. Other CWMS offices were not searched, so this "
-        "does not show the place is absent from CWMS; keep results from earlier "
-        "`repair_hint` hops. To widen, pass `office` explicitly: valid codes and "
-        "region hints are at `cwms_list_offices` / `cwms://offices`."
+        "No match with data was returned for this query (and `parameter`, when "
+        "set) from this call's `offices_searched`; an office named in "
+        "`partial_reasons` failed and was not actually searched. Other CWMS "
+        "offices were not searched, so this does not show the place is absent "
+        "from CWMS; keep results from earlier `repair_hint` hops. To widen, pass "
+        "`office` explicitly: valid codes and region hints are at "
+        "`cwms_list_offices` / `cwms://offices`."
     ),
     "tool": "cwms_list_offices",
 }

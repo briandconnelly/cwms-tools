@@ -1563,6 +1563,11 @@ def test_search_places_temporary_error_on_the_final_hop_is_reported_not_hinted(
     assert any(
         r.startswith("temporary_errors_not_retried: SWT ") for r in payload["partial_reasons"]
     )
+    # #187 review: SWT is in `offices_searched` but failed, so the note must not
+    # read as a confirmed miss there; it defers to `partial_reasons`.
+    assert payload["offices_searched"] == ["NWDM", "SWT"]
+    note = payload["scope_note"]["message"]
+    assert "was returned" in note and "`partial_reasons` failed" in note
 
 
 def test_search_places_single_resolved_office_error_does_not_swallow_a_continuation(
