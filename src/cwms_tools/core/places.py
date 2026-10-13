@@ -53,10 +53,30 @@ def _normalize_office_arg(office: str | list[str] | None) -> list[str] | None:
     return out
 
 
+def _normalize_state_arg(state: str | None, *, office: str | list[str] | None) -> str | None:
+    """Validate `state` before any upstream call (#188): upper-cased code, or None.
+
+    `state` with `office` (even `[]`) is a `usage_error` rather than a silent
+    intersection; an unknown or blank code is `invalid_field`."""
+    if state is None:
+        return None
+    if office is not None:
+        raise CwmsToolsError.of(
+            ErrorCode.USAGE_ERROR,
+            "Pass `state` or `office`, not both.",
+            field="state",
+            value=state,
+            reason="`state` selects the offices to search; drop one of the two.",
+        )
+    offices.offices_for_state(state)  # raises invalid_field for an unknown code
+    return state.strip().upper()
+
+
 def search_places(
     query: str,
     *,
     office: str | list[str] | None = None,
+    state: str | None = None,
     parameter: str | None = None,
     limit: int | None = DEFAULT_SEARCH_LIMIT,
     cursor: str | None = None,
@@ -102,6 +122,17 @@ def search_places(
     `repair_hint` carries `scope_note` instead: informational, never a
     continuation, saying only `offices_searched` were covered.
 
+    `state`: optional two-letter USPS code (#188), mutually exclusive with
+    `office`. It only selects the office scope — the districts whose static
+    coverage (`offices.DISTRICT_COVERAGE`) includes it, NW stubs swapped for
+    their rollup, in `offices.offices_for_state` order — and searches them as
+    an explicit list: budget hints carry the remaining state offices (as
+    `office`, without `state`) and never widen outside them. Rows are not
+    filtered by their own state, so a match may lie outside it; an exhausted
+    state scope is not proof of absence (`scope_note`). On a cursor
+    continuation the cursor's locked offices apply; `state` must match the
+    one the cursor was minted with.
+
     `parameter`: optional CWMS parameter code (e.g. `Temp-Water`). When
     set, data-bearing rows that do not publish this parameter are dropped
     from `results`; barren rows are kept only when their `data_at`
@@ -132,7 +163,11 @@ def search_places(
     if limit == 0:
         limit = None  # 0 means "no cap"; normalize so pagination math is well-defined
 
-    req = pagination.request_hash({"q": query, "parameter": parameter})
+    state_code = _normalize_state_arg(state, office=office)
+    # `state` joins the hash only when set, so pre-#188 cursors stay valid.
+    req = pagination.request_hash(
+        {"q": query, "parameter": parameter, **({"state": state_code} if state_code else {})}
+    )
     (
         decoded,
         offset,
@@ -141,7 +176,15 @@ def search_places(
         partial_reasons,
         asked_single,
         office_echo,
-    ) = _resolve_scope(office=office, cursor=cursor, limit=limit, req=req, use_cache=use_cache)
+    ) = _resolve_scope(
+        office=office if state_code is None else offices.offices_for_state(state_code),
+        cursor=cursor,
+        limit=limit,
+        req=req,
+        use_cache=use_cache,
+    )
+    # With `state`, the caller passed no `office`; `state` is echoed instead.
+    office_echo = office_echo if state_code is None else None
 
     gathered, gather_reasons, temporary_errored = _gather_enriched(
         offices_searched,
@@ -212,6 +255,7 @@ def search_places(
     response: dict[str, Any] = {
         "query": query,
         "office": office_echo,
+        **({"state": state_code} if state_code is not None else {}),
         "offices_searched": offices_searched,
         "offices_skipped_for_budget": offices_skipped,
         "results": results,
@@ -231,7 +275,7 @@ def search_places(
     extra_reasons, repair_hint = _continuation(
         query,
         parameter,
-        implicit_scope=office is None and decoded is None,
+        implicit_scope=office is None and state_code is None and decoded is None,
         offices_searched=offices_searched,
         offices_skipped=offices_skipped,
         temporary_errored=temporary_errored,

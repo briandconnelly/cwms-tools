@@ -82,6 +82,18 @@ def search(
             ),
         ),
     ] = None,
+    state: Annotated[
+        str | None,
+        typer.Option(
+            "--state",
+            help=(
+                "Two-letter state code (e.g. CA, PR): search the districts whose "
+                "area covers it (coverage under `guidance.coverage` in "
+                "`cwms-tools offices`). Not with --office. Only selects offices; "
+                "rows may lie outside the state."
+            ),
+        ),
+    ] = None,
     parameter: Annotated[
         str | None,
         typer.Option(
@@ -189,12 +201,15 @@ def search(
         payload = places.search_places(
             query,
             office=office_arg,
+            state=state,
             parameter=parameter,
             limit=effective_limit,
             cursor=cursor,
         )
     except CwmsToolsError as err:
         repair_args: dict[str, object] = {"query": query}
+        if state is not None:
+            repair_args["state"] = state
         if parameter is not None:
             repair_args["parameter"] = parameter
         repair_args["limit"] = limit

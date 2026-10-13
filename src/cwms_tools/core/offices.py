@@ -490,6 +490,168 @@ REGION_HINTS: tuple[dict[str, Any], ...] = (
 )
 
 
+#: Static district -> state/basin coverage (#188): every USACE district in the
+#: CDA office directory, with each state any part of whose area falls in the
+#: district's civil-works boundary. Those boundaries follow watersheds, so a
+#: state usually maps to several districts; the lists err inclusive (an extra
+#: state costs one extra office searched, a missing one hides the office).
+#: Geography only: it says nothing about whether an office publishes data
+#: (that stays dynamic, from CDA). Curated 2026-10-13; NWK, SWT, NAN and NWO
+#: lists checked against each district's own civil-works page, SPK against its
+#: boundary map. PR and VI now sit in the Caribbean District (SAA, est. 2024),
+#: which is not a CDA office; they map to SAJ, whose catalog holds the PR
+#: projects (Cerrillos, Portugues; no VI rows seen). Fingerprinted via
+#: `static_guidance()`.
+DISTRICT_COVERAGE: tuple[dict[str, Any], ...] = (
+    {"office": "LRB", "states": ["NY", "OH", "PA"], "basins": ["Lake Erie", "Lake Ontario"]},
+    {"office": "LRC", "states": ["IL", "IN"], "basins": ["Chicago Area Waterways"]},
+    {
+        "office": "LRE",
+        "states": ["MI", "MN", "WI", "IN", "OH"],
+        "basins": ["Lake Superior", "Lake Michigan", "Lake Huron"],
+    },
+    {
+        "office": "LRH",
+        "states": ["WV", "OH", "KY", "VA", "NC"],
+        "basins": ["Kanawha", "Big Sandy", "Muskingum", "Scioto"],
+    },
+    {"office": "LRL", "states": ["KY", "IN", "OH", "IL"], "basins": ["Ohio", "Wabash", "Green"]},
+    {
+        "office": "LRN",
+        "states": ["TN", "KY", "AL", "MS", "GA", "NC", "VA"],
+        "basins": ["Cumberland", "Tennessee"],
+    },
+    {
+        "office": "LRP",
+        "states": ["PA", "WV", "OH", "NY", "MD"],
+        "basins": ["Allegheny", "Monongahela", "upper Ohio"],
+    },
+    {"office": "MVK", "states": ["MS", "LA", "AR"], "basins": ["Yazoo", "Ouachita", "Red"]},
+    {
+        "office": "MVM",
+        "states": ["TN", "MO", "AR", "MS", "KY", "IL"],
+        "basins": ["lower Mississippi", "St. Francis"],
+    },
+    {"office": "MVN", "states": ["LA", "MS"], "basins": ["lower Mississippi", "Atchafalaya"]},
+    {
+        "office": "MVP",
+        "states": ["MN", "WI", "ND", "SD", "IA"],
+        "basins": ["upper Mississippi", "Red River of the North"],
+    },
+    {
+        "office": "MVR",
+        "states": ["IA", "IL", "MO", "WI", "MN"],
+        "basins": ["upper Mississippi", "Illinois", "Des Moines"],
+    },
+    {"office": "MVS", "states": ["MO", "IL"], "basins": ["middle Mississippi", "Kaskaskia"]},
+    {
+        "office": "NAB",
+        "states": ["MD", "PA", "NY", "VA", "DC", "DE", "WV"],
+        "basins": ["Susquehanna", "Potomac"],
+    },
+    {
+        "office": "NAE",
+        "states": ["MA", "NH", "VT", "CT", "RI", "ME"],
+        "basins": ["Connecticut", "Merrimack"],
+    },
+    {
+        "office": "NAN",
+        "states": ["NY", "NJ", "CT", "VT", "MA"],
+        "basins": ["Hudson", "Lake Champlain"],
+    },
+    {"office": "NAO", "states": ["VA", "NC"], "basins": ["James", "lower Chesapeake Bay"]},
+    {"office": "NAP", "states": ["PA", "NJ", "DE", "NY", "MD"], "basins": ["Delaware"]},
+    {
+        "office": "NWK",
+        "states": ["MO", "KS", "NE", "IA", "CO"],
+        "basins": ["lower Missouri", "Kansas", "Osage"],
+    },
+    {
+        "office": "NWO",
+        "states": ["MT", "ND", "SD", "NE", "WY", "CO", "IA", "MN", "MO"],
+        "basins": ["upper Missouri", "Platte"],
+    },
+    {"office": "NWP", "states": ["OR", "WA"], "basins": ["lower Columbia", "Willamette"]},
+    {
+        "office": "NWS",
+        "states": ["WA", "ID", "MT"],
+        "basins": ["Puget Sound", "upper Columbia", "Kootenai"],
+    },
+    {
+        "office": "NWW",
+        "states": ["WA", "OR", "ID", "WY", "NV", "UT"],
+        "basins": ["Snake", "mid-Columbia"],
+    },
+    {"office": "POA", "states": ["AK"], "basins": []},
+    {"office": "POH", "states": ["HI", "GU", "AS", "MP"], "basins": []},
+    {"office": "SAC", "states": ["SC"], "basins": ["Santee", "Cooper"]},
+    {
+        "office": "SAJ",
+        "states": ["FL", "GA", "PR", "VI"],
+        "basins": ["St. Johns", "Kissimmee-Okeechobee-Everglades"],
+    },
+    {
+        "office": "SAM",
+        "states": ["AL", "GA", "MS", "FL", "TN"],
+        "basins": ["Alabama-Coosa-Tallapoosa", "Tombigbee", "Apalachicola-Chattahoochee-Flint"],
+    },
+    {"office": "SAS", "states": ["GA", "SC", "NC"], "basins": ["Savannah", "Altamaha"]},
+    {"office": "SAW", "states": ["NC", "VA"], "basins": ["Cape Fear", "Neuse", "Roanoke"]},
+    {"office": "SPA", "states": ["NM", "CO", "TX"], "basins": ["Rio Grande", "Pecos"]},
+    {
+        "office": "SPK",
+        "states": ["CA", "NV", "UT", "CO", "WY", "AZ", "ID", "OR"],
+        "basins": ["Sacramento", "San Joaquin", "Great Basin", "upper Colorado"],
+    },
+    {
+        "office": "SPL",
+        "states": ["CA", "AZ", "NV", "UT"],
+        "basins": ["southern California coast", "lower Colorado", "Gila"],
+    },
+    {"office": "SPN", "states": ["CA"], "basins": ["northern California coast"]},
+    {
+        "office": "SWF",
+        "states": ["TX"],
+        "basins": ["Trinity", "Brazos", "Colorado (TX)", "Guadalupe"],
+    },
+    {"office": "SWG", "states": ["TX", "LA"], "basins": ["Texas coast", "Gulf Intracoastal"]},
+    {"office": "SWL", "states": ["AR", "MO"], "basins": ["lower Arkansas", "White"]},
+    {"office": "SWT", "states": ["OK", "KS", "TX"], "basins": ["Arkansas", "Red"]},
+)
+
+#: Every state/territory code `offices_for_state` accepts.
+COVERED_STATES: frozenset[str] = frozenset(s for d in DISTRICT_COVERAGE for s in d["states"])
+
+
+def offices_for_state(state: str) -> list[str]:
+    """Offices to search for a two-letter state code (#188), in search order.
+
+    Districts whose `DISTRICT_COVERAGE` lists `state`, NW stubs replaced by
+    their rollup (deduplicated), ordered by `DISCOVERY_OFFICE_PRIORITY` and then
+    by table order. An unknown code raises `invalid_field`.
+    """
+    code = state.strip().upper()
+    if code not in COVERED_STATES:
+        raise CwmsToolsError.of(
+            ErrorCode.INVALID_FIELD,
+            f"Unknown state code {state!r}.",
+            field="state",
+            value=state,
+            reason=(
+                "Pass a two-letter USPS code (e.g. CA, TX, PR). District coverage is "
+                "under `guidance.coverage` in `cwms://offices`."
+            ),
+        )
+    matched: list[str] = []
+    for entry in DISTRICT_COVERAGE:
+        if code in entry["states"]:
+            office = NW_ROLLUP_TARGETS.get(entry["office"], entry["office"])
+            if office not in matched:
+                matched.append(office)
+    rank = {o: i for i, o in enumerate(DISCOVERY_OFFICE_PRIORITY)}
+    return sorted(matched, key=lambda o: rank.get(o, len(rank)))
+
+
 def static_guidance() -> dict[str, Any]:
     """The static, agent-facing guidance block of `cwms://offices` (fingerprinted)."""
     return {
@@ -502,11 +664,17 @@ def static_guidance() -> dict[str, Any]:
         "nw_district_stubs": sorted(NW_ROLLUP_TARGETS),
         "nw_rollup_targets": dict(NW_ROLLUP_TARGETS),
         "region_hints": [{**h, "examples": list(h["examples"])} for h in REGION_HINTS],
+        "coverage": [
+            {**d, "states": list(d["states"]), "basins": list(d["basins"])}
+            for d in DISTRICT_COVERAGE
+        ],
     }
 
 
 __all__ = [
+    "COVERED_STATES",
     "DISCOVERY_OFFICE_PRIORITY",
+    "DISTRICT_COVERAGE",
     "NW_ROLLUP_TARGETS",
     "NW_STUBS",
     "REGION_HINTS",
@@ -519,6 +687,7 @@ __all__ = [
     "list_office_ids",
     "list_offices",
     "nw_rollup_target",
+    "offices_for_state",
     "require_known_office",
     "static_guidance",
 ]

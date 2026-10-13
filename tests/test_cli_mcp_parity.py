@@ -537,6 +537,22 @@ def test_search_places_budget_repair_hint_parity_real_producer(
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])
+def test_search_places_state_parity_real_producer(detail: str, configured, monkeypatch) -> None:
+    """#188: `state` resolves the same office scope, echo and continuation on
+    both surfaces."""
+    _stub_catalog(monkeypatch)
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    argv = ["place", "search", "FOSS", "--state", "tx", "--detail", detail]
+    cli_data = _cli_data(SEARCH, argv)
+    mcp_data = _mcp_data("cwms_search_places", {"query": "FOSS", "state": "tx", "detail": detail})
+    assert cli_data == mcp_data
+    assert cli_data["state"] == "TX" and "office" not in cli_data
+    assert cli_data["offices_searched"] == ["SWT"]
+    assert cli_data["repair_hint"]["args"]["office"] == ["SWG", "SWF", "SPA"]
+    assert "state" not in cli_data["repair_hint"]["args"]
+
+
+@pytest.mark.parametrize("detail", ["summary", "full"])
 def test_search_places_terminal_scope_note_parity_real_producer(
     detail: str, configured, monkeypatch
 ) -> None:

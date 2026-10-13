@@ -434,3 +434,190 @@ def test_offices_payload_carries_region_hints(configured) -> None:
     from cwms_tools.core.models import OfficesResponse
 
     OfficesResponse.model_validate(payload)  # the shared model accepts the new block
+
+
+# --------------------------------------------------------------------------
+# District coverage (#188)
+# --------------------------------------------------------------------------
+
+#: Every `DIS` office in the live CDA directory on 2026-10-13, kept here
+#: independently of the code so a district dropped from the table fails.
+_DIS_OFFICES_2026_10_13 = frozenset(
+    [
+        "LRB",
+        "LRC",
+        "LRE",
+        "LRH",
+        "LRL",
+        "LRN",
+        "LRP",
+        "MVK",
+        "MVM",
+        "MVN",
+        "MVP",
+        "MVR",
+        "MVS",
+        "NAB",
+        "NAE",
+        "NAN",
+        "NAO",
+        "NAP",
+        "NWK",
+        "NWO",
+        "NWP",
+        "NWS",
+        "NWW",
+        "POA",
+        "POH",
+        "SAC",
+        "SAJ",
+        "SAM",
+        "SAS",
+        "SAW",
+        "SPA",
+        "SPK",
+        "SPL",
+        "SPN",
+        "SWF",
+        "SWG",
+        "SWL",
+        "SWT",
+    ]
+)
+
+_STATES_AND_TERRITORIES = frozenset(
+    [
+        "AL",
+        "AK",
+        "AZ",
+        "AR",
+        "CA",
+        "CO",
+        "CT",
+        "DE",
+        "FL",
+        "GA",
+        "HI",
+        "ID",
+        "IL",
+        "IN",
+        "IA",
+        "KS",
+        "KY",
+        "LA",
+        "ME",
+        "MD",
+        "MA",
+        "MI",
+        "MN",
+        "MS",
+        "MO",
+        "MT",
+        "NE",
+        "NV",
+        "NH",
+        "NJ",
+        "NM",
+        "NY",
+        "NC",
+        "ND",
+        "OH",
+        "OK",
+        "OR",
+        "PA",
+        "RI",
+        "SC",
+        "SD",
+        "TN",
+        "TX",
+        "UT",
+        "VT",
+        "VA",
+        "WA",
+        "WV",
+        "WI",
+        "WY",
+        "DC",
+        "PR",
+        "VI",
+        "GU",
+        "AS",
+        "MP",
+    ]
+)
+
+
+def test_district_coverage_lists_every_district_once() -> None:
+    names = [d["office"] for d in offices.DISTRICT_COVERAGE]
+    assert len(names) == len(set(names))
+    assert set(names) == _DIS_OFFICES_2026_10_13
+
+
+def test_district_coverage_reaches_every_state_and_territory() -> None:
+    assert offices.COVERED_STATES == _STATES_AND_TERRITORIES
+
+
+@pytest.mark.parametrize(
+    ("office", "state"),
+    [
+        # Source-backed associations (district civil-works pages / boundary map).
+        ("SPK", "AZ"),
+        ("SPK", "ID"),
+        ("SPK", "OR"),
+        ("NAN", "MA"),
+        ("NAN", "VT"),
+        ("NWO", "MO"),
+        ("NWK", "CO"),
+        ("SWT", "TX"),
+        ("SAJ", "PR"),
+    ],
+)
+def test_district_coverage_keeps_checked_associations(office: str, state: str) -> None:
+    entry = next(d for d in offices.DISTRICT_COVERAGE if d["office"] == office)
+    assert state in entry["states"]
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("CA", ["SPK", "SPL", "SPN"]),
+        ("ca", ["SPK", "SPL", "SPN"]),
+        (" Ok ", ["SWT"]),
+        ("WA", ["NWDP"]),  # NWS/NWP/NWW stubs collapse onto their rollup
+        ("MO", ["NWDM", "MVS", "MVR", "MVM", "SWL"]),  # NWO+NWK -> one NWDM
+        ("PR", ["SAJ"]),
+    ],
+)
+def test_offices_for_state_orders_by_priority_and_rolls_up_stubs(
+    state: str, expected: list[str]
+) -> None:
+    assert offices.offices_for_state(state) == expected
+
+
+def test_offices_for_state_never_returns_an_nw_stub() -> None:
+    for state in offices.COVERED_STATES:
+        assert not set(offices.offices_for_state(state)) & offices.NW_STUBS
+
+
+@pytest.mark.parametrize("bad", ["ZZ", "", "  ", "California"])
+def test_offices_for_state_rejects_unknown_codes(bad: str) -> None:
+    with pytest.raises(CwmsToolsError) as ex:
+        offices.offices_for_state(bad)
+    env = ex.value.envelope
+    assert env.code is ErrorCode.INVALID_FIELD
+    assert env.details is not None and env.details.field == "state"
+    assert "cwms://offices" in (env.details.reason or "")
+
+
+def test_offices_payload_carries_coverage(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+        from cwms_tools.mcp.resources import offices_payload
+
+        payload = offices_payload()
+    coverage = {d["office"]: d for d in payload["guidance"]["coverage"]}
+    assert set(coverage) == _DIS_OFFICES_2026_10_13
+    assert coverage["SPK"]["basins"][:2] == ["Sacramento", "San Joaquin"]
+    from cwms_tools.core.models import OfficesResponse
+
+    OfficesResponse.model_validate(payload)

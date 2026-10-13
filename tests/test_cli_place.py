@@ -451,7 +451,9 @@ def test_region_browse_rejects_partial_bbox_naming_first_missing_corner() -> Non
 def test_place_search_accepts_cursor(monkeypatch):
     captured = {}
 
-    def fake_search(query, *, office=None, parameter=None, limit=None, cursor=None, use_cache=True):
+    def fake_search(
+        query, *, office=None, state=None, parameter=None, limit=None, cursor=None, use_cache=True
+    ):
         captured["cursor"] = cursor
         return {
             "query": query,
@@ -466,3 +468,21 @@ def test_place_search_accepts_cursor(monkeypatch):
     result = runner.invoke(app, ["place", "search", "L", "-o", "NWDM", "--cursor", "TOKEN"])
     assert result.exit_code == 0
     assert captured["cursor"] == "TOKEN"
+
+
+def test_place_search_state_with_office_is_usage_error() -> None:
+    """#188: `--state` and `--office` are mutually exclusive, before any fetch."""
+    result = runner.invoke(app, ["place", "search", "Del Valle", "--state", "CA", "-o", "SPK"])
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    err = json.loads(result.stderr)["error"]
+    assert err["code"] == "usage_error"
+    assert err["details"]["field"] == "state"
+
+
+def test_place_search_unknown_state_is_invalid_field() -> None:
+    result = runner.invoke(app, ["place", "search", "Del Valle", "--state", "ZZ"])
+    assert result.exit_code == 2
+    err = json.loads(result.stderr)["error"]
+    assert err["code"] == "invalid_field"
+    assert err["details"] == {**err["details"], "field": "state", "value": "ZZ"}

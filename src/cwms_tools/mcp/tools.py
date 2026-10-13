@@ -207,6 +207,11 @@ def register_place_tools(mcp: FastMCP) -> None:
             "directly (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT "
             "Oklahoma, MVS St. Louis; full list at `cwms://offices`).",
         ] = None,
+        state: Annotated[
+            str | None,
+            "Two-letter state code (CA, PR): searches the districts covering it "
+            "(`cwms://offices` coverage). Not with `office`; rows may lie outside it.",
+        ] = None,
         parameter: Annotated[
             str | None,
             "Filter to locations publishing this parameter; ghost parents "
@@ -237,6 +242,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             places.search_places,
             query,
             office=office,
+            state=state,
             parameter=parameter,
             limit=effective_limit,
             cursor=cursor,
@@ -244,6 +250,7 @@ def register_place_tools(mcp: FastMCP) -> None:
                 "cwms_search_places",
                 {
                     **({"office": office} if office is not None else {}),
+                    **({"state": state} if state is not None else {}),
                     "query": query,
                     **({"parameter": parameter} if parameter is not None else {}),
                     "limit": limit,
