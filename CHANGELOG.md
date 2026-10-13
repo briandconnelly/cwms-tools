@@ -102,6 +102,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected as `invalid_field` with the
   fix spelled out, matching the error text (#167). `usage_error` is advertised
   on `cwms_get_history`.
+- `cwms_publishers_for_parameter` / `publisher for-parameter`: an explicit
+  office list of only NW district stubs (e.g. `["NWO"]`) is now `ghost_office`
+  with a same-tool rollup repair (`offices: ["NWDM"]`; CLI `--office NWDM`)
+  instead of an empty `ok: true` with no repair, matching `cwms_search_places`.
+  When nothing valid survives a list, a stub's `ghost_office` wins over an
+  unknown code's `invalid_field`; a list with any valid office still returns the
+  partial result. `ghost_office` is advertised on the tool (#183).
+- Removed eight zero-byte placeholder fixtures that no test loaded; they failed
+  the `check-json` pre-commit hook on every run (#182).
 
 ### Changed
 

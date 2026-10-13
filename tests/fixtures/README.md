@@ -1,20 +1,11 @@
 # Fixture matrix
 
-Recorded CDA responses keyed to the test scenarios in the implementation
-plan. Each fixture file holds the request URL(s) and JSON response body
-needed to exercise one branch of behavior. Placeholders land at M2; real
-recordings land alongside the tool implementations in M3–M6.
+Recorded CDA responses used by tests. Each file is a real response body
+captured from the live API; most scenarios are instead mocked inline with
+`responses`. Add a file here only when a test loads it, and list it below.
 
 | Fixture                            | Exercises |
 |------------------------------------|---|
-| `swt_foss_happy.json`              | Standard Tulsa flood-control reservoir — `cwms_get_value`, `cwms_get_history`, `cwms_describe_place` happy paths. |
-| `nwdm_ftpk_levels_seasonal.json`   | Seasonal-level workaround branch — direct-CDA endpoint, not via wrapper. |
-| `nwo_becr_ghost.json`              | Ghost location; verifies `error.code = ghost_location` + repair hint. |
-| `swt_chou_lock_zero_params.json`   | Co-located but zero-publishing variant — ghost detection at parameter level. |
-| `multi_id_value.json`              | List input to `cwms_get_value`; exercises `core/concurrency.py`. |
-| `catalog_truncated_at_page_cap.json` | `get_timeseries` silent-truncation detection. |
 | `swt_webb_locks_list.json`         | Raw `GET /projects/locks?office=SWT&project-id=WEBB` body (recorded 2026-10-11). The list endpoint returns every dimension as `0.0` with no units — only identity is usable. |
 | `swt_webb_lock_en.json`            | Raw `GET /projects/locks/WEBB-Lock?office=SWT&unit=EN` body (recorded 2026-10-11). Real dimensions plus the `maximum-lock-lift` -9999 m sentinel (-32805.118 ft). |
 | `cda_429_rate_limited.json`        | Recorded 429 + `Retry-After`; drives `test_get_locations_catalog_wraps_429_as_rate_limited_with_retry_after`. |
-| `cda_503_upstream_error.json`      | `error.code = upstream_error`, `temporary: true`. |
-| `auth_unconfigured.json`           | Anonymous-session verification (`whoami`, `env`). |
