@@ -300,8 +300,8 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     parameter_suggestions: list[str] | None = Field(
         default=None,
         description=(
-            "`parameter` unpublished in the offices read: similar published codes, "
-            "alternatives not corrections."
+            "All matches dropped and `parameter` unpublished in the offices read: "
+            "similar published codes, alternatives not corrections."
         ),
     )
     partial: bool = False

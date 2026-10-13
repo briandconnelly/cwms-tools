@@ -219,7 +219,7 @@ def _commands() -> list[dict[str, Any]]:
                 "place is absent from CWMS; widen with `--office` (codes and "
                 "region hints: `cwms-tools offices`). When every match is "
                 "dropped by --parameter and no office catalog read publishes "
-                "that code, `parameter_suggestions` lists similar published "
+                "that code, `parameter_suggestions` may list similar published "
                 "codes: alternatives, not corrections; `repair_hint` still applies."
             ),
         },

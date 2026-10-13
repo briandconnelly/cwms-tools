@@ -2719,3 +2719,19 @@ def test_search_places_suggestion_then_later_hop_finds_exact_match(monkeypatch):
     second = places.search_places(**hint["arguments"])
     assert [r["name"] for r in second["results"]] == ["Lake"]
     assert "parameter_suggestions" not in second
+
+
+def test_search_places_state_scope_suggestions_keep_state_continuation(monkeypatch):
+    """`state` resolves to an explicit office list: suggestions ride along and the
+    budget hint still names only the state's remaining offices."""
+    rows = [_published("Lake", "Elev", office="SWT")]
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **kw: (["SWT"], ["SWF"], []))
+    monkeypatch.setattr(
+        places, "_gather_enriched", lambda *a, **k: ([dict(r) for r in rows], [], [])
+    )
+    _office_catalog(monkeypatch, {"SWT": [*rows, _published("Y", "Stor", office="SWT")]})
+    out = places.search_places("Lake", state="TX", parameter="Stro")
+    assert out["parameter_suggestions"] == ["Stor"]
+    assert out["state"] == "TX"
+    assert out["repair_hint"]["arguments"]["office"] == ["SWF"]
+    assert "state" not in out["repair_hint"]["arguments"]
