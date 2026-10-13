@@ -292,6 +292,7 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
             "already searched."
         ),
     )
+    state: str | None = None
     parameter: str | None = None
     nearby_non_matching_count: int | None = Field(
         default=None,
@@ -819,6 +820,19 @@ class RegionHint(CompactDumpMixin, BaseModel):
     examples: list[str]
 
 
+class DistrictCoverage(CompactDumpMixin, BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    office: str
+    states: list[str]
+    basins: list[str]
+    proxy_states: list[str] | None = Field(
+        default=None,
+        description="Not this district's: searched here for `proxy_for`, not a CDA office.",
+    )
+    proxy_for: str | None = None
+
+
 class OfficesGuidance(CompactDumpMixin, BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -831,6 +845,10 @@ class OfficesGuidance(CompactDumpMixin, BaseModel):
             "Static region → office hints with example catalog ids; a starting "
             "point, not the full directory."
         ),
+    )
+    coverage: list[DistrictCoverage] = Field(
+        default_factory=list,
+        description="Static district → states/basins; geography, not proof of data.",
     )
 
 
@@ -852,6 +870,7 @@ __all__ = [
     "CdaProject",
     "DescribePlaceResponse",
     "Detail",
+    "DistrictCoverage",
     "ErrorRef",
     "HistoryPoint",
     "HistoryResponse",

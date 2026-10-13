@@ -159,8 +159,9 @@ def _commands() -> list[dict[str, Any]]:
             "error_codes": _errs("wrapper_bug"),
             "notes": (
                 "Lists the USACE office codes the `--office` option expects, plus "
-                "the NW regional-rollup guidance and `region_hints` (region -> office "
-                "with example catalog ids). Network-backed, cached 7 days; "
+                "the NW regional-rollup guidance, `region_hints` (region -> office "
+                "with example catalog ids) and `coverage` (district -> states/basins). "
+                "Network-backed, cached 7 days; "
                 "degrades to a documented fallback slice with `partial: true` on "
                 "cold-start upstream failure (never errors on upstream failure)."
             ),
@@ -184,6 +185,14 @@ def _commands() -> list[dict[str, Any]]:
                         "carries none; see `scope_note`, not proof of absence); if known, "
                         "pass it (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT Oklahoma, "
                         "MVS St. Louis). List codes with `cwms-tools offices`."
+                    ),
+                ),
+                _opt(
+                    "--state",
+                    "string",
+                    help=(
+                        "Two-letter state code; searches the districts covering it "
+                        "(`guidance.coverage` in `cwms-tools offices`). Not with --office."
                     ),
                 ),
                 _opt("--parameter", "string", help="Filter to a published parameter."),

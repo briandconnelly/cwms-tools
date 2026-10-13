@@ -457,6 +457,15 @@ NAP 5, NAO 2. "None seen" means both probes came back empty, which does
 not rule out other parameters; those offices are still searchable by
 name with an explicit office.
 
+**Districts follow watersheds, not state lines.** A state usually falls
+in several districts (California: SPK, SPL, SPN; Texas: SWT, SWF, SWG,
+SPA), and one district often spans several states (SPK: the Sacramento
+and San Joaquin basins in CA, the Great Basin and the upper Colorado).
+Puerto Rico and the U.S. Virgin Islands moved to the Caribbean District
+(SAA) in 2024; SAA is not a CDA office, and the Puerto Rico projects
+are in SAJ's catalog. A district → state table is not proof that the
+district publishes data (see the NW stubs above).
+
 ### 6.2 Sub-location naming patterns
 
 Parent locations often have many child sub-locations. Naming encodes

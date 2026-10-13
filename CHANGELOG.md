@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cwms_search_places` / `place search` take an optional `state` (`--state`):
+  a two-letter code such as `CA` or `PR` that searches the districts covering
+  that state, so a caller who knows only the state need not guess the office
+  (#188). `state: "CA"` searches SPK, SPL and SPN; NW districts resolve to
+  their rollup (`WA` → NWDP). It only picks offices, so results can still lie
+  outside the state. It can't be combined with `office` (`usage_error`), and an
+  unknown code is `invalid_field`; `usage_error` is now in the tool's
+  advertised error codes. Budget `repair_hint`s list only the state's
+  remaining offices, and a search that has covered every one of them ends with
+  `scope_note`.
+- `cwms://offices` / `cwms-tools offices` add `guidance.coverage`, a static
+  table listing the states and major basins of every USACE district. It is
+  geography only: whether an office publishes data still comes from CDA. PR and
+  VI belong to the Caribbean District (SAA), which is not a CDA office, so they
+  appear under SAJ as `proxy_states` (`proxy_for: "SAA"`), separate from SAJ's
+  own `states`: SAJ's catalog holds the PR projects.
+
 ### Changed
 
 - `cwms_search_places` / `place search` now tells an agent it may stop once it

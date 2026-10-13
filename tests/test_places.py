@@ -2371,3 +2371,124 @@ def test_search_repair_hint_schema_marks_the_match_found_reason_optional() -> No
         "cached_scope_incomplete",
         "match_found_offices_skipped",
     ]
+
+
+# --------------------------------------------------------------------------
+# state filter (#188)
+# --------------------------------------------------------------------------
+
+
+def _capture_fanout(monkeypatch: pytest.MonkeyPatch, *, budget: int = 99) -> list[list[str]]:
+    """Stub the fan-out (searching the first `budget` offices) and gather no
+    rows; return the office list each call asked for."""
+    asked: list[list[str]] = []
+
+    def fanout(requested, *, use_cache, explicit_empty):
+        asked.append(list(requested))
+        searched, skipped = requested[:budget], requested[budget:]
+        reasons = [f"offices_skipped_for_budget: {len(skipped)}"] if skipped else []
+        return list(searched), list(skipped), reasons
+
+    monkeypatch.setattr(places, "_run_fanout", fanout)
+    monkeypatch.setattr(
+        places, "_gather_enriched", lambda offices, q, use_cache, reraise_single: ([], [], [])
+    )
+    return asked
+
+
+def test_search_places_state_searches_the_covering_offices(monkeypatch) -> None:
+    asked = _capture_fanout(monkeypatch)
+    payload = places.search_places("Del Valle", state="ca")
+    assert asked == [["SPK", "SPL", "SPN"]]
+    assert payload["state"] == "CA"
+    assert payload["office"] is None
+    assert payload["offices_searched"] == ["SPK", "SPL", "SPN"]
+    # An exhausted state scope is a finished miss, not proof of absence.
+    assert "repair_hint" not in payload
+    assert payload["scope_note"]["reason"] == "searched_offices_only"
+
+
+def test_search_places_without_state_has_no_state_echo(monkeypatch) -> None:
+    _capture_fanout(monkeypatch)
+    assert "state" not in places.search_places("Del Valle", office="SPK")
+
+
+def test_search_places_state_budget_chain_stays_inside_the_state(monkeypatch) -> None:
+    """Budget hints carry only the remaining state offices, as `office`
+    without `state`, and the chain ends once they are all searched."""
+    asked = _capture_fanout(monkeypatch, budget=2)
+    first = places.search_places("Lake", state="TX", parameter="Elev")
+    assert first["offices_searched"] == ["SWT", "SWG"]
+    hint = first["repair_hint"]
+    assert hint["reason"] == "offices_skipped_for_budget"
+    assert hint["args"] == {"query": "Lake", "office": ["SWF", "SPA"], "parameter": "Elev"}
+    second = places.search_places(**hint["args"])
+    assert second["offices_searched"] == ["SWF", "SPA"]
+    assert "repair_hint" not in second
+    assert asked == [["SWT", "SWG", "SWF", "SPA"], ["SWF", "SPA"]]
+
+
+@pytest.mark.parametrize("office", ["SPK", ["SPK", "SPL"], []])
+def test_search_places_state_with_office_is_a_usage_error(monkeypatch, office) -> None:
+    asked = _capture_fanout(monkeypatch)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.search_places("Del Valle", state="CA", office=office)
+    assert ex.value.envelope.code is ErrorCode.USAGE_ERROR
+    assert asked == [], "rejected before any fan-out"
+
+
+def test_search_places_unknown_state_is_invalid_field_before_fanout(monkeypatch) -> None:
+    asked = _capture_fanout(monkeypatch)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.search_places("Del Valle", state="ZZ")
+    env = ex.value.envelope
+    assert env.code is ErrorCode.INVALID_FIELD and env.details is not None
+    assert env.details.field == "state"
+    assert asked == []
+
+
+def _state_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        {
+            "office_id": "SPK",
+            "name": f"L{i}",
+            "parameter_count": 1,
+            "parameters": ["Elev"],
+            "publishers": [],
+            "co_located": [],
+        }
+        for i in range(3)
+    ]
+    monkeypatch.setattr(places, "_run_fanout", lambda req, **_: (list(req), [], []))
+    monkeypatch.setattr(
+        places,
+        "_gather_enriched",
+        lambda offices, q, use_cache, reraise_single: (list(rows), [], []),
+    )
+
+
+def test_search_places_state_cursor_continues_and_matches_case_insensitively(
+    monkeypatch,
+) -> None:
+    _state_rows(monkeypatch)
+    page1 = places.search_places("L", state="CA", limit=2)
+    page2 = places.search_places("L", state="ca", limit=2, cursor=page1["next_cursor"])
+    assert [r["name"] for r in page2["results"]] == ["L2"]
+    assert page2["state"] == "CA" and page2["offices_searched"] == ["SPK", "SPL", "SPN"]
+
+
+@pytest.mark.parametrize("state", ["NV", None])
+def test_search_places_state_cursor_rejects_a_changed_or_dropped_state(monkeypatch, state) -> None:
+    _state_rows(monkeypatch)
+    page1 = places.search_places("L", state="CA", limit=2)
+    with pytest.raises(CwmsToolsError) as ex:
+        places.search_places("L", state=state, limit=2, cursor=page1["next_cursor"])
+    assert ex.value.envelope.code is ErrorCode.INVALID_CURSOR
+
+
+def test_search_places_without_state_keeps_the_pre_188_request_hash(monkeypatch) -> None:
+    """Cursors minted before `state` existed must still validate."""
+    _state_rows(monkeypatch)
+    page1 = places.search_places("L", office="SPK", limit=2)
+    decoded = pagination.decode_cursor(page1["next_cursor"])
+    assert decoded["req"] == pagination.request_hash({"q": "L", "parameter": None})

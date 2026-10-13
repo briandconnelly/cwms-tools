@@ -434,3 +434,215 @@ def test_offices_payload_carries_region_hints(configured) -> None:
     from cwms_tools.core.models import OfficesResponse
 
     OfficesResponse.model_validate(payload)  # the shared model accepts the new block
+
+
+# --------------------------------------------------------------------------
+# District coverage (#188)
+# --------------------------------------------------------------------------
+
+#: Every `DIS` office in the live CDA directory on 2026-10-13, kept here
+#: independently of the code so a district dropped from the table fails.
+_DIS_OFFICES_2026_10_13 = frozenset(
+    [
+        "LRB",
+        "LRC",
+        "LRE",
+        "LRH",
+        "LRL",
+        "LRN",
+        "LRP",
+        "MVK",
+        "MVM",
+        "MVN",
+        "MVP",
+        "MVR",
+        "MVS",
+        "NAB",
+        "NAE",
+        "NAN",
+        "NAO",
+        "NAP",
+        "NWK",
+        "NWO",
+        "NWP",
+        "NWS",
+        "NWW",
+        "POA",
+        "POH",
+        "SAC",
+        "SAJ",
+        "SAM",
+        "SAS",
+        "SAW",
+        "SPA",
+        "SPK",
+        "SPL",
+        "SPN",
+        "SWF",
+        "SWG",
+        "SWL",
+        "SWT",
+    ]
+)
+
+_STATES_AND_TERRITORIES = frozenset(
+    [
+        "AL",
+        "AK",
+        "AZ",
+        "AR",
+        "CA",
+        "CO",
+        "CT",
+        "DE",
+        "FL",
+        "GA",
+        "HI",
+        "ID",
+        "IL",
+        "IN",
+        "IA",
+        "KS",
+        "KY",
+        "LA",
+        "ME",
+        "MD",
+        "MA",
+        "MI",
+        "MN",
+        "MS",
+        "MO",
+        "MT",
+        "NE",
+        "NV",
+        "NH",
+        "NJ",
+        "NM",
+        "NY",
+        "NC",
+        "ND",
+        "OH",
+        "OK",
+        "OR",
+        "PA",
+        "RI",
+        "SC",
+        "SD",
+        "TN",
+        "TX",
+        "UT",
+        "VT",
+        "VA",
+        "WA",
+        "WV",
+        "WI",
+        "WY",
+        "DC",
+        "PR",
+        "VI",
+        "GU",
+        "AS",
+        "MP",
+    ]
+)
+
+
+def test_district_coverage_lists_every_district_once() -> None:
+    names = [d["office"] for d in offices.DISTRICT_COVERAGE]
+    assert len(names) == len(set(names))
+    assert set(names) == _DIS_OFFICES_2026_10_13
+
+
+def test_district_coverage_reaches_every_state_and_territory() -> None:
+    assert offices.COVERED_STATES == _STATES_AND_TERRITORIES
+
+
+@pytest.mark.parametrize(
+    ("office", "state"),
+    [
+        # Source-backed associations (district civil-works pages / boundary map).
+        ("SPK", "AZ"),
+        ("SPK", "ID"),
+        ("SPK", "OR"),
+        ("NAN", "MA"),
+        ("NAN", "VT"),
+        ("NWO", "MO"),
+        ("NWK", "CO"),
+        ("SWT", "TX"),
+        ("LRC", "WI"),
+        ("LRL", "TN"),
+    ],
+)
+def test_district_coverage_keeps_checked_associations(office: str, state: str) -> None:
+    entry = next(d for d in offices.DISTRICT_COVERAGE if d["office"] == office)
+    assert state in entry["states"]
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("CA", ["SPK", "SPL", "SPN"]),
+        ("ca", ["SPK", "SPL", "SPN"]),
+        (" Ok ", ["SWT"]),
+        ("WA", ["NWDP"]),  # NWS/NWP/NWW stubs collapse onto their rollup
+        ("MO", ["NWDM", "MVS", "MVR", "MVM", "SWL"]),  # NWO+NWK -> one NWDM
+        ("PR", ["SAJ"]),
+        ("WI", ["MVR", "MVP", "LRC", "LRE"]),
+        ("TN", ["SAM", "LRN", "MVM", "LRL"]),
+    ],
+)
+def test_offices_for_state_orders_by_priority_and_rolls_up_stubs(
+    state: str, expected: list[str]
+) -> None:
+    assert offices.offices_for_state(state) == expected
+
+
+def test_offices_for_state_never_returns_an_nw_stub() -> None:
+    for state in offices.COVERED_STATES:
+        assert not set(offices.offices_for_state(state)) & offices.NW_STUBS
+
+
+@pytest.mark.parametrize("bad", ["ZZ", "", "  ", "California"])
+def test_offices_for_state_rejects_unknown_codes(bad: str) -> None:
+    with pytest.raises(CwmsToolsError) as ex:
+        offices.offices_for_state(bad)
+    env = ex.value.envelope
+    assert env.code is ErrorCode.INVALID_FIELD
+    assert env.details is not None and env.details.field == "state"
+    assert "cwms://offices" in (env.details.reason or "")
+
+
+def test_offices_payload_carries_coverage(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+        from cwms_tools.mcp.resources import offices_payload
+
+        payload = offices_payload()
+    coverage = {d["office"]: d for d in payload["guidance"]["coverage"]}
+    assert set(coverage) == _DIS_OFFICES_2026_10_13
+    assert coverage["SPK"]["basins"][:2] == ["Sacramento", "San Joaquin"]
+    from cwms_tools.core.models import OfficesResponse
+
+    OfficesResponse.model_validate(payload)
+
+
+def test_saj_carries_pr_and_vi_only_as_proxy_states_for_saa() -> None:
+    """PR/VI belong to SAA (not a CDA office); SAJ searches them as a catalog
+    proxy, marked as such rather than claimed as SAJ geography."""
+    saj = next(d for d in offices.DISTRICT_COVERAGE if d["office"] == "SAJ")
+    assert not {"PR", "VI"} & set(saj["states"])
+    assert saj["proxy_states"] == ["PR", "VI"] and saj["proxy_for"] == "SAA"
+    assert offices.offices_for_state("VI") == ["SAJ"]
+    assert sum("proxy_states" in d for d in offices.DISTRICT_COVERAGE) == 1
+
+
+def test_offices_payload_marks_the_saj_proxy(configured) -> None:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mocked:
+        mocked.add(responses.GET, f"{API_ROOT}offices", json=_LIVE_SHAPE, status=200)
+        from cwms_tools.mcp.resources import offices_payload
+
+        payload = offices_payload()
+    coverage = {d["office"]: d for d in payload["guidance"]["coverage"]}
+    assert coverage["SAJ"]["proxy_states"] == ["PR", "VI"]
+    assert coverage["SAJ"]["proxy_for"] == "SAA"
+    assert "proxy_states" not in coverage["SPK"]

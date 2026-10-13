@@ -62,7 +62,12 @@ from cwms_tools.mcp.server import build_server
 #: 66,160). Measured 66,339 with it; this 67,000 is borrowed headroom until
 #: #181 dedupes the per-tool error schema (~16.5k chars), after which the
 #: budget should come back down.
-BUDGET_CHARS = 67_000
+#:
+#: #188 (2026-10-13) added `cwms_search_places`'s `state` input/echo and the
+#: `coverage` block on `cwms_list_offices`' output (structure, not prose: the
+#: field descriptions are already one line). Measured 67,691; borrowed again
+#: against #181.
+BUDGET_CHARS = 68_000
 
 
 #: Per-component ceilings, set deliberately in #142 (2026-10-11) when these
@@ -71,7 +76,8 @@ BUDGET_CHARS = 67_000
 #: Output measured 48,003 after #162's `zone` field and #170's `data_at`
 #: landed (2026-10-12); ceiling raised to keep ~6% headroom.
 INPUT_CEILING = 11_000
-OUTPUT_CEILING = 51_000
+#: #188's `coverage` block and `state` echo measured 51,442 (2026-10-13).
+OUTPUT_CEILING = 52_000
 DESCRIPTION_CEILING = 4_000
 
 #: Floors: a subtotal below this means the schema lookup is broken (#142),

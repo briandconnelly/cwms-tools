@@ -879,3 +879,15 @@ def test_get_history_window_validation(configured, args, code, field) -> None:
     err = _branch(result.structured_content)["error"]
     assert err["code"] == code
     assert err["details"]["field"] == field
+
+
+def test_search_places_handler_rejects_state_with_office(configured) -> None:
+    """#188: the MCP surface returns the same branchable usage_error as the CLI."""
+    server = build_server()
+    result = _call(
+        server, "cwms_search_places", {"query": "Del Valle", "state": "CA", "office": "SPK"}
+    )
+    assert result.is_error is True
+    err = _branch(result.structured_content)["error"]
+    assert err["code"] == "usage_error"
+    assert err["details"]["field"] == "state"
