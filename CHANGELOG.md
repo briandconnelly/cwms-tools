@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.8.1] - 2026-10-12
+## [0.9.0] - 2026-10-12
 
 ### Added
 
@@ -153,7 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with no prose, instead of "---" and a link list; summaries are a
   fingerprint input (#172).
 - Unifying the success-side `repair_hint` shape with the error `repair` shape is
-  deferred to 0.9.0 as a breaking change (#177).
+  deferred to a later release as a breaking change (#177).
 - Server `instructions` and `cwms://capabilities` (`first_call`) state the
   first-call contract: office code + case-sensitive catalog name for the
   place-specific tools (`first_call.applies_to`), the looser discovery
@@ -1138,8 +1138,8 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   ~68 offices) in v0.1.0; `cwms_publishers_for_parameter` answers
   from cached + bounded-fetch offices only.
 
-[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.8.1...HEAD
-[0.8.1]: https://github.com/briandconnelly/cwms-tools/compare/v0.8.0...v0.8.1
+[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.5.0...v0.6.0

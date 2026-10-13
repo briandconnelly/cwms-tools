@@ -49,7 +49,7 @@ TOOL_INVENTORY: list[str] = [
 # wrapper_bug has no MCP emission path: failures on the issue-286 seasonal-level bypass
 # are classified as ordinary upstream failures (tagged `source.workaround`) (#153).
 # The CLI emits it when a producer payload fails its response model (#158).
-# ghost_location left the reserved list in 0.8.1: the value tools emit it (#96).
+# ghost_location left the reserved list in 0.9.0: the value tools emit it (#96).
 RESERVED_ERROR_CODES: list[str] = ["publisher_unavailable", "wrapper_bug"]
 
 #: Per-tool error catalog. The codes each tool can return as `error.code`, so an
