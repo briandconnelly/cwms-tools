@@ -1404,15 +1404,39 @@ def test_search_places_skipped_offices_always_yield_partial_and_a_followable_hin
     monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
     mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=LOCATIONS_PAYLOAD, status=200)
     mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TIMESERIES_PAYLOAD, status=200)
-    payload = places.search_places("FOSS", office=["SWT", "NWDM", "NWDP"], parameter="Elev")
-    assert payload["results"], "rows came back from the searched office"
+    payload = places.search_places("Fort Peck", office=["SWT", "NWDM", "NWDP"], parameter="Elev")
+    assert payload["results"] == []
     assert payload["offices_skipped_for_budget"] == ["NWDM", "NWDP"]
     assert payload["partial"] is True
     assert any(r.startswith("offices_skipped_for_budget:") for r in payload["partial_reasons"])
     hint = payload["repair_hint"]
     assert hint["reason"] == "offices_skipped_for_budget"
     assert hint["tool"] == "cwms_search_places"
+    assert hint["args"] == {"query": "Fort Peck", "office": ["NWDM", "NWDP"], "parameter": "Elev"}
+
+
+def test_search_places_budget_skip_after_a_match_with_data_is_optional(
+    configured, mocked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#191: once a match with data is in hand, the budget hint keeps its
+    followable `args` but switches to a reason an agent can branch on to stop."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=LOCATIONS_PAYLOAD, status=200)
+    mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json=TIMESERIES_PAYLOAD, status=200)
+    payload = places.search_places("FOSS", office=["SWT", "NWDM", "NWDP"], parameter="Elev")
+    assert payload["results"][0]["parameter_count"] > 0
+    assert payload["offices_skipped_for_budget"] == ["NWDM", "NWDP"]
+    assert payload["partial"] is True
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "match_found_offices_skipped"
+    assert hint["tool"] == "cwms_search_places"
     assert hint["args"] == {"query": "FOSS", "office": ["NWDM", "NWDP"], "parameter": "Elev"}
+    assert "optional" in hint["message"] and "2 office(s)" in hint["message"]
+    assert "scope_note" not in payload
+    # Following it is still a valid continuation over exactly the skipped offices.
+    nxt = places.search_places(**hint["args"])
+    assert nxt["offices_searched"] == ["NWDM"]
+    assert nxt["offices_skipped_for_budget"] == ["NWDP"]
 
 
 def test_search_places_cold_chain_reaches_every_curated_office(
@@ -2254,3 +2278,87 @@ def test_search_places_single_office_degrades_on_enrichment_500(configured, mock
     assert all(r["enrichment_incomplete"] == "upstream_error" for r in out["results"])
     assert out["partial"] is True
     assert "(temporary): search again" in out["partial_reasons"][0]
+
+
+def test_search_places_match_mid_chain_turns_the_hint_optional_then_back(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#191's Folsom run: hop 2 finds SPK data, so its hint is optional; an agent
+    that follows it anyway for completeness gets the mandatory reason back on a
+    hop with no match, and the chain still ends with no hint."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 4)
+    folsom = {
+        "office_id": "SPK",
+        "name": "FOL",
+        "parameter_count": 12,
+        "publishers": ["Rev"],
+        "co_located": [],
+        "data_at": [],
+    }
+
+    def gather(office_ids, query, **_):
+        return ([dict(folsom)] if "SPK" in office_ids else []), [], []
+
+    monkeypatch.setattr(places, "_gather_enriched", gather)
+    monkeypatch.setattr(places, "_apply_parameter_filter", lambda rows, *a, **k: (rows, 0))
+    hint = places.search_places("Folsom")["repair_hint"]
+    reasons: list[str] = []
+    for _ in range(10):
+        resp = places.search_places(**hint["args"])
+        if "repair_hint" not in resp:
+            break
+        hint = resp["repair_hint"]
+        reasons.append(hint["reason"])
+        if "SPK" in resp["offices_searched"]:
+            assert hint["reason"] == "match_found_offices_skipped"
+        else:
+            assert hint["reason"] == "offices_skipped_for_budget"
+    assert reasons[0] == "offices_skipped_for_budget"
+    assert reasons[1] == "match_found_offices_skipped"
+    assert set(reasons[2:]) == {"offices_skipped_for_budget"}
+
+
+def test_search_places_later_page_match_still_makes_the_budget_hint_optional(
+    configured, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The predicate spans every match, so a usable row on page 2 counts; the
+    message points at `next_cursor` rather than claiming it is on this page."""
+    monkeypatch.setattr(places, "_fanout_budget", lambda: 1)
+    rows = [
+        {
+            "office_id": "SWT",
+            "name": "AAA",
+            "parameter_count": 0,
+            "publishers": [],
+            "co_located": [],
+            "data_at": [],
+        },
+        {
+            "office_id": "SWT",
+            "name": "BBB",
+            "parameter_count": 0,
+            "publishers": [],
+            "co_located": ["BBB-D1"],
+            "data_at": ["BBB-D1"],
+        },
+    ]
+    monkeypatch.setattr(
+        places, "_gather_enriched", lambda *a, **k: ([dict(r) for r in rows], [], [])
+    )
+    monkeypatch.setattr(places, "_apply_parameter_filter", lambda rows, *a, **k: (rows, 0))
+    payload = places.search_places("x", office=["SWT", "MVS"], limit=1)
+    assert [r["name"] for r in payload["results"]] == ["AAA"] and payload["has_more"]
+    hint = payload["repair_hint"]
+    assert hint["reason"] == "match_found_offices_skipped"
+    assert hint["args"] == {"query": "x", "office": ["MVS"]}
+    assert "`next_cursor`" in hint["message"]
+
+
+def test_search_repair_hint_schema_marks_the_match_found_reason_optional() -> None:
+    """#191 review: the machine-visible contract must not say "always continue"."""
+    from cwms_tools.core.models import SearchPlacesResponse
+
+    desc = SearchPlacesResponse.model_fields["repair_hint"].description or ""
+    assert "`match_found_offices_skipped`" in desc
+    assert "continue unless optional" in desc
+    assert "continue while one is present" not in desc

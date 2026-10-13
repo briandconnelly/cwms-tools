@@ -532,6 +532,8 @@ def test_search_places_budget_repair_hint_parity_real_producer(
     assert cli_data == mcp_data
     assert cli_data["partial"] is True
     assert cli_data["repair_hint"]["args"]["office"] == ["NWDM", "NWDP"]
+    # FOSS has data, so the continuation is the optional one (#191).
+    assert cli_data["repair_hint"]["reason"] == "match_found_offices_skipped"
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])

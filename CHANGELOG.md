@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `cwms_search_places` / `place search` now tells an agent it may stop once it
+  has a match with data (#191). Before, a name-first search from a cold cache
+  returned a `repair_hint` on every hop until all 30 curated offices were
+  searched, even after it found the place (Folsom Lake turned up on hop 2, then
+  6 more hops followed). When offices are skipped for the fan-out budget after
+  a match with data, the hint's `reason` is now `match_found_offices_skipped`
+  instead of `offices_skipped_for_budget`. It keeps the same `args`, so
+  following it still searches the skipped offices for same-named places
+  elsewhere, but following it is optional. With no usable match, the hint stays
+  `offices_skipped_for_budget` and should still be followed (#161).
+
 ### Fixed
 
 - Name-first `cwms_search_places` / `place search` (no `office`) can now reach

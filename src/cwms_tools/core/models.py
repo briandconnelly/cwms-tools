@@ -297,13 +297,12 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     repair_hint: SearchRepairHint | None = Field(
         default=None,
         description=(
-            "Set when the search is incomplete: nothing was in scope "
-            "(`reason: no_offices_in_scope`), offices were skipped for the fan-out "
-            "budget (`reason: offices_skipped_for_budget`; `args.office` is the skipped "
-            "offices, then, when `office` was omitted, the curated offices not yet "
-            "searched), or only cached offices were searched and nothing with data "
-            "matched (`reason: cached_scope_incomplete`). Pass `args` back verbatim; "
-            "continue while a `repair_hint` is present."
+            "Set when the search is incomplete. `reason`: `no_offices_in_scope` (nothing "
+            "searched); `offices_skipped_for_budget` (`args.office`: the budget-skipped "
+            "offices, then, if `office` was omitted, unsearched curated offices); "
+            "`cached_scope_incomplete` (only cached offices searched, nothing with data "
+            "matched); `match_found_offices_skipped` (budget skip after a match with data; "
+            "optional). Pass `args` back verbatim; continue unless optional."
         ),
     )
     scope_note: ScopeNote | None = Field(

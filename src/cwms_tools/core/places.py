@@ -89,15 +89,18 @@ def search_places(
     skipped for the fan-out budget (#161), the response sets `partial: true`
     and carries a `repair_hint` (reason `offices_skipped_for_budget`) whose
     `args.office` is the budget-skipped offices, followed (when `office` was
-    omitted) by the curated offices not yet searched. Keep following
-    `repair_hint` while one is present; the chain ends when a response
-    carries no `repair_hint`. That hint carries no `cursor` or
-    `limit` (a cursor locks the office set it was minted for) and is not
-    attached on a cursor continuation. An implicit search widens whenever no
-    match is usable (`_has_actionable_match`), so barren records in a warm
-    office do not end it (#187). A fresh, non-empty search with no usable
-    match and no `repair_hint` carries `scope_note` instead: informational,
-    never a continuation, saying only `offices_searched` were covered.
+    omitted) by the curated offices not yet searched. Once this call has a
+    usable match (`_has_actionable_match`), a budget skip instead carries the
+    optional reason `match_found_offices_skipped` (#191): same `args`, but the
+    agent may stop if a result answers the query. Keep following any other
+    `repair_hint`; the chain ends when a response carries no `repair_hint`.
+    Budget hints carry no `cursor` or `limit` (a cursor locks the office set
+    it was minted for) and are not attached on a cursor continuation. An
+    implicit search widens whenever no match is usable
+    (`_has_actionable_match`), so barren records in a warm office do not end
+    it (#187). A fresh, non-empty search with no usable match and no
+    `repair_hint` carries `scope_note` instead: informational, never a
+    continuation, saying only `offices_searched` were covered.
 
     `parameter`: optional CWMS parameter code (e.g. `Temp-Water`). When
     set, data-bearing rows that do not publish this parameter are dropped
@@ -342,9 +345,11 @@ def _continuation(
     apply to that case, and — for the budget hint — to any fresh search; an
     explicit empty list is a deliberate "search nothing" and is never widened.
     Precedence: empty scope (#24) > budget continuation (#161) >
-    partly-warm cache. The budget hint restarts a fresh search (no cursor: a
-    cursor locks the office set it was minted for) over the skipped offices; on an
-    implicit scope the curated offices never searched ride along after them.
+    partly-warm cache. A budget skip after a usable match gets the optional
+    `match_found_offices_skipped` hint instead (#191). The budget hint restarts
+    a fresh search (no cursor: a cursor locks the office set it was minted for)
+    over the skipped offices; on an implicit scope the curated offices never
+    searched ride along after them.
     Temporarily-errored offices are only reported (every hop), never re-carried:
     carrying them would let two persistently failing offices chain forever.
     """
@@ -367,6 +372,8 @@ def _continuation(
     if implicit_scope and not offices_searched:
         return reasons, _empty_scope_repair_hint(query, parameter)
     if offices_skipped:  # always empty on the cursor path, which rejects skips outright
+        if actionable:
+            return reasons, _match_found_repair_hint(query, parameter, offices_skipped)
         return reasons, _skipped_scope_repair_hint(query, parameter, offices_skipped, uncached)
     if uncached:
         return reasons, _cached_scope_repair_hint(query, parameter, uncached)
@@ -391,7 +398,36 @@ def _skipped_scope_repair_hint(
             f"{len(skipped)} office(s) were not searched because of the per-call fan-out "
             "budget. Retry with `office` set to `args.office` (the skipped offices, then "
             "any curated offices not yet searched); keep following `repair_hint` while "
-            "one is present. The chain ends when a response carries no `repair_hint`."
+            "one is present (one with reason `match_found_offices_skipped` is optional). "
+            "The chain ends when a response carries no `repair_hint`."
+        ),
+        "tool": "cwms_search_places",
+        "args": args,
+    }
+
+
+def _match_found_repair_hint(
+    query: str, parameter: str | None, skipped: list[str]
+) -> dict[str, Any]:
+    """Build the optional `repair_hint` for a budget skip after a usable match (#191).
+
+    `uncached` is always empty once a match is usable, so `args.office` is just
+    the skipped offices. Same args shape as the budget hint; the distinct
+    `reason` lets an agent stop without parsing `message`. Continuing stays
+    possible because a same-named place can sit in a later office (#191's
+    Folsom run found a second one two hops on).
+    """
+    args: dict[str, Any] = {"query": query, "office": list(skipped)}
+    if parameter is not None:
+        args["parameter"] = parameter
+    return {
+        "reason": "match_found_offices_skipped",
+        "message": (
+            "A match with data was found in the searched offices (see `results`, and "
+            f"`next_cursor` when `has_more`). {len(skipped)} office(s) were not searched "
+            "because of the per-call fan-out budget. Following this hint is optional: "
+            "stop if a result answers the query; call it with `args` to look for "
+            "same-named places in the other offices."
         ),
         "tool": "cwms_search_places",
         "args": args,
@@ -410,7 +446,8 @@ def _cached_scope_repair_hint(
         "message": (
             "Only offices already cached were searched and nothing with data matched. Retry with "
             "`office` set to the curated offices that were not cached (priority order); "
-            "keep following `repair_hint` while one is present; the chain ends when a "
+            "keep following `repair_hint` while one is present (one with reason "
+            "`match_found_offices_skipped` is optional); the chain ends when a "
             "response carries no `repair_hint`."
         ),
         "tool": "cwms_search_places",
@@ -435,8 +472,9 @@ def _empty_scope_repair_hint(query: str, parameter: str | None) -> dict[str, Any
         "message": (
             "No office catalog is cached yet, so nothing was searched. Retry with "
             "`office` set to this curated list (priority order; the budget takes the "
-            "first few per call) and keep following `repair_hint` while one is present; "
-            "the chain ends when a response carries no `repair_hint`."
+            "first few per call) and keep following `repair_hint` while one is present "
+            "(one with reason `match_found_offices_skipped` is optional); the chain "
+            "ends when a response carries no `repair_hint`."
         ),
         "tool": "cwms_search_places",
         "args": args,
