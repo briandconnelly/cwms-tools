@@ -75,6 +75,7 @@ COMPACT_ERROR_SCHEMA: Final[dict[str, Any]] = {
                         "tool": {"type": "string"},
                         "arguments": {"type": "object", "additionalProperties": True},
                         "alternative": {"type": "string"},
+                        "message": {"type": "string"},
                     },
                     "required": ["next_step", "tool"],
                 },

@@ -24,7 +24,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from cwms_tools.core._compact import CompactDumpMixin
 from cwms_tools.core.errors import (
-    ErrorEnvelope,  # noqa: TC001 — runtime import: Pydantic resolves ErrorRef.error annotation at class-build time
+    # Runtime imports: Pydantic resolves `ErrorRef.error` at class-build time,
+    # and `SearchRepairHint` subclasses `RepairHint`.
+    ErrorEnvelope,
+    RepairHint,
 )
 
 if TYPE_CHECKING:
@@ -246,22 +249,18 @@ class PlaceSummary(CompactDumpMixin, BaseModel):
     )
 
 
-# Distinct from `cwms_tools.core.errors.RepairHint` (the `{tool, args}` shape
-# inside error envelopes, #24) so the two never collide in imports or typing.
-class SearchRepairHint(CompactDumpMixin, BaseModel):
+# The error envelope's `RepairHint` shape (#177), narrowed: `next_step` is the
+# branch key, so its values are an enum, and `message` is always set.
+class SearchRepairHint(RepairHint):
     """A retryable next call to recover from a dead-end search (e.g. no office in scope)."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    reason: Literal[
+    next_step: Literal[
         "no_offices_in_scope",
         "offices_skipped_for_budget",
         "cached_scope_incomplete",
         "match_found_offices_skipped",
     ]
     message: str
-    tool: str
-    args: dict[str, Any]
 
 
 # What a finished search did not cover; informational, never auto-followed
@@ -303,10 +302,10 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     repair_hint: SearchRepairHint | None = Field(
         default=None,
         description=(
-            "Search incomplete. `reason` (enum order): none searched; offices skipped "
-            "for budget (`args.office`: those, then, if `office` omitted, unsearched "
+            "Search incomplete. `next_step` (enum order): none searched; offices skipped "
+            "for budget (`arguments.office`: those, then, if `office` omitted, unsearched "
             "curated offices); only cached offices searched, no data match; budget skip "
-            "after a data match. Re-call with `args`; continue unless "
+            "after a data match. Re-call with `arguments`; continue unless "
             "`match_found_offices_skipped` (optional)."
         ),
     )
@@ -786,7 +785,7 @@ class PublishersForParameterResponse(CompactDumpMixin, BaseModel):
     publisher_count: int
     ts_count: int
     coverage: PublishersCoverage
-    repair: dict[str, Any] | None = None
+    repair: RepairHint | None = None
     observed_publishers_by_office: dict[str, list[str]] | None = Field(
         default=None,
         alias="_observed_publishers_by_office",

@@ -286,7 +286,10 @@ def capability_contract_payload() -> dict[str, Any]:
                 "key repair fields: code, message, details (field, value, reason), "
                 "repair (next_step, tool, arguments, alternative), temporary, "
                 "retry_after_ms, rate_limit_remaining, request_id, protocol_request_id, "
-                "source."
+                "source. Success responses that suggest a next call use the same repair "
+                "shape: `repair_hint` on cwms_search_places and `repair` on "
+                "cwms_publishers_for_parameter, each with an optional `message`; call "
+                "`tool` with `arguments` either way."
             ),
             "timed_out_retry": (
                 "On `level_lookup_status: 'timed_out'` in a long-lived MCP server, "

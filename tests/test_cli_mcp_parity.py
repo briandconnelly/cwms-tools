@@ -531,9 +531,11 @@ def test_search_places_budget_repair_hint_parity_real_producer(
     )
     assert cli_data == mcp_data
     assert cli_data["partial"] is True
-    assert cli_data["repair_hint"]["args"]["office"] == ["NWDM", "NWDP"]
+    assert cli_data["repair_hint"]["arguments"]["office"] == ["NWDM", "NWDP"]
     # FOSS has data, so the continuation is the optional one (#191).
-    assert cli_data["repair_hint"]["reason"] == "match_found_offices_skipped"
+    assert cli_data["repair_hint"]["next_step"] == "match_found_offices_skipped"
+    # #177: the error envelope's repair shape, plus `message`, on both surfaces.
+    assert set(cli_data["repair_hint"]) == {"next_step", "message", "tool", "arguments"}
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])
@@ -548,8 +550,8 @@ def test_search_places_state_parity_real_producer(detail: str, configured, monke
     assert cli_data == mcp_data
     assert cli_data["state"] == "TX" and "office" not in cli_data
     assert cli_data["offices_searched"] == ["SWT"]
-    assert cli_data["repair_hint"]["args"]["office"] == ["SWG", "SWF", "SPA"]
-    assert "state" not in cli_data["repair_hint"]["args"]
+    assert cli_data["repair_hint"]["arguments"]["office"] == ["SWG", "SWF", "SPA"]
+    assert "state" not in cli_data["repair_hint"]["arguments"]
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])
@@ -576,6 +578,7 @@ def test_publishers_cold_cache_repair_parity_real_producer(detail: str, configur
     assert cli_data == mcp_data
     assert cli_data["coverage"]["complete"] is False
     assert cli_data["repair"]["next_step"] == "index_curated_offices"
+    assert set(cli_data["repair"]) <= {"next_step", "message", "tool", "arguments", "alternative"}
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])
