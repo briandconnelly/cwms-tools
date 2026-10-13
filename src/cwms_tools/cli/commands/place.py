@@ -73,7 +73,8 @@ def search(
                 "offices`). Repeat to fan out across multiple offices "
                 "(e.g. `-o NWDP -o NWDM`). If unknown, omit it: on a fresh "
                 "cache the first call returns no rows and a `repair_hint`; "
-                "keep following `repair_hint` while one is present (the chain "
+                "keep following `repair_hint` while one is present (optional "
+                "once its reason is `match_found_offices_skipped`; the chain "
                 "ends when a response carries none; see `scope_note`, not proof "
                 "of absence). If you know the "
                 "region, pass the office directly (NWDM Missouri mainstem, "
@@ -152,8 +153,10 @@ def search(
     omitted, by the curated offices not yet searched). When `--office` is omitted,
     only some curated offices are cached, and no match has data (barren
     records do not count), it names the curated offices that were never
-    searched. Keep following `repair_hint` while one is present; the chain
-    ends when a response carries none. A response with no match that has
+    searched. Once a match with data is found, a budget skip carries reason
+    `match_found_offices_skipped` instead: same continuation, but optional;
+    stop if a result answers the query. Keep following any other
+    `repair_hint`; the chain ends when a response carries none. A response with no match that has
     data and no `repair_hint` carries `scope_note`: only `offices_searched`
     were searched, so this is not proof the place is absent from CWMS; keep
     earlier hops' results, and pass `--office` explicitly to widen (codes

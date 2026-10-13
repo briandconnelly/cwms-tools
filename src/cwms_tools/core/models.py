@@ -253,7 +253,12 @@ class SearchRepairHint(CompactDumpMixin, BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str
+    reason: Literal[
+        "no_offices_in_scope",
+        "offices_skipped_for_budget",
+        "cached_scope_incomplete",
+        "match_found_offices_skipped",
+    ]
     message: str
     tool: str
     args: dict[str, Any]
@@ -297,13 +302,11 @@ class SearchPlacesResponse(CompactDumpMixin, BaseModel):
     repair_hint: SearchRepairHint | None = Field(
         default=None,
         description=(
-            "Set when the search is incomplete: nothing was in scope "
-            "(`reason: no_offices_in_scope`), offices were skipped for the fan-out "
-            "budget (`reason: offices_skipped_for_budget`; `args.office` is the skipped "
-            "offices, then, when `office` was omitted, the curated offices not yet "
-            "searched), or only cached offices were searched and nothing with data "
-            "matched (`reason: cached_scope_incomplete`). Pass `args` back verbatim; "
-            "continue while a `repair_hint` is present."
+            "Search incomplete. `reason` (enum order): none searched; offices skipped "
+            "for budget (`args.office`: those, then, if `office` omitted, unsearched "
+            "curated offices); only cached offices searched, no data match; budget skip "
+            "after a data match. Re-call with `args`; continue unless "
+            "`match_found_offices_skipped` (optional)."
         ),
     )
     scope_note: ScopeNote | None = Field(
