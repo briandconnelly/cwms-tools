@@ -682,6 +682,14 @@ def register_publisher_tools(mcp: FastMCP) -> None:
             parameter,
             offices=offices,
             _field_names={"office_id": "offices"},
+            _repair_call=(
+                "cwms_publishers_for_parameter",
+                {
+                    "parameter": parameter,
+                    **({"offices": offices} if offices is not None else {}),
+                    "detail": detail.value,
+                },
+            ),
         )
         if isinstance(raw, ErrorRef):
             return raw
@@ -743,7 +751,13 @@ async def _safe(
         if _repair_call is not None:
             tool, call_args = _repair_call
             office_id = err.envelope.details.value if err.envelope.details else None
-            if err.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
+            listed = call_args.get("offices")
+            if err.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(listed, list):
+                # A tool whose office argument is a list (#183).
+                err.envelope.repair = offices.ghost_offices_repair(
+                    listed, tool=tool, args=call_args, key="offices"
+                )
+            elif err.envelope.code is ErrorCode.GHOST_OFFICE and isinstance(office_id, str):
                 err.envelope.repair = offices.ghost_office_repair(
                     office_id, tool=tool, args=call_args
                 )

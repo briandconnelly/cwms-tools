@@ -89,6 +89,27 @@ def ghost_office_repair(office_id: str, *, tool: str, args: dict[str, Any]) -> R
     )
 
 
+def ghost_offices_repair(
+    offices_arg: list[str], *, tool: str, args: dict[str, Any], key: str
+) -> RepairHint:
+    """`ghost_office_repair` for a tool whose office argument is a list (#183).
+
+    Each NW stub in `offices_arg` becomes its rollup; other codes are kept, and
+    the result is deduplicated in order (`[NWO, NWK, NWS]` -> `[NWDM, NWDP]`).
+    `key` is the surface's own argument name (`offices` on MCP, `office` for
+    the CLI's repeatable `--office`)."""
+    rewritten: list[str] = []
+    for office in offices_arg:
+        target = nw_rollup_target(office.upper()) if office.upper() in NW_STUBS else office
+        if target not in rewritten:
+            rewritten.append(target)
+    return RepairHint(
+        next_step="retry_with_rollup_office",
+        tool=tool,
+        arguments={**args, key: rewritten},
+    )
+
+
 #: Curated data-bearing offices in *priority order*: the regional rollups
 #: first, then district-publishing offices roughly by how many published
 #: projects they carried in the 2026-10-11 survey (cwms-overview.md §8:
@@ -462,6 +483,7 @@ __all__ = [
     "discovery_office_candidates",
     "ghost_office_error",
     "ghost_office_repair",
+    "ghost_offices_repair",
     "list_office_ids",
     "list_offices",
     "nw_rollup_target",

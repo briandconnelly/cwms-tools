@@ -468,7 +468,9 @@ def _commands() -> list[dict[str, Any]]:
                 ),
                 _opt("--detail", "string", default="summary", enum=["summary", "full"]),
             ],
-            "error_codes": _errs("invalid_field", "rate_limited", "upstream_error", "wrapper_bug"),
+            "error_codes": _errs(
+                "ghost_office", "invalid_field", "rate_limited", "upstream_error", "wrapper_bug"
+            ),
         },
         # MCP server (M7).
         {

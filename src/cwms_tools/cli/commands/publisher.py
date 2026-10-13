@@ -7,8 +7,8 @@ from typing import Annotated
 import typer
 
 from cwms_tools.cli.render import emit_error, emit_model, localize_repair
-from cwms_tools.core import publishers_index, shaping
-from cwms_tools.core.errors import CwmsToolsError
+from cwms_tools.core import offices, publishers_index, shaping
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.core.models import Detail, PublishersForParameterResponse
 
 app = typer.Typer(
@@ -65,5 +65,13 @@ def for_parameter(
             offices=list(office) if office else None,
         )
     except CwmsToolsError as err:
+        if err.envelope.code is ErrorCode.GHOST_OFFICE and office:
+            # Same-command retry with each stub swapped for its rollup (#183).
+            err.envelope.repair = offices.ghost_offices_repair(
+                list(office),
+                tool="cwms-tools publisher for-parameter",
+                args={"parameter": parameter, "office": list(office), "detail": detail.value},
+                key="office",
+            )
         emit_error(localize_repair(err))
     emit_model(PublishersForParameterResponse, shaping.shape_publishers_detail(payload, detail))
