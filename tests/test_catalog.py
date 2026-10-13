@@ -556,9 +556,33 @@ def test_enrich_locations_failed_batch_degrades_only_its_rows(configured, mocked
     assert failed and ok
     assert failed[0]["name"] == "Bridge_000"
     assert all(r["enrichment_incomplete"] == "upstream_error" for r in failed)
-    assert failed[0]["enrichment_error"] == {"code": "upstream_error", "temporary": True}
+    assert failed[0]["enrichment_error"] == {
+        "code": "upstream_error",
+        "temporary": True,
+        "retry_after_ms": None,
+    }
     assert all(r["parameter_count"] == 0 for r in failed)
     assert all(r["parameter_count"] == 1 for r in ok)
+
+
+def test_enrich_locations_stops_batches_on_rate_limit(configured, mocked) -> None:
+    """A 429 must not be followed by the remaining batches; every unsent row
+    carries the rate limit and its retry delay (#192 review)."""
+    mocked.add(
+        responses.GET, f"{API_ROOT}catalog/LOCATIONS", json=_bridge_locations(60), status=200
+    )
+    mocked.add(
+        responses.GET,
+        f"{API_ROOT}catalog/TIMESERIES",
+        status=429,
+        headers={"Retry-After": "7"},
+    )
+    rows = catalog.enrich_locations("NWDP", like="Bridge", use_cache=False)
+    # cwms-python retries the 429 itself; only the first batch is ever sent.
+    assert len(set(_ts_likes(mocked))) == 1
+    assert all(r["enrichment_incomplete"] == "upstream_error" for r in rows)
+    assert {r["enrichment_error"]["code"] for r in rows} == {"rate_limited"}
+    assert rows[-1]["enrichment_error"]["retry_after_ms"] == 7000
 
 
 def test_enrich_locations_does_not_cache_a_failed_batch(configured, mocked) -> None:

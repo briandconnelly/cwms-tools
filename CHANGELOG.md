@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `enrichment_incomplete` (`upstream_error`, `batch_limit`, or
   `pattern_too_long`) and the response sets `partial` with a per-office
   `partial_reasons` entry that says whether to search again or narrow the
-  query. Unchecked rows are not ghosts. The `parameter` filter keeps them,
+  query. A rate limit stops the remaining batches, and the reason gives the
+  upstream `retry_after_ms` wait. Unchecked rows are not ghosts. The `parameter` filter keeps them,
   `nearby_non_matching_count` does not count them, and `scope_note` is not
   emitted while any match is unchecked. Before this, rows over the old cap came
   back looking like ghosts with no `partial` signal.

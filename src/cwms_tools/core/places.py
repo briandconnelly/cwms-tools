@@ -274,11 +274,13 @@ def _enrichment_reasons(rows: list[dict[str, Any]]) -> list[str]:
         err = r.get("enrichment_error") or {}
         if reason == "upstream_error":
             code = err.get("code", "upstream_error")
-            cause = (
-                f"{code} (temporary): search again"
-                if err.get("temporary")
-                else f"{code}: use cwms_list_parameters on a specific match"
-            )
+            wait = err.get("retry_after_ms")
+            if not err.get("temporary"):
+                cause = f"{code}: use cwms_list_parameters on a specific match"
+            elif wait:
+                cause = f"{code} (temporary): search again after {wait} ms"
+            else:
+                cause = f"{code} (temporary): search again"
         else:
             cause = f"{reason}: {_INCOMPLETE_ADVICE[reason]}"
         per_office = causes.setdefault(office_id, {})

@@ -341,7 +341,8 @@ def _fetch_ts_batches(
     `name -> (reason, error)`: `pattern_too_long` (no request can carry it),
     `batch_limit` (past `MAX_TS_LIKE_BATCHES`), or `upstream_error` (its
     batch's request failed). A failed batch degrades only its own rows, and
-    failures are never cached.
+    failures are never cached. A rate limit stops the remaining batches, and
+    their rows carry the same error, so the caller waits `retry_after_ms`.
     """
     batches, oversize = _pack_ts_like_batches(names)
     for name in oversize:
@@ -350,14 +351,20 @@ def _fetch_ts_batches(
         for name in skipped:
             incomplete[name] = ("batch_limit", None)
     entries: list[dict[str, Any]] = []
-    for like, batch_names in batches[:MAX_TS_LIKE_BATCHES]:
+    sendable = batches[:MAX_TS_LIKE_BATCHES]
+    for i, (like, batch_names) in enumerate(sendable):
         try:
             payload = get_timeseries_catalog(
                 office_id, like=like, include_extents=True, use_cache=use_cache
             )
         except CwmsToolsError as err:
-            for name in batch_names:
-                incomplete[name] = ("upstream_error", err)
+            rate_limited = err.envelope.code is ErrorCode.RATE_LIMITED
+            failed = sendable[i:] if rate_limited else [(like, batch_names)]
+            for _, names_in_batch in failed:
+                for name in names_in_batch:
+                    incomplete[name] = ("upstream_error", err)
+            if rate_limited:
+                break
             continue
         entries.extend(_iter_ts_entries(payload))
     return {"entries": entries}
@@ -448,6 +455,7 @@ def enrich_locations(
                 entry["enrichment_error"] = {
                     "code": err.envelope.code.value,
                     "temporary": err.envelope.temporary,
+                    "retry_after_ms": err.envelope.retry_after_ms,
                 }
         enriched.append(entry)
     return enriched

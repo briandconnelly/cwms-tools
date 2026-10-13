@@ -2161,6 +2161,16 @@ def test_search_places_surfaces_unenriched_rows_as_partial(monkeypatch):
     assert "enrichment_error" not in by_name["Carters-Pool"]
 
 
+def test_search_places_rate_limited_enrichment_reason_carries_the_wait(monkeypatch):
+    err = {"code": "rate_limited", "temporary": True, "retry_after_ms": 7000}
+    _gather_returning(
+        monkeypatch,
+        [[_row("Carters", incomplete="upstream_error", enrichment_error=err)]],
+    )
+    (reason,) = places.search_places("Carters", office="SAM")["partial_reasons"]
+    assert "1 rate_limited (temporary): search again after 7000 ms" in reason
+
+
 def test_search_places_permanent_enrichment_error_is_not_advised_as_retry(monkeypatch):
     err = {"code": "upstream_error", "temporary": False}
     _gather_returning(
