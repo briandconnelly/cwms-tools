@@ -752,14 +752,14 @@ def test_search_places_empty_scope_returns_repair_hint(configured, mocked) -> No
     'omit or pass a list' string."""
     payload = places.search_places("Gas Works", parameter="Temp-Water")
     hint = payload["repair_hint"]
-    assert hint["reason"] == "no_offices_in_scope"
+    assert hint["next_step"] == "no_offices_in_scope"
     assert hint["tool"] == "cwms_search_places"
     # The hint echoes the caller's query/parameter so it is copy-paste retryable.
-    assert hint["args"]["query"] == "Gas Works"
-    assert hint["args"]["parameter"] == "Temp-Water"
+    assert hint["arguments"]["query"] == "Gas Works"
+    assert hint["arguments"]["parameter"] == "Temp-Water"
     # And names a non-empty, concrete office list (the curated data-bearing set).
-    assert hint["args"]["office"] == offices.discovery_office_candidates()
-    assert hint["args"]["office"]  # non-empty
+    assert hint["arguments"]["office"] == offices.discovery_office_candidates()
+    assert hint["arguments"]["office"]  # non-empty
 
 
 def test_search_places_with_office_has_no_repair_hint(configured, mocked) -> None:
@@ -1410,9 +1410,13 @@ def test_search_places_skipped_offices_always_yield_partial_and_a_followable_hin
     assert payload["partial"] is True
     assert any(r.startswith("offices_skipped_for_budget:") for r in payload["partial_reasons"])
     hint = payload["repair_hint"]
-    assert hint["reason"] == "offices_skipped_for_budget"
+    assert hint["next_step"] == "offices_skipped_for_budget"
     assert hint["tool"] == "cwms_search_places"
-    assert hint["args"] == {"query": "Fort Peck", "office": ["NWDM", "NWDP"], "parameter": "Elev"}
+    assert hint["arguments"] == {
+        "query": "Fort Peck",
+        "office": ["NWDM", "NWDP"],
+        "parameter": "Elev",
+    }
 
 
 def test_search_places_budget_skip_after_a_match_with_data_is_optional(
@@ -1428,13 +1432,13 @@ def test_search_places_budget_skip_after_a_match_with_data_is_optional(
     assert payload["offices_skipped_for_budget"] == ["NWDM", "NWDP"]
     assert payload["partial"] is True
     hint = payload["repair_hint"]
-    assert hint["reason"] == "match_found_offices_skipped"
+    assert hint["next_step"] == "match_found_offices_skipped"
     assert hint["tool"] == "cwms_search_places"
-    assert hint["args"] == {"query": "FOSS", "office": ["NWDM", "NWDP"], "parameter": "Elev"}
+    assert hint["arguments"] == {"query": "FOSS", "office": ["NWDM", "NWDP"], "parameter": "Elev"}
     assert "optional" in hint["message"] and "2 office(s)" in hint["message"]
     assert "scope_note" not in payload
     # Following it is still a valid continuation over exactly the skipped offices.
-    nxt = places.search_places(**hint["args"])
+    nxt = places.search_places(**hint["arguments"])
     assert nxt["offices_searched"] == ["NWDM"]
     assert nxt["offices_skipped_for_budget"] == ["NWDP"]
 
@@ -1449,20 +1453,20 @@ def test_search_places_cold_chain_reaches_every_curated_office(
     mocked.add(responses.GET, f"{API_ROOT}catalog/TIMESERIES", json={"entries": []}, status=200)
     first = places.search_places("Fort Peck")
     assert first["results"] == [] and first["partial"] is True
-    assert first["repair_hint"]["reason"] == "no_offices_in_scope"
+    assert first["repair_hint"]["next_step"] == "no_offices_in_scope"
     assert "while one is present" in first["repair_hint"]["message"]
     searched: list[str] = []
     hint = first["repair_hint"]
     for _ in range(10):
-        resp = places.search_places(**hint["args"])
+        resp = places.search_places(**hint["arguments"])
         searched.extend(resp["offices_searched"])
         if "repair_hint" not in resp:
             assert resp.get("partial", False) is False
             break
         hint = resp["repair_hint"]
-        assert hint["reason"] == "offices_skipped_for_budget"
+        assert hint["next_step"] == "offices_skipped_for_budget"
         assert "while one is present" in hint["message"]
-        assert "cursor" not in hint["args"] and "limit" not in hint["args"]
+        assert "cursor" not in hint["arguments"] and "limit" not in hint["arguments"]
     assert searched[:4] == ["NWDM", "NWDP", "SWT", "MVS"]
     assert searched == offices.discovery_office_candidates()
 
@@ -1498,9 +1502,9 @@ def test_search_places_partly_warm_cache_without_match_carries_a_continuation(
     assert payload["partial"] is True
     assert any(r.startswith("cached_scope_incomplete:") for r in payload["partial_reasons"])
     hint = payload["repair_hint"]
-    assert hint["reason"] == "cached_scope_incomplete"
+    assert hint["next_step"] == "cached_scope_incomplete"
     assert hint["tool"] == "cwms_search_places"
-    assert hint["args"] == {
+    assert hint["arguments"] == {
         "query": "Barkley",
         "office": [o for o in offices.discovery_office_candidates() if o != "SWT"],
     }
@@ -1549,10 +1553,10 @@ def test_search_places_temporary_error_is_reported_not_carried_into_the_hint(
     assert "SWT: upstream_error" in first["partial_reasons"]
     assert any(r.startswith("temporary_errors_not_retried: SWT ") for r in first["partial_reasons"])
     hint = first["repair_hint"]
-    assert hint["reason"] == "offices_skipped_for_budget"
-    assert hint["args"]["office"] == ["MVS"]
+    assert hint["next_step"] == "offices_skipped_for_budget"
+    assert hint["arguments"]["office"] == ["MVS"]
     assert "temporary" not in hint["message"]
-    second = places.search_places(**hint["args"])
+    second = places.search_places(**hint["arguments"])
     assert second["offices_searched"] == ["MVS"]
     assert "repair_hint" not in second
 
@@ -1566,14 +1570,14 @@ def test_search_places_persistent_temporary_errors_do_not_chain_forever(
     first = places.search_places("x", office=["NWDM", "NWDP"])
     assert first["offices_skipped_for_budget"] == ["NWDP"]
     hint = first["repair_hint"]
-    assert hint["args"]["office"] == ["NWDP"]  # NWDM is reported, not re-carried
+    assert hint["arguments"]["office"] == ["NWDP"]  # NWDM is reported, not re-carried
     assert any(
         r.startswith("temporary_errors_not_retried: NWDM ") for r in first["partial_reasons"]
     )
     # Hop 2 is a single office with nothing skipped: its failure surfaces as the
     # structured error, so the chain ends here instead of ping-ponging.
     with pytest.raises(CwmsToolsError) as exc:
-        places.search_places(**hint["args"])
+        places.search_places(**hint["arguments"])
     assert exc.value.envelope.code is ErrorCode.UPSTREAM_ERROR
 
 
@@ -1603,7 +1607,7 @@ def test_search_places_single_resolved_office_error_does_not_swallow_a_continuat
     _flaky_locations(mocked, failing_office="NWDM", fail_first_only=False)
     payload = places.search_places("x", office=["NWDM", "NWDP"])
     assert "NWDM: upstream_error" in payload["partial_reasons"]
-    assert payload["repair_hint"]["args"]["office"] == ["NWDP"]
+    assert payload["repair_hint"]["arguments"]["office"] == ["NWDP"]
 
 
 def test_search_places_explicit_empty_office_reason_says_so(configured, mocked) -> None:
@@ -1642,10 +1646,10 @@ def test_search_places_implicit_scope_budget_hint_keeps_the_curated_rest(
     assert payload["offices_searched"] == ["MVS"]
     assert payload["offices_skipped_for_budget"] == ["SWT"]
     hint = payload["repair_hint"]
-    assert hint["reason"] == "offices_skipped_for_budget"
+    assert hint["next_step"] == "offices_skipped_for_budget"
     expected = list(dict.fromkeys(["SWT", *(o for o in offices.discovery_office_candidates())]))
     expected.remove("MVS")
-    assert hint["args"]["office"] == expected
+    assert hint["arguments"]["office"] == expected
 
 
 def test_search_places_invalid_office_is_partial_in_fanout_and_raises_alone(
@@ -1987,7 +1991,7 @@ def _follow(hint: dict, *, max_hops: int = 12) -> list[dict]:
     """Follow a `repair_hint` chain to its end; fail if it does not terminate."""
     hops: list[dict] = []
     for _ in range(max_hops):
-        resp = places.search_places(**hint["args"])
+        resp = places.search_places(**hint["arguments"])
         hops.append(resp)
         if "repair_hint" not in resp:
             return hops
@@ -2027,8 +2031,8 @@ def test_search_places_ghost_only_warm_match_still_widens(configured, mocked) ->
     assert [(r["office_id"], r["parameter_count"]) for r in payload["results"]] == [("SPL", 0)]
     assert payload["partial"] is True
     hint = payload["repair_hint"]
-    assert hint["reason"] == "cached_scope_incomplete"
-    assert "SPK" in hint["args"]["office"] and "SPL" not in hint["args"]["office"]
+    assert hint["next_step"] == "cached_scope_incomplete"
+    assert "SPK" in hint["arguments"]["office"] and "SPL" not in hint["arguments"]["office"]
     assert "scope_note" not in payload
     hops = _follow(hint)
     assert any(
@@ -2079,8 +2083,8 @@ def test_search_places_parameter_filtered_miss_widens(configured, mocked) -> Non
     places.search_places("zzz-warmup", office="SWT")
     payload = places.search_places("FOSS", parameter="Temp-Water")
     assert payload["results"] == []
-    assert payload["repair_hint"]["reason"] == "cached_scope_incomplete"
-    assert payload["repair_hint"]["args"]["parameter"] == "Temp-Water"
+    assert payload["repair_hint"]["next_step"] == "cached_scope_incomplete"
+    assert payload["repair_hint"]["arguments"]["parameter"] == "Temp-Water"
 
 
 def test_search_places_terminal_miss_carries_scope_note(configured, mocked) -> None:
@@ -2304,15 +2308,15 @@ def test_search_places_match_mid_chain_turns_the_hint_optional_then_back(
     hint = places.search_places("Folsom")["repair_hint"]
     reasons: list[str] = []
     for _ in range(10):
-        resp = places.search_places(**hint["args"])
+        resp = places.search_places(**hint["arguments"])
         if "repair_hint" not in resp:
             break
         hint = resp["repair_hint"]
-        reasons.append(hint["reason"])
+        reasons.append(hint["next_step"])
         if "SPK" in resp["offices_searched"]:
-            assert hint["reason"] == "match_found_offices_skipped"
+            assert hint["next_step"] == "match_found_offices_skipped"
         else:
-            assert hint["reason"] == "offices_skipped_for_budget"
+            assert hint["next_step"] == "offices_skipped_for_budget"
     assert reasons[0] == "offices_skipped_for_budget"
     assert reasons[1] == "match_found_offices_skipped"
     assert set(reasons[2:]) == {"offices_skipped_for_budget"}
@@ -2349,8 +2353,8 @@ def test_search_places_later_page_match_still_makes_the_budget_hint_optional(
     payload = places.search_places("x", office=["SWT", "MVS"], limit=1)
     assert [r["name"] for r in payload["results"]] == ["AAA"] and payload["has_more"]
     hint = payload["repair_hint"]
-    assert hint["reason"] == "match_found_offices_skipped"
-    assert hint["args"] == {"query": "x", "office": ["MVS"]}
+    assert hint["next_step"] == "match_found_offices_skipped"
+    assert hint["arguments"] == {"query": "x", "office": ["MVS"]}
     assert "`next_cursor`" in hint["message"]
 
 
@@ -2361,11 +2365,14 @@ def test_search_repair_hint_schema_marks_the_match_found_reason_optional() -> No
     desc = SearchPlacesResponse.model_fields["repair_hint"].description or ""
     assert "continue unless `match_found_offices_skipped` (optional)" in desc
     assert "continue while one is present" not in desc
-    # Copilot review: `reason` is the branch key, so the schema advertises its values.
-    reason = SearchPlacesResponse.model_json_schema()["$defs"]["SearchRepairHint"]["properties"][
-        "reason"
+    # #177: the description names the shared shape's keys, not the removed ones.
+    assert "`next_step` (enum order)" in desc and "`arguments`" in desc
+    assert "`reason`" not in desc and "`args" not in desc
+    # Copilot review: `next_step` is the branch key, so the schema advertises its values.
+    next_step = SearchPlacesResponse.model_json_schema()["$defs"]["SearchRepairHint"]["properties"][
+        "next_step"
     ]
-    assert reason["enum"] == [
+    assert next_step["enum"] == [
         "no_offices_in_scope",
         "offices_skipped_for_budget",
         "cached_scope_incomplete",
@@ -2420,9 +2427,9 @@ def test_search_places_state_budget_chain_stays_inside_the_state(monkeypatch) ->
     first = places.search_places("Lake", state="TX", parameter="Elev")
     assert first["offices_searched"] == ["SWT", "SWG"]
     hint = first["repair_hint"]
-    assert hint["reason"] == "offices_skipped_for_budget"
-    assert hint["args"] == {"query": "Lake", "office": ["SWF", "SPA"], "parameter": "Elev"}
-    second = places.search_places(**hint["args"])
+    assert hint["next_step"] == "offices_skipped_for_budget"
+    assert hint["arguments"] == {"query": "Lake", "office": ["SWF", "SPA"], "parameter": "Elev"}
+    second = places.search_places(**hint["arguments"])
     assert second["offices_searched"] == ["SWF", "SPA"]
     assert "repair_hint" not in second
     assert asked == [["SWT", "SWG", "SWF", "SPA"], ["SWF", "SPA"]]
@@ -2492,3 +2499,15 @@ def test_search_places_without_state_keeps_the_pre_188_request_hash(monkeypatch)
     page1 = places.search_places("L", office="SPK", limit=2)
     decoded = pagination.decode_cursor(page1["next_cursor"])
     assert decoded["req"] == pagination.request_hash({"q": "L", "parameter": None})
+
+
+def test_search_repair_hint_uses_the_error_repair_shape() -> None:
+    """#177: success-side and error-side repairs share one shape, so an agent
+    resends `tool` + `arguments` with one code path whichever it got."""
+    from cwms_tools.core.errors import RepairHint
+    from cwms_tools.core.models import SearchPlacesResponse, SearchRepairHint
+
+    assert set(SearchRepairHint.model_fields) == set(RepairHint.model_fields)
+    schema = SearchPlacesResponse.model_json_schema()["$defs"]["SearchRepairHint"]
+    assert set(schema["required"]) == {"next_step", "message", "tool", "arguments"}
+    assert "args" not in schema["properties"] and "reason" not in schema["properties"]

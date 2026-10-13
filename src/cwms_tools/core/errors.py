@@ -107,20 +107,27 @@ class ErrorDetails(CompactDumpMixin, BaseModel):
 
 
 class RepairHint(CompactDumpMixin, BaseModel):
-    """A pointer at a real callable surface that should succeed where this call failed."""
+    """Next call: `tool` with `arguments`."""
 
+    # One shape for every repair (#177): the error envelope's `repair`, the
+    # success-side `repair_hint` on `cwms_search_places` and `repair` on
+    # `cwms_publishers_for_parameter`. Field descriptions live in comments, not
+    # `Field(description=...)`: this schema is inlined into success-branch
+    # output schemas, where every description is paid for in `tools/list`; the
+    # error branch uses the hand-authored `COMPACT_ERROR_SCHEMA` instead.
     model_config = ConfigDict(extra="forbid")
 
-    next_step: str = Field(description="Short stable slug naming the corrective action.")
-    tool: str = Field(description="The MCP tool / CLI command to call next.")
-    arguments: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Arguments for the next call.",
-    )
-    alternative: str | None = Field(
-        default=None,
-        description="Free-form fallback action when no single tool call fully recovers.",
-    )
+    # Short stable slug naming the corrective action; the branch key.
+    next_step: str
+    # The MCP tool / CLI command to call next.
+    tool: str
+    # Arguments for the next call, resendable verbatim. Required: an empty
+    # dict still serializes (only None is stripped), so it is always sent.
+    arguments: dict[str, Any]
+    # Free-form fallback action when no single tool call fully recovers.
+    alternative: str | None = None
+    # Why the call is suggested and when following it is optional.
+    message: str | None = None
 
 
 @dataclass(frozen=True)

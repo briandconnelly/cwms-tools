@@ -561,10 +561,10 @@ def test_search_places_handler_surfaces_repair_hint_for_empty_scope(configured) 
     payload = _branch(result.structured_content)
     assert payload["ok"] is True
     hint = payload["repair_hint"]
-    assert hint["reason"] == "no_offices_in_scope"
+    assert hint["next_step"] == "no_offices_in_scope"
     assert hint["tool"] == "cwms_search_places"
-    assert hint["args"]["query"] == "Gas Works"
-    assert hint["args"]["office"]  # non-empty curated office list
+    assert hint["arguments"]["query"] == "Gas Works"
+    assert hint["arguments"]["office"]  # non-empty curated office list
 
 
 def test_search_places_tool_exposes_cursor_in_schema():

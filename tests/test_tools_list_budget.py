@@ -67,7 +67,13 @@ from cwms_tools.mcp.server import build_server
 #: `coverage` block on `cwms_list_offices`' output (structure, not prose: the
 #: field descriptions are already one line). Measured 67,691; borrowed again
 #: against #181.
-BUDGET_CHARS = 68_000
+#:
+#: #177 (2026-10-13) typed the success-side repairs as the shared `RepairHint`
+#: (search's `repair_hint`, publishers' `repair`, formerly an untyped object)
+#: and gave it an optional `message`, which the error branch of every tool
+#: also lists. Field descriptions moved to code comments to limit the growth.
+#: Measured 68,775; borrowed against #181.
+BUDGET_CHARS = 69_500
 
 
 #: Per-component ceilings, set deliberately in #142 (2026-10-11) when these
@@ -77,7 +83,8 @@ BUDGET_CHARS = 68_000
 #: landed (2026-10-12); ceiling raised to keep ~6% headroom.
 INPUT_CEILING = 11_000
 #: #188's `coverage` block and `state` echo measured 51,442 (2026-10-13).
-OUTPUT_CEILING = 52_000
+#: #177's typed repairs measured 52,521 (2026-10-13).
+OUTPUT_CEILING = 53_000
 DESCRIPTION_CEILING = 4_000
 
 #: Floors: a subtotal below this means the schema lookup is broken (#142),

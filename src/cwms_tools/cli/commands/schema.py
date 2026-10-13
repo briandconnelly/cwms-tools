@@ -180,7 +180,7 @@ def _commands() -> list[dict[str, Any]]:
                     repeatable=True,
                     help=(
                         "Office code; repeat to fan out. If unknown, omit it and follow "
-                        "`repair_hint` while one is present (optional once its reason is "
+                        "`repair_hint` while one is present (optional once its `next_step` is "
                         "`match_found_offices_skipped`; the chain ends when a response "
                         "carries none; see `scope_note`, not proof of absence); if known, "
                         "pass it (NWDM Missouri mainstem, NWDP Columbia/Snake, SWT Oklahoma, "

@@ -44,13 +44,13 @@ def test_keeps_wire_alias_and_passthrough_nulls() -> None:
             "publisher_count": 0,
             "ts_count": 0,
             "coverage": {"offices_requested": ["NWDM"], "offices_indexed": [], "complete": False},
-            "repair": {"tool": "x", "args": {"office": None}},
+            "repair": {"next_step": "s", "tool": "x", "arguments": {"office": None}},
             "_observed_publishers_by_office": {"NWDM": []},
         },
     )
     assert out["_observed_publishers_by_office"] == {"NWDM": []}
-    # `repair` is a free-form dict passthrough: nulls inside it are data.
-    assert out["repair"] == {"tool": "x", "args": {"office": None}}
+    # `repair.arguments` is a free-form dict passthrough: nulls inside it are data.
+    assert out["repair"] == {"next_step": "s", "tool": "x", "arguments": {"office": None}}
 
 
 def test_model_without_source_field() -> None:

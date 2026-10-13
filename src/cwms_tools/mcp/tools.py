@@ -200,7 +200,7 @@ def register_place_tools(mcp: FastMCP) -> None:
             str | list[str] | None,
             "Office code(s), case-insensitive. If unknown, omit it: on a fresh "
             "server the first call returns no rows and a `repair_hint`; keep "
-            "following `repair_hint` while one is present (reason "
+            "following `repair_hint` while one is present (`next_step` "
             "`match_found_offices_skipped`: optional). No hint left is not proof "
             "of absence (`scope_note`). If you "
             "know the region, pass it "
