@@ -12,12 +12,15 @@ import re
 from datetime import UTC, datetime
 
 import cwms
+import jsonschema
 import pytest
 import responses
 
 from cwms_tools.core import session
 from cwms_tools.core.cache import Cache, set_cache
+from cwms_tools.mcp.output_schema import _assemble_output_schema, iserror_output_schema
 from cwms_tools.mcp.server import build_server
+from tests.test_output_schema import TOOL_SUCCESS_MODELS
 
 API_ROOT = "https://example.test/cwms-data/"
 
@@ -103,7 +106,20 @@ def _arm_value(mocked, *, value: float, ts: datetime):
 
 
 def _call(server, name, args):
-    return asyncio.run(server.call_tool(name, arguments=args))
+    result = asyncio.run(server.call_tool(name, arguments=args))
+    _assert_schema_equivalent_on(name, result.structured_content)
+    return result
+
+
+def _assert_schema_equivalent_on(name: str, structured: dict | None) -> None:
+    """Every payload these tests produce is corpus for #181's `_compact()`:
+    it must satisfy the advertised (compacted) outputSchema, and the
+    uncompacted one too, so compaction never changes what validates."""
+    if structured is None or name not in TOOL_SUCCESS_MODELS:
+        return
+    models = TOOL_SUCCESS_MODELS[name]
+    jsonschema.validate(structured, iserror_output_schema(*models))
+    jsonschema.validate(structured, _assemble_output_schema(*models))
 
 
 def _branch(structured: dict | None) -> dict:

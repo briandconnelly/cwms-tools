@@ -71,7 +71,7 @@ class Rollup(StrEnum):
 # `core.errors.SourceInfo` (the error-envelope's `source`) is unaffected: it
 # records the one endpoint that actually failed, with no such ambiguity.
 class SourceMeta(CompactDumpMixin, BaseModel):
-    """Provenance attached to every successful tool response."""
+    """Provenance."""
 
     model_config = ConfigDict(extra="forbid")
 
