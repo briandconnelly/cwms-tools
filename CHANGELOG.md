@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-13
+
 ### Added
 
 - `cwms_search_places` / `place search` add `parameter_suggestions` when a
@@ -1246,7 +1248,8 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   ~68 offices) in v0.1.0; `cwms_publishers_for_parameter` answers
   from cached + bounded-fetch offices only.
 
-[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.6.0...v0.7.0
