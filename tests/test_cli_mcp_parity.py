@@ -650,3 +650,24 @@ def test_profile_unchecked_sensors_parity_real_producer(
     assert cli_data["partial"] is True
     assert cli_data["partial_reasons"][0].startswith("1 depth sensor(s) not checked")
     assert cli_data["sensor_count"] == 1
+
+
+@pytest.mark.parametrize("detail", ["summary", "full"])
+@pytest.mark.parametrize(
+    ("parameter", "suggestions"), [("elev", ["Elev"]), ("Elev", None)], ids=["typo", "valid"]
+)
+def test_search_places_parameter_suggestions_parity_real_producer(
+    parameter: str, suggestions: list[str] | None, detail: str, configured, monkeypatch
+) -> None:
+    """#97: an unobserved `parameter` gets the same advisory suggestions on both
+    surfaces, and a published one gets none (the field is omitted, not empty)."""
+    _stub_catalog(monkeypatch)
+    argv = ["place", "search", "FOSS", "-o", "SWT", "--parameter", parameter, "--detail", detail]
+    cli_data = _cli_data(SEARCH, argv)
+    mcp_data = _mcp_data(
+        "cwms_search_places",
+        {"query": "FOSS", "office": "SWT", "parameter": parameter, "detail": detail},
+    )
+    assert cli_data == mcp_data
+    assert cli_data.get("parameter_suggestions") == suggestions
+    assert ("parameter_suggestions" in cli_data) is (suggestions is not None)

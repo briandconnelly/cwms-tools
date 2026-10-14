@@ -289,7 +289,9 @@ def capability_contract_payload() -> dict[str, Any]:
                 "source. Success responses that suggest a next call use the same repair "
                 "shape: `repair_hint` on cwms_search_places (`message` always set) and "
                 "`repair` on cwms_publishers_for_parameter; call `tool` with `arguments` "
-                "either way."
+                "either way. One exception: cwms_search_places' `parameter_suggestions` "
+                "is a bare list of similar published codes (advisory alternatives, not "
+                "corrections); to use one, re-call with it as `parameter`."
             ),
             "timed_out_retry": (
                 "On `level_lookup_status: 'timed_out'` in a long-lived MCP server, "

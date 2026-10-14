@@ -217,7 +217,10 @@ def _commands() -> list[dict[str, Any]]:
                 "match that has data and no `repair_hint` carries `scope_note`: "
                 "only `offices_searched` were searched, so it is not proof the "
                 "place is absent from CWMS; widen with `--office` (codes and "
-                "region hints: `cwms-tools offices`)."
+                "region hints: `cwms-tools offices`). When every match is "
+                "dropped by --parameter and no office catalog read publishes "
+                "that code, `parameter_suggestions` may list similar published "
+                "codes: alternatives, not corrections; `repair_hint` still applies."
             ),
         },
         {

@@ -17,11 +17,15 @@ It is pure logic — no I/O.
 
 from __future__ import annotations
 
+import difflib
 from collections import Counter
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from cwms_tools.core.models import TsIdParts
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # Publisher-rank table. Higher rank wins when picking the canonical ts_id for a
 # (location, parameter). Loosely follows cwms-overview.md §6.3 — `Best-*` over
@@ -110,6 +114,39 @@ def split_parameter(parameter: str) -> tuple[str, str | None]:
     return head, tail
 
 
+def similar_parameters(
+    parameter: str,
+    published: Iterable[str],
+    *,
+    n: int = 3,
+    expand_base: bool = False,
+    cap: int = 5,
+) -> list[str]:
+    """Published codes similar to `parameter`, best first.
+
+    A case-insensitive exact match (`elev` -> `Elev`) is the only answer when
+    one exists. Otherwise: up to `n` difflib matches (cutoff 0.6), then, with
+    `expand_base` and a hyphen-free `parameter`, the codes whose base equals it
+    (`Elev` -> `Elev-Forebay`; difflib scores those under the cutoff), sorted.
+    De-duplicated, capped at `cap`. Similar strings can be different
+    quantities (`Temp-Water` -> `Temp-Air`), so callers present these as
+    alternatives, never as a correction.
+    """
+    candidates = sorted(set(published))
+    folded = parameter.casefold()
+    for code in candidates:
+        if code.casefold() == folded:
+            return [code]
+    out = difflib.get_close_matches(parameter, candidates, n=n, cutoff=0.6)
+    if expand_base and "-" not in parameter:
+        out += [
+            code
+            for code in candidates
+            if (sub := split_parameter(code))[1] is not None and sub[0].casefold() == folded
+        ]
+    return list(dict.fromkeys(out))[:cap]
+
+
 def publisher_rank(publisher: str) -> int:
     """Return the rank for a publisher; unknown publishers get 0."""
     if publisher in _RANK_TABLE:
@@ -186,5 +223,6 @@ __all__ = [
     "parse_ts_id",
     "pick_canonical",
     "publisher_rank",
+    "similar_parameters",
     "split_parameter",
 ]

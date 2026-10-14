@@ -107,3 +107,53 @@ def test_parameter_counts_deduplicates_by_parameter() -> None:
     ]
     counts = publishers.parameter_counts(ts)
     assert counts == {"Elev": 2, "Flow-Out": 1}
+
+
+# --------------------------------------------------------------------------
+# similar_parameters — shared by get_value's not_found and search hints (#97)
+# --------------------------------------------------------------------------
+
+
+def test_similar_parameters_case_slip_is_the_only_suggestion() -> None:
+    published = ["ELEV-X", "Elev", "Elev-Forebay", "Flow-In"]
+    assert publishers.similar_parameters("elev", published, expand_base=True) == ["Elev"]
+
+
+def test_similar_parameters_difflib_near_miss() -> None:
+    assert publishers.similar_parameters("Stro", ["Elev", "Flow-In", "Stor"]) == ["Stor"]
+
+
+def test_similar_parameters_base_expansion_catches_low_ratio_subs() -> None:
+    # Elev -> Elev-Forebay scores 0.5 in difflib, under the 0.6 cutoff.
+    published = ["Elev-Forebay", "Elev-Tailwater", "Flow-In"]
+    assert publishers.similar_parameters("Elev", published) == []
+    assert publishers.similar_parameters("Elev", published, expand_base=True) == [
+        "Elev-Forebay",
+        "Elev-Tailwater",
+    ]
+
+
+def test_similar_parameters_base_expansion_only_for_bare_input() -> None:
+    published = ["Temp-Air", "Temp-Water", "Temp-Water-Surface"]
+    out = publishers.similar_parameters("Temp-Waterr", published, expand_base=True)
+    assert out[0] == "Temp-Water"
+    # A hyphenated input never base-expands to every `Temp-*`.
+    assert out == publishers.similar_parameters("Temp-Waterr", published)
+
+
+def test_similar_parameters_no_close_candidate() -> None:
+    assert publishers.similar_parameters("Xyzzy", ["Elev", "Stor"], expand_base=True) == []
+
+
+def test_similar_parameters_dedupes_orders_and_caps() -> None:
+    # difflib hits first (ranked), then base hits sorted; a code in both appears once.
+    published = [f"Elev-{s}" for s in ("A", "B", "C", "D", "E", "F")] + ["Elv"]
+    out = publishers.similar_parameters("Elev", published, n=3, expand_base=True, cap=5)
+    # difflib ranks Elv, Elev-F, Elev-E; base expansion adds Elev-A.. but
+    # Elev-E/-F appear only once, at their difflib position.
+    assert out == ["Elv", "Elev-F", "Elev-E", "Elev-A", "Elev-B"]
+
+
+def test_similar_parameters_semantic_alternative_is_kept() -> None:
+    # Advisory, not a correction: a different quantity can still be offered.
+    assert publishers.similar_parameters("Temp-Water", ["Elev", "Temp-Air"]) == ["Temp-Air"]
