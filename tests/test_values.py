@@ -679,6 +679,91 @@ def test_get_profile_reports_unchecked_sensors_alongside_read_ones(configured, m
     ]
 
 
+def _failing_reads(failing: dict[str, ErrorCode]):
+    """A `get_value` stub: the sensors in `failing` raise that code, the rest read."""
+
+    def _get_value(office, loc, parameter, **_):
+        if loc in failing:
+            raise CwmsToolsError.of(failing[loc], f"{loc} failed")
+        return {"value": 1.0, "unit": "degF"}
+
+    return _get_value
+
+
+def test_get_profile_failed_reads_are_partial(configured, monkeypatch) -> None:
+    """A sensor whose read fails keeps its `error` row and makes the profile
+    `partial`, one reason per error code: `partial: false` must not sit beside
+    error rows."""
+    from cwms_tools.core import catalog as catalog_mod
+
+    monkeypatch.setattr(
+        catalog_mod,
+        "enrich_locations",
+        lambda office, like=None, use_cache=True: _profile_catalog(),
+    )
+    monkeypatch.setattr(
+        values,
+        "get_value",
+        _failing_reads(
+            {"GWLW_S1-D3,0ft": ErrorCode.UPSTREAM_ERROR, "GWLW_S1-D36,0ft": ErrorCode.NOT_FOUND}
+        ),
+    )
+    payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
+    assert payload["sensor_count"] == 3
+    assert [e.get("error") for e in payload["profile"]] == ["upstream_error", None, "not_found"]
+    assert payload["partial"] is True
+    assert payload["partial_reasons"] == [
+        "1 depth sensor(s) failed to read 'Temp-Water' (upstream_error); "
+        "retry one with cwms_get_value",
+        "1 depth sensor(s) failed to read 'Temp-Water' (not_found); retry one with cwms_get_value",
+    ]
+
+
+def test_get_profile_all_reads_failed_is_partial(configured, monkeypatch) -> None:
+    from cwms_tools.core import catalog as catalog_mod
+
+    monkeypatch.setattr(
+        catalog_mod,
+        "enrich_locations",
+        lambda office, like=None, use_cache=True: _profile_catalog(),
+    )
+    names = [r["name"] for r in _profile_catalog() if r["name"].startswith("GWLW_S1-D")]
+    monkeypatch.setattr(
+        values, "get_value", _failing_reads(dict.fromkeys(names, ErrorCode.UPSTREAM_ERROR))
+    )
+    payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
+    assert all(e["error"] == "upstream_error" for e in payload["profile"])
+    assert payload["partial"] is True
+    assert payload["partial_reasons"] == [
+        f"{payload['sensor_count']} depth sensor(s) failed to read 'Temp-Water' "
+        "(upstream_error); retry one with cwms_get_value"
+    ]
+    assert "note" not in payload
+
+
+def test_get_profile_unchecked_and_failed_reasons_both_kept(configured, monkeypatch) -> None:
+    from cwms_tools.core import catalog as catalog_mod
+
+    rows = [
+        *_profile_catalog(),
+        {"name": "GWLW_S1-D50,0ft", "parameters": [], "enrichment_incomplete": "batch_limit"},
+    ]
+    monkeypatch.setattr(
+        catalog_mod, "enrich_locations", lambda office, like=None, use_cache=True: rows
+    )
+    monkeypatch.setattr(
+        values, "get_value", _failing_reads({"GWLW_S1-D3,0ft": ErrorCode.RATE_LIMITED})
+    )
+    payload = values.get_profile("NWDP", "GWLW_S1", "Temp-Water")
+    assert payload["partial"] is True
+    assert payload["partial_reasons"] == [
+        "1 depth sensor(s) not checked for 'Temp-Water' (batch_limit); "
+        "read one with cwms_get_value",
+        "1 depth sensor(s) failed to read 'Temp-Water' (rate_limited); "
+        "retry one with cwms_get_value",
+    ]
+
+
 def test_get_profile_all_unchecked_is_partial_not_note_or_not_found(
     configured, monkeypatch
 ) -> None:

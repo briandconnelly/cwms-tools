@@ -37,6 +37,7 @@ from cwms_tools.cli.app import app
 from cwms_tools.core import models as M
 from cwms_tools.core import places, publishers_index, session, values
 from cwms_tools.core.cache import Cache, set_cache
+from cwms_tools.core.errors import CwmsToolsError, ErrorCode
 from cwms_tools.mcp.server import build_server
 
 API_ROOT = "https://example.test/cwms-data/"
@@ -650,6 +651,40 @@ def test_profile_unchecked_sensors_parity_real_producer(
     assert cli_data["partial"] is True
     assert cli_data["partial_reasons"][0].startswith("1 depth sensor(s) not checked")
     assert cli_data["sensor_count"] == 1
+
+
+@pytest.mark.parametrize("detail", ["summary", "full"])
+def test_profile_failed_reads_parity_real_producer(detail: str, configured, monkeypatch) -> None:
+    """A failed sensor read keeps its `error` row and sets `partial` alongside
+    an unchecked sensor's reason, identically on both surfaces."""
+    rows = [
+        {"name": "GWLW_S1-D3,0ft", "parameters": ["Temp-Water"]},
+        {"name": "GWLW_S1-D6,0ft", "parameters": ["Temp-Water"]},
+        {"name": "GWLW_S1-D9,0ft", "parameters": [], "enrichment_incomplete": "batch_limit"},
+    ]
+    monkeypatch.setattr(
+        values.catalog, "enrich_locations", lambda office, like=None, use_cache=True: rows
+    )
+
+    def _get_value(office, loc, parameter, **_):
+        if loc == "GWLW_S1-D6,0ft":
+            raise CwmsToolsError.of(ErrorCode.UPSTREAM_ERROR, "sensor read failed")
+        return {"value": 20.0, "unit": "degC", "ts_id": "T"}
+
+    monkeypatch.setattr(values, "get_value", _get_value)
+    argv = ["value", "profile", "NWDP/GWLW_S1/Temp-Water", "--detail", detail]
+    cli_data = _cli_data(PROFILE, argv)
+    mcp_data = _mcp_data(
+        "cwms_get_profile",
+        {"office": "NWDP", "name": "GWLW_S1", "parameter": "Temp-Water", "detail": detail},
+    )
+    assert cli_data == mcp_data
+    assert [e.get("error") for e in cli_data["profile"]] == [None, "upstream_error"]
+    assert cli_data["partial"] is True
+    assert [r.split(" (")[0] for r in cli_data["partial_reasons"]] == [
+        "1 depth sensor(s) not checked for 'Temp-Water'",
+        "1 depth sensor(s) failed to read 'Temp-Water'",
+    ]
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])

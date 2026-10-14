@@ -192,14 +192,24 @@ def get_profile(
         "sensor_count": len(profile),
         "profile": profile,
     }
-    if unchecked:
+    # Sensors whose read failed keep their `error` row; the profile is then
+    # incomplete too, so `partial: false` never sits beside an error row.
+    failed: dict[str, int] = {}
+    for entry in profile:
+        if code := entry.get("error"):
+            failed[code] = failed.get(code, 0) + 1
+    reasons = [
+        f"{n} depth sensor(s) not checked for {parameter!r} ({reason}); "
+        "read one with cwms_get_value"
+        for reason, n in unchecked.items()
+    ] + [
+        f"{n} depth sensor(s) failed to read {parameter!r} ({code}); retry one with cwms_get_value"
+        for code, n in failed.items()
+    ]
+    if reasons:
         response["partial"] = True
-        response["partial_reasons"] = [
-            f"{n} depth sensor(s) not checked for {parameter!r} ({reason}); "
-            "read one with cwms_get_value"
-            for reason, n in unchecked.items()
-        ]
-    elif not profile:
+        response["partial_reasons"] = reasons
+    if not unchecked and not profile:
         response["note"] = (
             f"No depth-tagged sensors under {name!r} publish {parameter!r} in {office}. "
             "Confirm the parent string id and parameter with cwms_list_parameters / "

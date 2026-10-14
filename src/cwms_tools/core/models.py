@@ -736,7 +736,8 @@ class ProfileResponse(CompactDumpMixin, BaseModel):
         description="Present only when no depth-tagged sensors matched; explains how to recover.",
     )
     partial: bool = False
-    # Depth sensors not checked (#190); the profile may be missing them.
+    # Depth sensors not checked (#190), so the profile may be missing them, or
+    # read and failed (their rows carry `error`).
     partial_reasons: list[str] = Field(default_factory=list)
     source: SourceMeta
 
