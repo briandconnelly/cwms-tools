@@ -775,14 +775,18 @@ def _parameter_suggestions(
     """Similar published codes when `parameter` looks like a typo (#97).
 
     Only when every matched row was dropped (none kept, so none unknown), at
-    least one whole-office catalog was read, and no row in those catalogs or
-    the matches publishes `parameter`. A valid code published elsewhere in an
+    least one whole-office catalog was read, and no row in those catalogs (or
+    the matches in those offices) publishes `parameter`. A valid code published elsewhere in an
     examined office is not a typo, so it gets nothing. Advisory only.
     """
     if not gathered or kept or not observed:
         return None
     vocabulary = set().union(*observed.values())
-    vocabulary.update(p for r in gathered for p in r.get("parameters") or [])
+    # Matched rows only from offices read successfully: a failed office is
+    # outside the vocabulary entirely (Copilot review of #198).
+    vocabulary.update(
+        p for r in gathered if r["office_id"] in observed for p in r.get("parameters") or []
+    )
     if parameter in vocabulary:
         return None
     return publishers.similar_parameters(parameter, vocabulary, expand_base=True) or None

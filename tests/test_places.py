@@ -2735,3 +2735,13 @@ def test_search_places_state_scope_suggestions_keep_state_continuation(monkeypat
     assert out["state"] == "TX"
     assert out["repair_hint"]["arguments"]["office"] == ["SWF"]
     assert "state" not in out["repair_hint"]["arguments"]
+
+
+def test_search_places_failed_office_matched_rows_do_not_leak_codes(monkeypatch):
+    """A matched row in an office whose catalog read failed contributes no codes,
+    even when another office's read succeeded (Copilot review of #198)."""
+    rows = [_published("Lake", "Elev"), _published("Lake", "Stor", office="SWT")]
+    _gather_returning(monkeypatch, [rows])
+    _office_catalog(monkeypatch, {"SAM": [rows[0]], "SWT": RuntimeError("CDA down")})
+    out = places.search_places("Lake", office="SAM", parameter="Stro")
+    assert "Stor" not in (out.get("parameter_suggestions") or [])
