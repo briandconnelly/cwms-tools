@@ -111,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without saying so, or answers "no depth-tagged sensors" or `not_found` when
   every sensor is unchecked. A sensor whose read fails keeps its row with an
   `error` code and also sets `partial`, with one `partial_reasons` entry per
-  error code.
+  error code. Only a temporary failure is advised as a retry.
 - A `cwms_search_places` cursor now fails with `invalid_cursor` if the result
   order changed since it was issued, even when the total is unchanged. Before,
   a page could repeat or skip rows. Cursors issued before this release also

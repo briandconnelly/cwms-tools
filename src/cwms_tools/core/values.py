@@ -193,18 +193,26 @@ def get_profile(
         "profile": profile,
     }
     # Sensors whose read failed keep their `error` row; the profile is then
-    # incomplete too, so `partial: false` never sits beside an error row.
-    failed: dict[str, int] = {}
+    # incomplete too, so `partial: false` never sits beside an error row. Only
+    # a temporary failure is worth retrying unchanged; any other is pointed at
+    # the single-sensor read, whose error carries the repair.
+    failed: dict[tuple[str, bool], int] = {}
     for entry in profile:
+        temporary = entry.pop("_temporary", False)
         if code := entry.get("error"):
-            failed[code] = failed.get(code, 0) + 1
+            failed[code, temporary] = failed.get((code, temporary), 0) + 1
     reasons = [
         f"{n} depth sensor(s) not checked for {parameter!r} ({reason}); "
         "read one with cwms_get_value"
         for reason, n in unchecked.items()
     ] + [
-        f"{n} depth sensor(s) failed to read {parameter!r} ({code}); retry one with cwms_get_value"
-        for code, n in failed.items()
+        f"{n} depth sensor(s) failed to read {parameter!r} "
+        + (
+            f"({code}, temporary); retry one with cwms_get_value"
+            if temporary
+            else f"({code}); read one with cwms_get_value for its repair"
+        )
+        for (code, temporary), n in failed.items()
     ]
     if reasons:
         response["partial"] = True
@@ -254,6 +262,8 @@ def _profile_entry(
         )
     except CwmsToolsError as err:
         entry.update(value=None, timestamp=None, error=err.envelope.code.value)
+        # Internal: read by `get_profile` for its partial reason, then removed.
+        entry["_temporary"] = err.envelope.temporary
         return entry
     entry.update(
         value=point.get("value"),

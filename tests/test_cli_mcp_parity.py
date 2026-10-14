@@ -685,6 +685,7 @@ def test_profile_failed_reads_parity_real_producer(detail: str, configured, monk
         "1 depth sensor(s) not checked for 'Temp-Water'",
         "1 depth sensor(s) failed to read 'Temp-Water'",
     ]
+    assert "_temporary" not in json.dumps(cli_data)
 
 
 @pytest.mark.parametrize("detail", ["summary", "full"])
