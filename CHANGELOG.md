@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-13
+
 ### Added
 
 - `cwms_search_places` / `place search` add `parameter_suggestions` when a
@@ -35,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   VI belong to the Caribbean District (SAA), which is not a CDA office, so they
   appear under SAJ as `proxy_states` (`proxy_for: "SAA"`), separate from SAJ's
   own `states`: SAJ's catalog holds the PR projects.
+- `cwms_search_places` / `place search` carry `scope_note` when no match has
+  data and no `repair_hint` remains. It says only `offices_searched` were
+  covered, so this is not proof the place is absent from CWMS, and points to
+  `cwms_list_offices` / `cwms://offices`. It is informational, not a
+  continuation, and does not set `partial`.
+- `region_hints` gain SPK examples (Folsom Lake, Del Valle) and new SAM
+  (Allatoona) and NAE (HKD, BMD) entries, each verified as data-bearing.
 
 ### Changed
 
@@ -62,8 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returned a `repair_hint` on every hop until all 30 curated offices were
   searched, even after it found the place (Folsom Lake turned up on hop 2, then
   6 more hops followed). When offices are skipped for the fan-out budget after
-  a match with data, the hint's `reason` is now `match_found_offices_skipped`
-  instead of `offices_skipped_for_budget`. It keeps the same `args`, so
+  a match with data, the hint's `next_step` is now `match_found_offices_skipped`
+  instead of `offices_skipped_for_budget`. It keeps the same `arguments`, so
   following it still searches the skipped offices for same-named places
   elsewhere, but following it is optional. With no usable match, the hint stays
   `offices_skipped_for_budget` and should still be followed (#161).
@@ -100,21 +109,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cwms_get_profile` / `value profile` reports depth sensors whose catalog
   lookup failed as `partial` / `partial_reasons`. It no longer leaves them out
   without saying so, or answers "no depth-tagged sensors" or `not_found` when
-  every sensor is unchecked.
+  every sensor is unchecked. A sensor whose read fails keeps its row with an
+  `error` code and also sets `partial`, with one `partial_reasons` entry per
+  error code. Only a temporary failure is advised as a retry.
 - A `cwms_search_places` cursor now fails with `invalid_cursor` if the result
   order changed since it was issued, even when the total is unchanged. Before,
   a page could repeat or skip rows. Cursors issued before this release also
   fail, so restart the search without `cursor`.
-
-### Added
-
-- `cwms_search_places` / `place search` carry `scope_note` when no match has
-  data and no `repair_hint` remains. It says only `offices_searched` were
-  covered, so this is not proof the place is absent from CWMS, and points to
-  `cwms_list_offices` / `cwms://offices`. It is informational, not a
-  continuation, and does not set `partial`.
-- `region_hints` gain SPK examples (Folsom Lake, Del Valle) and new SAM
-  (Allatoona) and NAE (HKD, BMD) entries, each verified as data-bearing.
 
 ## [0.9.0] - 2026-10-12
 
@@ -1247,7 +1248,8 @@ as both a [FastMCP 3](https://gofastmcp.com/) server and a
   ~68 offices) in v0.1.0; `cwms_publishers_for_parameter` answers
   from cached + bounded-fetch offices only.
 
-[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/briandconnelly/cwms-tools/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/briandconnelly/cwms-tools/compare/v0.6.0...v0.7.0

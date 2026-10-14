@@ -169,7 +169,8 @@ def search_places(
         limit = None  # 0 means "no cap"; normalize so pagination math is well-defined
 
     state_code = _normalize_state_arg(state, office=office)
-    # `state` joins the hash only when set, so pre-#188 cursors stay valid.
+    # `state` joins the hash only when set, so a state-free search keeps its
+    # hash; a continuation still needs a matching `order` (`ensure_order`).
     req = pagination.request_hash(
         {"q": query, "parameter": parameter, **({"state": state_code} if state_code else {})}
     )
