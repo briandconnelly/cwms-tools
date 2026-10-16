@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A blank optional bundle setting no longer reaches the API as a literal
+  placeholder. Claude Desktop passes an unset `operator_email` through as
+  `${user_config.operator_email}`, which was sent as the `From:` header. A blank
+  or unexpanded `CWMS_TOOLS_OPERATOR_EMAIL` or `CWMS_TOOLS_API_ROOT` now counts
+  as unset.
+
 ## [0.10.0] - 2026-10-13
 
 ### Added
