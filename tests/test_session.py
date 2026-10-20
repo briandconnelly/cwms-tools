@@ -70,3 +70,29 @@ def test_session_fingerprint_is_dict_with_expected_keys(
     fp = session.session_fingerprint()
     assert set(fp.keys()) == {"api_root", "user_agent", "pool_connections", "has_operator_email"}
     assert fp["has_operator_email"] is False
+
+
+# An MCPB host can pass a blank optional setting through unexpanded: Claude Desktop
+# sends the literal "${user_config.operator_email}". Treat it, and blank, as unset.
+@pytest.mark.parametrize("raw", ["", "   ", "${user_config.operator_email}"])
+def test_operator_email_placeholder_or_blank_is_unset(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setenv("CWMS_TOOLS_OPERATOR_EMAIL", raw)
+    assert session.resolve_session_config().operator_email is None
+
+
+@pytest.mark.parametrize("raw", ["", "  ", "${user_config.api_root}"])
+def test_api_root_placeholder_or_blank_uses_default(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setenv("CWMS_TOOLS_API_ROOT", raw)
+    assert session.resolve_session_config().api_root == session.DEFAULT_API_ROOT
+
+
+def test_real_settings_are_kept_trimmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CWMS_TOOLS_OPERATOR_EMAIL", " ops@example.test ")
+    monkeypatch.setenv("CWMS_TOOLS_API_ROOT", "https://example.test/api")
+    cfg = session.resolve_session_config()
+    assert cfg.operator_email == "ops@example.test"
+    assert cfg.api_root == "https://example.test/api/"

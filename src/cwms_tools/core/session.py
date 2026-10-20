@@ -16,6 +16,7 @@ fingerprint can include it.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
@@ -29,6 +30,17 @@ if TYPE_CHECKING:
 
 DEFAULT_API_ROOT = "https://cwms-data.usace.army.mil/cwms-data/"
 DEFAULT_REPO_URL = "https://github.com/briandconnelly/cwms-tools"
+# An MCPB host can pass a blank optional setting through unexpanded, e.g. Claude
+# Desktop sends the literal "${user_config.operator_email}".
+_UNEXPANDED = re.compile(r"\$\{[^}]*\}")
+
+
+def _setting(name: str) -> str | None:
+    """Env var `name`, or None when it is unset, blank, or an unexpanded placeholder."""
+    value = (os.environ.get(name) or "").strip()
+    if not value or _UNEXPANDED.fullmatch(value):
+        return None
+    return value
 
 
 def _cwms_tools_version() -> str:
@@ -85,13 +97,13 @@ def resolve_session_config() -> SessionConfig:
             operator_email=None,
             pool_connections=max(2 * MAX_WORKERS, 16),
         )
-    api_root = os.environ.get("CWMS_TOOLS_API_ROOT", DEFAULT_API_ROOT)
+    api_root = _setting("CWMS_TOOLS_API_ROOT") or DEFAULT_API_ROOT
     if not api_root.endswith("/"):
         api_root = api_root + "/"
     return SessionConfig(
         api_root=api_root,
         user_agent=build_user_agent(),
-        operator_email=os.environ.get("CWMS_TOOLS_OPERATOR_EMAIL"),
+        operator_email=_setting("CWMS_TOOLS_OPERATOR_EMAIL"),
         pool_connections=max(2 * MAX_WORKERS, 16),
     )
 
